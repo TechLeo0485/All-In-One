@@ -1,0 +1,13 @@
+# dependencies
+node_modules/
+
+# build output (npm run build / npm run dist)
+out/
+release/
+
+# TypeScript incremental cache (npm run typecheck)
+*.tsbuildinfo
+
+# local scratch / logs
+.tmp/
+*.log

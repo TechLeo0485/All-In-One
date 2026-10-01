@@ -1,0 +1,197 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-slate-950 text-slate-200 antialiased;
+  user-select: none;
+}
+
+:root {
+  /* Native controls (scrollbars, selects, date/color pickers) render dark too. */
+  color-scheme: dark;
+}
+
+input,
+textarea,
+.selectable {
+  user-select: text;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply rounded-full bg-slate-700;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-slate-600;
+}
+
+/* ---------- FullCalendar theme overrides ---------- */
+.fc {
+  --fc-page-bg-color: var(--color-slate-900);
+  --fc-neutral-bg-color: var(--color-slate-900);
+  --fc-neutral-text-color: var(--color-slate-400);
+  --fc-border-color: color-mix(in srgb, var(--color-slate-700) 55%, transparent);
+  --fc-today-bg-color: color-mix(in srgb, var(--color-blue-500) 7%, transparent);
+  --fc-highlight-color: color-mix(in srgb, var(--color-blue-500) 22%, transparent);
+  --fc-now-indicator-color: var(--color-rose-500);
+  --fc-non-business-color: color-mix(in srgb, var(--color-slate-950) 40%, transparent);
+  --fc-list-event-hover-bg-color: var(--color-slate-800);
+  --fc-event-border-color: transparent;
+  --fc-event-text-color: white;
+  /* Buttons: dark segmented control, active = accent. */
+  --fc-button-bg-color: var(--color-slate-800);
+  --fc-button-border-color: var(--color-slate-700);
+  --fc-button-text-color: var(--color-slate-200);
+  --fc-button-hover-bg-color: var(--color-slate-700);
+  --fc-button-hover-border-color: var(--color-slate-600);
+  --fc-button-active-bg-color: var(--color-blue-600);
+  --fc-button-active-border-color: var(--color-blue-600);
+  font-size: 0.85rem;
+}
+.fc .fc-button {
+  @apply rounded-md px-3 py-1.5 text-sm font-medium shadow-none capitalize;
+}
+.fc .fc-button-primary:disabled {
+  @apply opacity-50;
+}
+.fc .fc-button-primary:not(:disabled).fc-button-active,
+.fc .fc-button-primary:not(:disabled):active {
+  color: white;
+}
+.fc .fc-button:focus,
+.fc .fc-button-primary:not(:disabled):active:focus,
+.fc .fc-button-primary:not(:disabled).fc-button-active:focus {
+  box-shadow: none;
+}
+.fc .fc-toolbar-title {
+  @apply text-lg font-semibold text-slate-100;
+}
+.fc .fc-col-header-cell-cushion,
+.fc .fc-daygrid-day-number {
+  @apply font-medium text-slate-400;
+}
+.fc .fc-col-header-cell {
+  @apply py-1;
+}
+.fc .fc-col-header-cell.fc-day-today .fc-col-header-cell-cushion {
+  @apply text-blue-400;
+}
+.fc .fc-daygrid-day.fc-day-today .fc-daygrid-day-number {
+  @apply m-1 flex h-6 min-w-6 items-center justify-center rounded-full bg-blue-600 px-1.5 text-white;
+}
+.fc .fc-day-other .fc-daygrid-day-number {
+  @apply text-slate-600;
+}
+/* Outer frame is drawn by the surrounding card. */
+.fc .fc-scrollgrid {
+  border: none;
+}
+.fc .fc-timegrid-slot-label-cushion,
+.fc .fc-timegrid-axis-cushion {
+  @apply text-xs text-slate-500;
+}
+/* Half-hour lines are fainter than full-hour lines. */
+.fc .fc-timegrid-slot-minor {
+  border-top-style: dashed;
+  border-top-color: color-mix(in srgb, var(--color-slate-700) 30%, transparent);
+}
+/*
+ * Week/Day views: ~10 hours visible at once (20 half-hour slots), the rest scrolls.
+ * 200px ≈ page padding + toolbar + day header + all-day row.
+ */
+.fc .fc-timegrid-slot {
+  height: max(1.5rem, calc((100vh - 200px) / 20));
+}
+.fc .fc-event {
+  cursor: pointer;
+  @apply rounded-md;
+}
+.fc .fc-timegrid-event {
+  @apply shadow-sm shadow-black/30;
+  box-shadow: 0 0 0 1px var(--color-slate-900);
+}
+.fc .fc-timegrid-event .fc-event-main {
+  padding: 2px 4px;
+}
+.fc .fc-daygrid-dot-event:hover,
+.fc .fc-daygrid-dot-event.fc-event-mirror {
+  background: var(--color-slate-800);
+}
+.fc .fc-daygrid-dot-event .fc-event-title,
+.fc .fc-daygrid-dot-event .fc-event-time {
+  @apply text-slate-200;
+}
+.fc .fc-daygrid-more-link {
+  @apply text-slate-400;
+}
+.fc .fc-popover {
+  @apply overflow-hidden rounded-lg border-slate-700 bg-slate-900 shadow-2xl;
+}
+.fc .fc-popover-header {
+  @apply bg-slate-800 text-slate-200;
+}
+
+/* ---------- Rendered markdown (notes) ---------- */
+.markdown {
+  @apply text-sm leading-relaxed text-slate-300;
+}
+.markdown > * + * {
+  @apply mt-2;
+}
+.markdown h1 {
+  @apply text-lg font-semibold;
+}
+.markdown h2 {
+  @apply text-base font-semibold;
+}
+.markdown h3 {
+  @apply font-semibold;
+}
+.markdown ul {
+  @apply list-disc pl-5;
+}
+.markdown ol {
+  @apply list-decimal pl-5;
+}
+.markdown li.task-list-item {
+  @apply list-none -ml-5;
+}
+.markdown a {
+  @apply text-blue-400 underline;
+}
+.markdown code {
+  @apply rounded bg-slate-800 px-1 py-0.5 font-mono text-xs;
+}
+.markdown pre {
+  @apply overflow-x-auto rounded bg-slate-800 p-2;
+}
+.markdown pre code {
+  @apply bg-transparent p-0;
+}
+.markdown blockquote {
+  @apply border-l-4 border-slate-700 pl-3 text-slate-400;
+}
+.markdown table {
+  @apply w-full border-collapse text-xs;
+}
+.markdown th,
+.markdown td {
+  @apply border border-slate-700 px-2 py-1 text-left;
+}

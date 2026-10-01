@@ -1,0 +1,226 @@
+/**
+ * Types shared between the main process, the preload bridge and the renderer.
+ * This file must stay free of runtime imports so it can be used by every layer.
+ *
+ * Date convention:
+ *  - Timed events use full ISO-8601 UTC strings ("2026-10-01T09:00:00.000Z").
+ *  - All-day events use plain dates ("2026-10-01"); the end date is exclusive
+ *    (same convention as iCalendar DTEND and FullCalendar).
+ */
+
+export interface CalendarSource {
+  id: string
+  name: string
+  color: string
+  sourceUrl: string
+  enabled: boolean
+  createdAt: string
+  lastSyncedAt: string | null
+  lastSyncError: string | null
+  /** Set when the calendar is managed by a connected Proton account (auto-export). */
+  accountId: string | null
+  /** Calendar name inside Proton (used to match exports to this calendar). */
+  protonCalendarName: string | null
+  /** Whether events of this calendar trigger desktop reminders */
+  notify: boolean
+}
+
+/**
+ * 'new'            – added, not logged in yet
+ * 'ready'          – logged in, not synced yet (syncing only happens on request)
+ * 'ok'             – last export succeeded
+ * 'syncing'        – export running right now (transient, not persisted)
+ * 'login-required' – Proton session expired; user must log in again
+ * 'error'          – last export failed for another reason (see lastError)
+ */
+export type ProtonAccountStatus = 'new' | 'ready' | 'ok' | 'syncing' | 'login-required' | 'error'
+
+/**
+ * A Proton account connected through an embedded, per-account browser session.
+ * Calendars are only downloaded when the user asks (no background schedule).
+ */
+export interface ProtonAccount {
+  id: string
+  label: string
+  status: ProtonAccountStatus
+  lastExportAt: string | null
+  lastError: string | null
+  createdAt: string
+}
+
+export interface CalendarSourceInput {
+  name: string
+  color: string
+  sourceUrl: string
+  enabled: boolean
+  /** Desktop reminders for this calendar's events (default true) */
+  notify?: boolean
+}
+
+export interface CalendarEvent {
+  id: string
+  /** null for local events */
+  calendarId: string | null
+  /** UID (plus recurrence id for recurring instances) from the ICS feed */
+  externalId: string | null
+  title: string
+  description: string
+  startTime: string
+  endTime: string
+  allDay: boolean
+  location: string
+  isLocalEvent: boolean
+  /** Only used by local events; synced events take the calendar color */
+  color: string | null
+  /** Minutes before start to show a notification (local events only) */
+  reminderMinutes: number | null
+  createdAt: string
+}
+
+export interface LocalEventInput {
+  title: string
+  description: string
+  startTime: string
+  endTime: string
+  allDay: boolean
+  location: string
+  color: string
+  reminderMinutes: number | null
+}
+
+export interface Note {
+  id: string
+  eventId: string
+  content: string
+  updatedAt: string
+}
+
+export interface CalendarSyncResult {
+  calendarId: string
+  ok: boolean
+  eventCount: number
+  error?: string
+  /** For local file sources: when the .ics file was last written (i.e. exported) */
+  sourceModifiedAt?: string
+}
+
+export interface SyncStatus {
+  running: boolean
+  lastRunAt: string | null
+  results: CalendarSyncResult[]
+}
+
+/**
+ * Note: Proton calendars are never fetched automatically; they update only when the
+ * user clicks a refresh / sync button. `autoSyncMinutes` applies to other web links
+ * (Google etc., see isAutoSyncSource).
+ */
+export interface AppSettings {
+  showLocalEvents: boolean
+  localEventColor: string
+  /** Calendars hidden from the view via the sidebar (still synced on refresh) */
+  hiddenCalendarIds: string[]
+
+  /* ----- desktop notifications ----- */
+  /** Master switch for all reminders */
+  notificationsEnabled: boolean
+  /** Minutes before a timed calendar (non-local) event to notify; -1 = off */
+  defaultReminderMinutes: number
+  /** Reminder for all-day calendar events */
+  allDayReminder: AllDayReminder
+  notificationSound: boolean
+  /** ISO time until which reminders are paused; '' = not paused */
+  notificationsPausedUntil: string
+
+  /* ----- app behaviour ----- */
+  /** Closing the window keeps the app running in the system tray */
+  closeToTray: boolean
+  /** Start with Windows, hidden in the tray */
+  launchAtStartup: boolean
+
+  /* ----- sync ----- */
+  /** Refresh non-Proton link calendars every N minutes (and at startup); 0 = off */
+  autoSyncMinutes: number
+}
+
+/** 'same-day' = 09:00 on the day, 'day-before' = 18:00 the evening before */
+export type AllDayReminder = 'off' | 'same-day' | 'day-before'
+
+export interface AppInfo {
+  name: string
+  version: string
+  /** Where the database, Proton logins and exports are stored */
+  dataFolder: string
+}
+
+/** Sent to the renderer when the user clicks a reminder (or the tray's next event). */
+export interface OpenEventRequest {
+  eventId: string
+  /** Start of the event, so the calendar can navigate to it */
+  startTime: string
+}
+
+/**
+ * The API exposed to the renderer as `window.api` by the preload script.
+ * Every method maps to a single IPC channel; the renderer never touches Node APIs.
+ */
+export interface CalendarApi {
+  calendars: {
+    list(): Promise<CalendarSource[]>
+    create(input: CalendarSourceInput): Promise<CalendarSource>
+    update(id: string, input: Partial<CalendarSourceInput>): Promise<CalendarSource>
+    remove(id: string): Promise<void>
+    /**
+     * Opens a native file picker for an exported .ics file. Returns a file: URL to
+     * use as `sourceUrl`, or null if cancelled.
+     */
+    pickIcsFile(): Promise<string | null>
+  }
+  events: {
+    listInRange(start: string, end: string): Promise<CalendarEvent[]>
+    get(id: string): Promise<CalendarEvent | null>
+    createLocal(input: LocalEventInput): Promise<CalendarEvent>
+    updateLocal(id: string, input: LocalEventInput): Promise<CalendarEvent>
+    removeLocal(id: string): Promise<void>
+  }
+  notes: {
+    get(eventId: string): Promise<Note | null>
+    save(eventId: string, content: string): Promise<Note>
+    remove(eventId: string): Promise<void>
+  }
+  sync: {
+    runAll(): Promise<SyncStatus>
+    runOne(calendarId: string): Promise<SyncStatus>
+    status(): Promise<SyncStatus>
+    /** Subscribe to sync status changes. Returns an unsubscribe function. */
+    onStatusChange(callback: (status: SyncStatus) => void): () => void
+  }
+  settings: {
+    get(): Promise<AppSettings>
+    update(patch: Partial<AppSettings>): Promise<AppSettings>
+  }
+  app: {
+    info(): Promise<AppInfo>
+  }
+  notifications: {
+    /** Shows a sample reminder so the user can check Windows notification settings. */
+    test(): Promise<void>
+    /** Fired when a reminder (or the tray's "next event") asks to open an event. */
+    onOpenEvent(callback: (request: OpenEventRequest) => void): () => void
+  }
+  proton: {
+    listAccounts(): Promise<ProtonAccount[]>
+    /** Creates the account and opens its login window. */
+    addAccount(label: string): Promise<ProtonAccount>
+    updateAccount(id: string, patch: { label?: string }): Promise<ProtonAccount>
+    /** Removes the account, its calendars/notes, and clears its saved login. */
+    removeAccount(id: string): Promise<void>
+    /** Login window; closes itself after a successful login (no automatic download). */
+    openLogin(id: string): Promise<void>
+    /** Regular Proton window for this account; manual "Download ICS" files are captured. */
+    openProton(id: string): Promise<void>
+    syncAccount(id: string): Promise<void>
+    syncAll(): Promise<void>
+    onAccountsChanged(callback: (accounts: ProtonAccount[]) => void): () => void
+  }
+}

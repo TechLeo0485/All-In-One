@@ -1,0 +1,84 @@
+import type { AppSettings } from '@shared/types'
+import { getDb } from './connection'
+
+export const DEFAULT_SETTINGS: AppSettings = {
+  showLocalEvents: true,
+  localEventColor: '#10b981',
+  hiddenCalendarIds: [],
+  notificationsEnabled: true,
+  defaultReminderMinutes: 10,
+  allDayReminder: 'same-day',
+  notificationSound: true,
+  notificationsPausedUntil: '',
+  closeToTray: true,
+  launchAtStartup: false,
+  autoSyncMinutes: 30
+}
+
+/** Keys for internal app state kept in the same table (never exposed as settings). */
+const INTERNAL_PREFIX = 'internal:'
+
+/**
+ * Settings are stored as JSON-encoded values in a key/value table so new settings
+ * can be added without a migration. Unknown or corrupt values fall back to defaults.
+ */
+export const settingsRepository = {
+  get(): AppSettings {
+    const rows = getDb().prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[]
+    const settings: AppSettings = { ...DEFAULT_SETTINGS }
+    for (const { key, value } of rows) {
+      if (!(key in DEFAULT_SETTINGS)) continue
+      try {
+        const parsed = JSON.parse(value)
+        const k = key as keyof AppSettings
+        const fallback = DEFAULT_SETTINGS[k]
+        const sameShape = Array.isArray(fallback) ? Array.isArray(parsed) : typeof parsed === typeof fallback
+        if (sameShape) {
+          ;(settings as unknown as Record<string, unknown>)[k] = parsed
+        }
+      } catch {
+        // ignore corrupt value, keep default
+      }
+    }
+    return settings
+  },
+
+  /** Drops ids of calendars that no longer exist from the hidden list. */
+  pruneHiddenCalendars(existingIds: string[]): void {
+    const hidden = this.get().hiddenCalendarIds
+    const kept = hidden.filter((id) => existingIds.includes(id))
+    if (kept.length !== hidden.length) this.update({ hiddenCalendarIds: kept })
+  },
+
+  /** Internal JSON state (e.g. which reminders were already shown). */
+  getInternal<T>(key: string, fallback: T): T {
+    const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get(INTERNAL_PREFIX + key) as
+      | { value: string }
+      | undefined
+    if (!row) return fallback
+    try {
+      return JSON.parse(row.value) as T
+    } catch {
+      return fallback
+    }
+  },
+
+  setInternal(key: string, value: unknown): void {
+    getDb()
+      .prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value')
+      .run(INTERNAL_PREFIX + key, JSON.stringify(value))
+  },
+
+  update(patch: Partial<AppSettings>): AppSettings {
+    const db = getDb()
+    const stmt = db.prepare(
+      'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value'
+    )
+    db.transaction(() => {
+      for (const [key, value] of Object.entries(patch)) {
+        if (key in DEFAULT_SETTINGS && value !== undefined) stmt.run(key, JSON.stringify(value))
+      }
+    })()
+    return this.get()
+  }
+}

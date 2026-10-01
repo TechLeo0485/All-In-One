@@ -1,0 +1,103 @@
+{
+  "name": "all-in-one",
+  "productName": "All-In-One",
+  "version": "1.0.0",
+  "description": "All-In-One: all your Proton calendars, meeting notes and reminders in one desktop app.",
+  "author": "All-In-One",
+  "main": "./out/main/index.js",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "npm run typecheck && electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "postinstall": "electron-builder install-app-deps",
+    "rebuild": "electron-builder install-app-deps",
+    "dist": "npm run build && electron-builder",
+    "icons": "node scripts/generate-icons.mjs"
+  },
+  "build": {
+    "appId": "com.all-in-one.app",
+    "productName": "All-In-One",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "resources/**/*"
+    ],
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true
+    },
+    "asarUnpack": [
+      "**/node_modules/better-sqlite3/**"
+    ],
+    "icon": "resources/icon.png",
+    "win": {
+      "target": "nsis",
+      "executableName": "All-In-One"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "artifactName": "All-In-One-Setup-${version}.${ext}",
+      "shortcutName": "All-In-One",
+      "uninstallDisplayName": "All-In-One",
+      "include": "build/installer.nsh"
+    },
+    "copyright": "Copyright © 2026 All-In-One",
+    "extraResources": [
+      {
+        "from": "resources/icon.png",
+        "to": "icon.png"
+      },
+      {
+        "from": "resources/identity.png",
+        "to": "identity.png"
+      }
+    ]
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "ical.js": "^2.2.1"
+  },
+  "devDependencies": {
+    "@fullcalendar/core": "^6.1.21",
+    "@fullcalendar/daygrid": "^6.1.21",
+    "@fullcalendar/interaction": "^6.1.21",
+    "@fullcalendar/react": "^6.1.21",
+    "@fullcalendar/timegrid": "^6.1.21",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.6.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^42.11.10",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "javascript-obfuscator": "^5.8.1",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "rollup-plugin-obfuscator": "^1.1.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6",
+    "zustand": "^5.0.15"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true,
+    "electron-winstaller@5.4.0": true,
+    "better-sqlite3@12.11.1": true,
+    "electron@42.11.10": true
+  }
+}
