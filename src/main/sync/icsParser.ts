@@ -51,6 +51,10 @@ export function parseIcs(calendarId: string, icsText: string, options: ParseOpti
     else orphanExceptions.push(ev) // a moved instance whose series we didn't receive
   }
 
+  // Stored times are ISO UTC or YYYY-MM-DD, so the window is compared as text.
+  const windowEndIso = windowEnd.toISOString()
+  const windowStartDate = windowStart.toISOString().slice(0, 10)
+
   const out: SyncedEventData[] = []
   const pushEvent = (item: ICAL.Event, start: ICAL.Time, end: ICAL.Time, externalId: string): void => {
     if (isCancelled(item)) return
@@ -59,7 +63,7 @@ export function parseIcs(calendarId: string, icsText: string, options: ParseOpti
     if (start.isDate && endTime <= startTime) endTime = addDays(startTime, 1)
     if (!start.isDate && endTime < startTime) endTime = startTime
 
-    if (!overlaps(startTime, endTime, windowStart, windowEnd)) return
+    if (startTime >= windowEndIso || endTime < windowStartDate) return // outside the window
     out.push({
       id: makeEventId(calendarId, externalId),
       externalId,
@@ -128,10 +132,6 @@ function isCancelled(ev: ICAL.Event): boolean {
   return typeof status === 'string' && status.toUpperCase() === 'CANCELLED'
 }
 
-function overlaps(start: string, end: string, windowStart: Date, windowEnd: Date): boolean {
-  return start < windowEnd.toISOString() && end >= windowStart.toISOString().slice(0, 10)
-}
-
 function pad(n: number): string {
   return String(n).padStart(2, '0')
 }
@@ -153,45 +153,47 @@ function toStoredTime(time: ICAL.Time, prop: ICAL.Property | null): string {
   const tzid = prop?.getParameter('tzid')
   const zoneId = time.zone?.tzid
   const isFloating = !zoneId || zoneId === 'floating'
-  if (typeof tzid === 'string' && isFloating && isValidIanaZone(tzid)) {
-    return zonedWallTimeToUtc(time, tzid).toISOString()
-  }
+  const fmt = typeof tzid === 'string' && isFloating ? zoneFormatter(tzid) : null
+  if (fmt) return zonedWallTimeToUtc(time, fmt).toISOString()
   return time.toJSDate().toISOString()
 }
 
-const zoneValidity = new Map<string, boolean>()
-function isValidIanaZone(tz: string): boolean {
-  if (!zoneValidity.has(tz)) {
+/** One formatter per IANA zone (construction is expensive); null = invalid zone. */
+const zoneFormatters = new Map<string, Intl.DateTimeFormat | null>()
+function zoneFormatter(tz: string): Intl.DateTimeFormat | null {
+  if (!zoneFormatters.has(tz)) {
     try {
-      new Intl.DateTimeFormat('en-US', { timeZone: tz })
-      zoneValidity.set(tz, true)
+      zoneFormatters.set(
+        tz,
+        new Intl.DateTimeFormat('en-US', {
+          timeZone: tz,
+          hourCycle: 'h23',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        })
+      )
     } catch {
-      zoneValidity.set(tz, false)
+      zoneFormatters.set(tz, null)
     }
   }
-  return zoneValidity.get(tz)!
+  return zoneFormatters.get(tz)!
 }
 
-/** Interprets the wall-clock fields of `time` in the IANA zone `tz`. */
-function zonedWallTimeToUtc(time: ICAL.Time, tz: string): Date {
+/** Interprets the wall-clock fields of `time` in the formatter's IANA zone. */
+function zonedWallTimeToUtc(time: ICAL.Time, fmt: Intl.DateTimeFormat): Date {
   const asUtc = Date.UTC(time.year, time.month - 1, time.day, time.hour, time.minute, time.second)
   // Two passes handle DST transitions correctly in nearly all real cases.
-  let guess = asUtc - tzOffsetMs(asUtc, tz)
-  guess = asUtc - tzOffsetMs(guess, tz)
+  let guess = asUtc - tzOffsetMs(asUtc, fmt)
+  guess = asUtc - tzOffsetMs(guess, fmt)
   return new Date(guess)
 }
 
-function tzOffsetMs(utcMs: number, tz: string): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: tz,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  }).formatToParts(new Date(utcMs))
+function tzOffsetMs(utcMs: number, fmt: Intl.DateTimeFormat): number {
+  const parts = fmt.formatToParts(new Date(utcMs))
   const get = (type: string): number => Number(parts.find((p) => p.type === type)?.value)
   const wall = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'))
   return wall - (utcMs - (utcMs % 1000))

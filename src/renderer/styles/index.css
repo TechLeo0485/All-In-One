@@ -51,8 +51,6 @@ textarea,
   --fc-today-bg-color: color-mix(in srgb, var(--color-blue-500) 7%, transparent);
   --fc-highlight-color: color-mix(in srgb, var(--color-blue-500) 22%, transparent);
   --fc-now-indicator-color: var(--color-rose-500);
-  --fc-non-business-color: color-mix(in srgb, var(--color-slate-950) 40%, transparent);
-  --fc-list-event-hover-bg-color: var(--color-slate-800);
   --fc-event-border-color: transparent;
   --fc-event-text-color: white;
   /* Buttons: dark segmented control, active = accent. */
@@ -124,7 +122,6 @@ textarea,
   @apply rounded-md;
 }
 .fc .fc-timegrid-event {
-  @apply shadow-sm shadow-black/30;
   box-shadow: 0 0 0 1px var(--color-slate-900);
 }
 .fc .fc-timegrid-event .fc-event-main {

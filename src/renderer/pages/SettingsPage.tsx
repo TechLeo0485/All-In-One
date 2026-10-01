@@ -8,17 +8,12 @@ import { ColorPicker } from '../components/ColorPicker'
 import { BellIcon, RefreshIcon } from '../components/icons'
 import { Button, ColorDot, Toggle, inputClass } from '../components/ui'
 import { useNow } from '../hooks/useNow'
+import { formatReminder, REMINDER_MINUTES } from '../utils/dates'
 import { errorMessage } from '../utils/errors'
 
 const REMINDER_OPTIONS = [
   { label: 'No reminder', value: -1 },
-  { label: 'At start time', value: 0 },
-  { label: '5 minutes before', value: 5 },
-  { label: '10 minutes before', value: 10 },
-  { label: '15 minutes before', value: 15 },
-  { label: '30 minutes before', value: 30 },
-  { label: '1 hour before', value: 60 },
-  { label: '1 day before', value: 1440 }
+  ...REMINDER_MINUTES.map((m) => ({ label: formatReminder(m), value: m }))
 ]
 
 const AUTO_SYNC_LABELS: Record<(typeof AUTO_SYNC_OPTIONS)[number], string> = {

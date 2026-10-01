@@ -18,10 +18,20 @@ export function isAutoSyncSource(calendar: { sourceUrl: string; accountId: strin
   return host !== null && !host.endsWith('proton.me')
 }
 
+/** Exported .ics files are stored as file: URLs. */
+export function isFileSource(url: string): boolean {
+  return url.trim().toLowerCase().startsWith('file:')
+}
+
+/** Calendar apps share links as https://; webcal(s):// is accepted for convenience. */
+export function normalizeFeedUrl(url: string): string {
+  return url.trim().replace(/^webcals?:\/\//i, 'https://')
+}
+
 /** Hostname of an http(s)/webcal(s) URL, or null for files and invalid URLs. */
 function hostOf(url: string): string | null {
   try {
-    const parsed = new URL(url.trim().replace(/^webcals?:\/\//i, 'https://'))
+    const parsed = new URL(normalizeFeedUrl(url))
     return /^https?:$/.test(parsed.protocol) ? parsed.hostname.toLowerCase() : null
   } catch {
     return null

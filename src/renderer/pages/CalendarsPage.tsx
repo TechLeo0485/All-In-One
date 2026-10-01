@@ -3,7 +3,8 @@ import type { CalendarSource } from '@shared/types'
 import { useAppStore } from '../stores/appStore'
 import { formatRelative } from '../utils/dates'
 import { useNow } from '../hooks/useNow'
-import { fileNameFromUrl, filePathFromUrl, isFileSource, maskShareUrl } from '../utils/sources'
+import { isFileSource } from '@shared/sources'
+import { fileNameFromUrl, filePathFromUrl, maskShareUrl } from '../utils/sources'
 import { CalendarSourceDialog } from '../components/CalendarSourceDialog'
 import { AlertIcon, PlusIcon, RefreshIcon } from '../components/icons'
 import { Button, ColorDot, Spinner, Toggle } from '../components/ui'
@@ -12,7 +13,9 @@ import { Button, ColorDot, Spinner, Toggle } from '../components/ui'
 const STALE_EXPORT_MS = 7 * 86_400_000
 
 function CalendarCard({ calendar, onEdit }: { calendar: CalendarSource; onEdit: () => void }) {
-  const syncStatus = useAppStore((s) => s.syncStatus)
+  // Select only this card's data so a status push doesn't re-render every card.
+  const syncRunning = useAppStore((s) => s.syncStatus.running)
+  const result = useAppStore((s) => s.syncStatus.results.find((r) => r.calendarId === calendar.id))
   const updateCalendar = useAppStore((s) => s.updateCalendar)
   const removeCalendar = useAppStore((s) => s.removeCalendar)
   const askConfirm = useAppStore((s) => s.askConfirm)
@@ -20,7 +23,6 @@ function CalendarCard({ calendar, onEdit }: { calendar: CalendarSource; onEdit: 
   const pickIcsFile = useAppStore((s) => s.pickIcsFile)
   const account = useAppStore((s) => s.protonAccounts.find((a) => a.id === calendar.accountId))
   const setView = useAppStore((s) => s.setView)
-  const result = syncStatus.results.find((r) => r.calendarId === calendar.id)
   const isAccount = Boolean(calendar.accountId)
   const isFile = !isAccount && isFileSource(calendar.sourceUrl)
   const exportedAt = result?.sourceModifiedAt
@@ -93,10 +95,10 @@ function CalendarCard({ calendar, onEdit }: { calendar: CalendarSource; onEdit: 
           <Button
             variant="ghost"
             title={isFile ? 'Re-read file' : 'Sync now'}
-            disabled={syncStatus.running}
+            disabled={syncRunning}
             onClick={() => void syncOne(calendar.id)}
           >
-            {syncStatus.running ? <Spinner /> : <RefreshIcon />}
+            {syncRunning ? <Spinner /> : <RefreshIcon />}
           </Button>
         )}
         {isFile && <Button onClick={() => void updateFromFile()}>Update from file…</Button>}

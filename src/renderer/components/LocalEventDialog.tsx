@@ -1,19 +1,21 @@
 import { useState, type FormEvent } from 'react'
 import type { LocalEventInput } from '@shared/types'
 import { useAppStore } from '../stores/appStore'
-import { addDays, fromLocalInputValue, toDateString, toLocalInputValue } from '../utils/dates'
+import {
+  addDays,
+  formatReminder,
+  fromLocalInputValue,
+  parseDateString,
+  REMINDER_MINUTES,
+  toDateString,
+  toLocalInputValue
+} from '../utils/dates'
 import { ColorPicker } from './ColorPicker'
 import { Button, Field, inputClass, Modal, TextInput } from './ui'
 
 const REMINDER_OPTIONS: { label: string; value: number | null }[] = [
   { label: 'No reminder', value: null },
-  { label: 'At start time', value: 0 },
-  { label: '5 minutes before', value: 5 },
-  { label: '10 minutes before', value: 10 },
-  { label: '15 minutes before', value: 15 },
-  { label: '30 minutes before', value: 30 },
-  { label: '1 hour before', value: 60 },
-  { label: '1 day before', value: 1440 }
+  ...REMINDER_MINUTES.map((m) => ({ label: formatReminder(m), value: m }))
 ]
 
 /**
@@ -30,6 +32,17 @@ interface FormState {
   description: string
   color: string
   reminderMinutes: number | null
+}
+
+/** End for a new start, keeping the event's current duration. */
+function shiftEnd(form: FormState, newStart: string): string {
+  if (form.allDay) {
+    const days = Math.round((parseDateString(form.end).getTime() - parseDateString(form.start).getTime()) / 86_400_000)
+    return addDays(newStart, Math.max(days, 0))
+  }
+  const duration = new Date(form.end).getTime() - new Date(form.start).getTime()
+  const ms = Number.isFinite(duration) && duration > 0 ? duration : 60 * 60_000
+  return toLocalInputValue(new Date(new Date(newStart).getTime() + ms))
 }
 
 function initialState(input: Partial<LocalEventInput>, defaultColor: string): FormState {
@@ -96,7 +109,8 @@ export function LocalEventDialog() {
     setError(null)
     if (!form.title.trim()) return setError('Title is required')
     if (!form.start || !form.end) return setError('Start and end are required')
-    if (form.end < form.start) return setError('End must be after start')
+    // All-day end dates are inclusive (same day = one day); timed events need end > start.
+    if (form.allDay ? form.end < form.start : form.end <= form.start) return setError('End must be after start')
 
     const input: LocalEventInput = {
       title: form.title.trim(),
@@ -145,7 +159,7 @@ export function LocalEventDialog() {
               onChange={(e) => {
                 // Keep the duration when the start moves past the end.
                 const start = e.target.value
-                update(start > form.end ? { start, end: start } : { start })
+                update(start && start > form.end ? { start, end: shiftEnd(form, start) } : { start })
               }}
             />
           </Field>

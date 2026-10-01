@@ -1,10 +1,10 @@
 import { readFile, stat } from 'node:fs/promises'
 import { basename } from 'node:path'
 import type { CalendarSource, CalendarSyncResult, SyncStatus } from '@shared/types'
-import { isAutoSyncSource } from '@shared/sources'
+import { isAutoSyncSource, isFileSource, normalizeFeedUrl } from '@shared/sources'
 import { calendarRepository } from '../database/calendarRepository'
 import { eventRepository } from '../database/eventRepository'
-import { fileSourcePath, isFileSource } from '../services/fileSourceService'
+import { fileSourcePath } from '../services/fileSourceService'
 import { parseIcs } from './icsParser'
 
 const FETCH_TIMEOUT_MS = 30_000
@@ -112,15 +112,13 @@ class SyncService {
         : { text: await fetchIcs(calendar.sourceUrl), modifiedAt: undefined }
       const events = parseIcs(calendar.id, text)
       eventRepository.replaceCalendarEvents(calendar.id, events)
-      const warning = this.warnings.get(calendar.id) ?? null
-      calendarRepository.setSyncResult(calendar.id, null)
-      if (warning) calendarRepository.setSyncResult(calendar.id, warning)
+      calendarRepository.setSyncSuccess(calendar.id, this.warnings.get(calendar.id) ?? null)
       return { calendarId: calendar.id, ok: true, eventCount: events.length, sourceModifiedAt: modifiedAt }
     } catch (err) {
       const message = describeError(err)
       console.error(`[sync] ${calendar.name}: ${message}`)
       // The calendar may have been deleted while we were fetching.
-      if (calendarRepository.get(calendar.id)) calendarRepository.setSyncResult(calendar.id, message)
+      if (calendarRepository.get(calendar.id)) calendarRepository.setSyncError(calendar.id, message)
       return { calendarId: calendar.id, ok: false, eventCount: 0, error: message }
     }
   }
@@ -136,12 +134,6 @@ class SyncService {
       }
     }
   }
-}
-
-/** Proton shares links as https://; webcal:// is accepted for convenience. */
-export function normalizeFeedUrl(url: string): string {
-  const trimmed = url.trim()
-  return trimmed.replace(/^webcals?:\/\//i, 'https://')
 }
 
 async function fetchIcs(url: string): Promise<string> {

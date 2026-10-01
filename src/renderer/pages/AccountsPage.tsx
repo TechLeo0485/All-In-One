@@ -34,12 +34,8 @@ function AccountDialog({ account, onClose }: { account?: ProtonAccount; onClose:
     e.preventDefault()
     if (!label.trim()) return
     setSaving(true)
-    if (account) {
-      await updateProtonAccount(account.id, { label: label.trim() })
-      onClose()
-    } else if (await addProtonAccount(label.trim())) {
-      onClose()
-    }
+    const ok = account ? await updateProtonAccount(account.id, { label: label.trim() }) : await addProtonAccount(label.trim())
+    if (ok) onClose()
     setSaving(false)
   }
 

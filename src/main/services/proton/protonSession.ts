@@ -1,4 +1,5 @@
 import { app, session, shell, type DownloadItem, type Session, type WebContents } from 'electron'
+import { APP_NAME } from '@shared/brand'
 
 /**
  * Per-account browser sessions for Proton.
@@ -68,7 +69,8 @@ export function getProtonSession(accountId: string): Session {
   configured.add(partition)
 
   // Present as regular Chrome: some sites refuse unknown "Electron" user agents.
-  ses.setUserAgent(ses.getUserAgent().replace(/\s(Electron|All-In-One)\/\S+/gi, ''))
+  const appName = APP_NAME.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  ses.setUserAgent(ses.getUserAgent().replace(new RegExp(`\\s(Electron|${appName})/\\S+`, 'gi'), ''))
 
   // Proton's web app needs no special permissions for login/export.
   ses.setPermissionRequestHandler((_wc, permission, callback) => callback(permission === 'clipboard-sanitized-write'))

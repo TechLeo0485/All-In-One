@@ -1,4 +1,4 @@
-import { PRESET_COLORS } from '../utils/colors'
+import { PRESET_COLORS } from '@shared/colors'
 
 /** Preset swatches plus a native picker for custom colors. */
 export function ColorPicker({ value, onChange }: { value: string; onChange: (color: string) => void }) {

@@ -43,9 +43,26 @@ function identityIconFile(): string {
   return file
 }
 
-/** All app notifications go through here so they carry the All-In-One icon. */
+/** Keep references: on Windows, GC'd notifications lose their click handler. */
+const visibleNotifications = new Set<Notification>()
+
+/**
+ * All app notifications go through here so they carry the app icon and stay
+ * clickable until Windows dismisses them.
+ */
 export function createNotification(options: NotificationConstructorOptions): Notification {
-  return new Notification({ icon: appIconFile(), ...options })
+  const notification = new Notification({ icon: appIconFile(), ...options })
+  visibleNotifications.add(notification)
+  const release = (): void => {
+    visibleNotifications.delete(notification)
+  }
+  notification.on('click', release)
+  notification.on('close', release)
+  notification.on('failed', (_e, error) => {
+    console.error(`[notifications] Windows could not show the notification: ${error}`)
+    release()
+  })
+  return notification
 }
 
 /**

@@ -1,10 +1,6 @@
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { BrowserWindow, dialog } from 'electron'
 
-export function isFileSource(url: string): boolean {
-  return url.trim().toLowerCase().startsWith('file:')
-}
-
 export function fileSourcePath(url: string): string {
   return fileURLToPath(url)
 }

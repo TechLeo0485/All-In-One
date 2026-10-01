@@ -77,7 +77,7 @@ interface AppState {
   loadCalendars(): Promise<void>
   setProtonAccounts(accounts: ProtonAccount[]): void
   addProtonAccount(label: string): Promise<boolean>
-  updateProtonAccount(id: string, patch: { label?: string }): Promise<void>
+  updateProtonAccount(id: string, patch: { label?: string }): Promise<boolean>
   removeProtonAccount(id: string): Promise<void>
   protonAction(action: 'openLogin' | 'openProton' | 'syncAccount', id: string): Promise<void>
   syncAllProtonAccounts(): Promise<void>
@@ -180,8 +180,8 @@ export const useAppStore = create<AppState>((set, get) => {
     async updateCalendar(id, input) {
       const updated = await attempt(() => window.api.calendars.update(id, input))
       if (!updated) return false
+      // CalendarPage refetches by itself when color / enabled state change.
       set((s) => ({ calendars: s.calendars.map((c) => (c.id === id ? updated : c)) }))
-      get().refreshEvents() // color / enabled state affects rendering
       return true
     },
 
@@ -215,7 +215,9 @@ export const useAppStore = create<AppState>((set, get) => {
 
     async updateProtonAccount(id, patch) {
       const account = await attempt(() => window.api.proton.updateAccount(id, patch))
-      if (account) set((s) => ({ protonAccounts: s.protonAccounts.map((a) => (a.id === id ? account : a)) }))
+      if (!account) return false
+      set((s) => ({ protonAccounts: s.protonAccounts.map((a) => (a.id === id ? account : a)) }))
+      return true
     },
 
     async removeProtonAccount(id) {
@@ -258,11 +260,9 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     async updateSettings(patch) {
+      // CalendarPage refetches by itself when visibility / local event options change.
       const settings = await attempt(() => window.api.settings.update(patch))
-      if (settings) {
-        set({ settings })
-        get().refreshEvents()
-      }
+      if (settings) set({ settings })
     },
 
     openEventEditor: (state) => set({ eventEditor: state }),

@@ -117,15 +117,16 @@ export const calendarRepository = {
     return this.get(id)!
   },
 
-  setSyncResult(id: string, error: string | null): void {
-    // Only bump last_synced_at on success so the UI can show "last good sync".
-    if (error) {
-      getDb().prepare('UPDATE calendars SET last_sync_error = ? WHERE id = ?').run(error, id)
-    } else {
-      getDb()
-        .prepare('UPDATE calendars SET last_sync_error = NULL, last_synced_at = ? WHERE id = ?')
-        .run(new Date().toISOString(), id)
-    }
+  /** Failed sync: keeps last_synced_at so the UI can show "last good sync". */
+  setSyncError(id: string, error: string): void {
+    getDb().prepare('UPDATE calendars SET last_sync_error = ? WHERE id = ?').run(error, id)
+  },
+
+  /** Successful sync; `warning` (e.g. "not found in Proton anymore") is still shown. */
+  setSyncSuccess(id: string, warning: string | null): void {
+    getDb()
+      .prepare('UPDATE calendars SET last_sync_error = ?, last_synced_at = ? WHERE id = ?')
+      .run(warning, new Date().toISOString(), id)
   },
 
   remove(id: string): void {

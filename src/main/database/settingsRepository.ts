@@ -18,29 +18,17 @@ export const DEFAULT_SETTINGS: AppSettings = {
 /** Keys for internal app state kept in the same table (never exposed as settings). */
 const INTERNAL_PREFIX = 'internal:'
 
+/** Parsed settings; read several times per reminder tick, cleared by update(). */
+let cached: AppSettings | null = null
+
 /**
  * Settings are stored as JSON-encoded values in a key/value table so new settings
  * can be added without a migration. Unknown or corrupt values fall back to defaults.
  */
 export const settingsRepository = {
   get(): AppSettings {
-    const rows = getDb().prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[]
-    const settings: AppSettings = { ...DEFAULT_SETTINGS }
-    for (const { key, value } of rows) {
-      if (!(key in DEFAULT_SETTINGS)) continue
-      try {
-        const parsed = JSON.parse(value)
-        const k = key as keyof AppSettings
-        const fallback = DEFAULT_SETTINGS[k]
-        const sameShape = Array.isArray(fallback) ? Array.isArray(parsed) : typeof parsed === typeof fallback
-        if (sameShape) {
-          ;(settings as unknown as Record<string, unknown>)[k] = parsed
-        }
-      } catch {
-        // ignore corrupt value, keep default
-      }
-    }
-    return settings
+    cached ??= load()
+    return { ...cached, hiddenCalendarIds: [...cached.hiddenCalendarIds] }
   },
 
   /** Drops ids of calendars that no longer exist from the hidden list. */
@@ -79,6 +67,29 @@ export const settingsRepository = {
         if (key in DEFAULT_SETTINGS && value !== undefined) stmt.run(key, JSON.stringify(value))
       }
     })()
+    cached = null
     return this.get()
   }
+}
+
+function load(): AppSettings {
+  const rows = getDb()
+    .prepare(`SELECT key, value FROM settings WHERE key NOT LIKE '${INTERNAL_PREFIX}%'`)
+    .all() as { key: string; value: string }[]
+  const settings: AppSettings = { ...DEFAULT_SETTINGS }
+  for (const { key, value } of rows) {
+    if (!(key in DEFAULT_SETTINGS)) continue
+    try {
+      const parsed = JSON.parse(value)
+      const k = key as keyof AppSettings
+      const fallback = DEFAULT_SETTINGS[k]
+      const sameShape = Array.isArray(fallback) ? Array.isArray(parsed) : typeof parsed === typeof fallback
+      if (sameShape) {
+        ;(settings as unknown as Record<string, unknown>)[k] = parsed
+      }
+    } catch {
+      // ignore corrupt value, keep default
+    }
+  }
+  return settings
 }

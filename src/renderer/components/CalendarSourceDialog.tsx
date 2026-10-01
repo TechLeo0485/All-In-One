@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from 'react'
 import type { CalendarSource } from '@shared/types'
 import { useAppStore } from '../stores/appStore'
-import { nextUnusedColor } from '../utils/colors'
+import { nextUnusedColor } from '@shared/colors'
 import { isGoogleCalendarUrl } from '@shared/sources'
-import { fileNameFromUrl, filePathFromUrl, isFileSource } from '../utils/sources'
+import { isFileSource } from '@shared/sources'
+import { fileNameFromUrl, filePathFromUrl } from '../utils/sources'
 import { ColorPicker } from './ColorPicker'
 import { Button, Field, Modal, TextInput } from './ui'
 

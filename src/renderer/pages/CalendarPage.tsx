@@ -29,27 +29,35 @@ export function CalendarPage() {
   const notify = useAppStore((s) => s.notify)
   const refreshEvents = useAppStore((s) => s.refreshEvents)
 
-  // calendarId -> color, only for enabled + visible calendars
-  const visibleCalendars = useMemo(() => {
+  // [calendarId, color] of enabled + visible calendars, as a string so that new but
+  // equal arrays (after a sync or an unrelated settings change) don't trigger a refetch.
+  const visibleKey = useMemo(() => {
     const hidden = new Set(settings?.hiddenCalendarIds ?? [])
-    return new Map(calendars.filter((c) => c.enabled && !hidden.has(c.id)).map((c) => [c.id, c.color]))
+    return JSON.stringify(calendars.filter((c) => c.enabled && !hidden.has(c.id)).map((c) => [c.id, c.color]))
   }, [calendars, settings?.hiddenCalendarIds])
+  const visibleCalendars = useMemo(() => new Map<string, string>(JSON.parse(visibleKey)), [visibleKey])
 
   const showLocal = settings?.showLocalEvents ?? true
   const localColor = settings?.localEventColor ?? '#10b981'
 
   const calendarRef = useRef<FullCalendar>(null)
   const filtersRef = useRef({ visibleCalendars, showLocal, localColor })
+  const mounted = useRef(false)
 
   useEffect(() => {
     filtersRef.current = { visibleCalendars, showLocal, localColor }
-    calendarRef.current?.getApi().refetchEvents()
+    // On mount FullCalendar fetches by itself.
+    if (mounted.current) calendarRef.current?.getApi().refetchEvents()
+    mounted.current = true
   }, [eventsVersion, visibleCalendars, showLocal, localColor])
 
-  // Opened from a reminder / the tray: jump to the event's date (seq re-triggers repeats).
+  // Opened from a reminder / the tray: jump to the event's date once, then clear it so
+  // coming back to this page later doesn't jump again.
   const focusDate = useAppStore((s) => s.focusDate)
   useEffect(() => {
-    if (focusDate) calendarRef.current?.getApi().gotoDate(focusDate.date)
+    if (!focusDate) return
+    calendarRef.current?.getApi().gotoDate(focusDate.date)
+    useAppStore.setState({ focusDate: null })
   }, [focusDate])
 
   const fetchEvents = useCallback(
@@ -125,14 +133,13 @@ export function CalendarPage() {
       <div className="h-full rounded-xl border border-slate-800 bg-slate-900 p-4 shadow-sm">
         <FullCalendar
           ref={calendarRef}
-          plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+          plugins={PLUGINS}
           initialView={initialView()}
           datesSet={(arg) => localStorage.setItem(VIEW_STORAGE_KEY, arg.view.type)}
-          editable={false}
           eventDrop={(arg) => void onEventChange(arg)}
           eventResize={(arg) => void onEventChange(arg)}
-          headerToolbar={{ left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' }}
-          buttonText={{ today: 'Today', month: 'Month', week: 'Week', day: 'Day' }}
+          headerToolbar={HEADER_TOOLBAR}
+          buttonText={BUTTON_TEXT}
           height="100%"
           events={fetchEvents}
           eventClick={onEventClick}
@@ -141,16 +148,21 @@ export function CalendarPage() {
           select={onSelect}
           nowIndicator
           dayMaxEvents
-          weekNumbers={false}
           scrollTime="08:00:00"
-          eventTimeFormat={{ hour: 'numeric', minute: '2-digit', meridiem: 'short' }}
-          slotLabelFormat={{ hour: 'numeric', minute: '2-digit', meridiem: 'short' }}
+          eventTimeFormat={TIME_FORMAT}
+          slotLabelFormat={TIME_FORMAT}
           eventClassNames={(arg) => (arg.event.id === selectedEventId ? ['ring-2', 'ring-white', 'ring-offset-1', 'ring-offset-slate-900'] : [])}
         />
       </div>
     </div>
   )
 }
+
+// Kept outside the component: FullCalendar re-applies options whose identity changes.
+const PLUGINS = [dayGridPlugin, timeGridPlugin, interactionPlugin]
+const HEADER_TOOLBAR = { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' }
+const BUTTON_TEXT = { today: 'Today', month: 'Month', week: 'Week', day: 'Day' }
+const TIME_FORMAT = { hour: 'numeric', minute: '2-digit', meridiem: 'short' } as const
 
 const VIEW_STORAGE_KEY = 'calendar.view'
 const VIEWS = ['dayGridMonth', 'timeGridWeek', 'timeGridDay']
@@ -171,7 +183,6 @@ function toFullCalendarEvent(e: CalendarEvent, color: string): EventInput {
     // Only local events can be dragged/resized; Proton events are read-only.
     editable: e.isLocalEvent,
     backgroundColor: color,
-    borderColor: color,
-    extendedProps: { isLocalEvent: e.isLocalEvent, location: e.location }
+    borderColor: color
   }
 }

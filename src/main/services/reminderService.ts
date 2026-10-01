@@ -49,8 +49,6 @@ class ReminderService {
   private fired = new Map<string, number>() // key -> dueAt
   private onOpen: ((request: OpenEventRequest) => void) | null = null
   private onTick: (() => void) | null = null
-  /** Keep references: on Windows, GC'd notifications lose their click handler. */
-  private visible = new Set<Notification>()
 
   start(onOpen: (request: OpenEventRequest) => void, onTick?: () => void): void {
     this.onOpen = onOpen
@@ -176,19 +174,7 @@ class ReminderService {
 
   private show(title: string, body: string, sound: boolean, open: OpenEventRequest | null): void {
     const notification = createNotification({ title, body, silent: !sound })
-    this.visible.add(notification)
-    const release = (): void => {
-      this.visible.delete(notification)
-    }
-    notification.on('click', () => {
-      release()
-      if (open) this.onOpen?.(open)
-    })
-    notification.on('close', release)
-    notification.on('failed', (_e, error) => {
-      console.error(`[reminders] Windows could not show the notification: ${error}`)
-      release()
-    })
+    if (open) notification.on('click', () => this.onOpen?.(open))
     notification.show()
   }
 }

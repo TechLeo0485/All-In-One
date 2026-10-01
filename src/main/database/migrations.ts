@@ -77,6 +77,11 @@ const migrations: string[] = [
   // v3: per-calendar desktop notifications
   `
   ALTER TABLE calendars ADD COLUMN notify INTEGER NOT NULL DEFAULT 1;
+  `,
+  // v4: the reminder check (every 15 s) looks up local events with a reminder
+  `
+  CREATE INDEX idx_events_local_reminders ON events (start_time)
+    WHERE is_local_event = 1 AND reminder_minutes IS NOT NULL;
   `
 ]
 

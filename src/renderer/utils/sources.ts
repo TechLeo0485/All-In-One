@@ -1,8 +1,6 @@
-/** Helpers for displaying calendar sources (share links vs. exported .ics files). */
+import { normalizeFeedUrl } from '@shared/sources'
 
-export function isFileSource(url: string): boolean {
-  return url.trim().toLowerCase().startsWith('file:')
-}
+/** Helpers for displaying calendar sources (share links vs. exported .ics files). */
 
 /** "file:///C:/Users/me/Downloads/My%20calendar.ics" -> "My calendar.ics" */
 export function fileNameFromUrl(url: string): string {
@@ -28,7 +26,7 @@ export function filePathFromUrl(url: string): string {
 /** Hides the secret token part of a share URL in the UI. */
 export function maskShareUrl(url: string): string {
   try {
-    const u = new URL(url.replace(/^webcals?:/i, 'https:'))
+    const u = new URL(normalizeFeedUrl(url))
     return `${u.host}${u.pathname.length > 24 ? `${u.pathname.slice(0, 24)}…` : u.pathname}`
   } catch {
     return url.slice(0, 40)

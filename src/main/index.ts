@@ -149,8 +149,7 @@ function applyLaunchAtStartup(enabled: boolean): void {
 /** Side effects of settings that live in the main process. */
 function onSettingsChanged(patch: Partial<AppSettings>, settings: AppSettings): void {
   if (patch.launchAtStartup !== undefined) applyLaunchAtStartup(settings.launchAtStartup)
-  trayService.update()
-  reminderService.refresh()
+  reminderService.refresh() // also updates the tray
 }
 
 // A second instance would fight over the SQLite file and double-fire reminders.
@@ -182,10 +181,7 @@ if (!app.requestSingleInstanceLock()) {
     // Push sync progress to the renderer so the UI can refresh cached events.
     syncService.onStatusChange((status) => {
       sendToRenderer(IPC.syncStatusChanged, status)
-      if (!status.running) {
-        trayService.update()
-        reminderService.refresh()
-      }
+      if (!status.running) reminderService.refresh() // also updates the tray
     })
 
     trayService.create({

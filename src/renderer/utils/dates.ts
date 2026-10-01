@@ -62,6 +62,9 @@ export function formatRelative(iso: string | null): string {
   return new Date(iso).toLocaleString()
 }
 
+/** Reminder choices offered in the UI (minutes before the start). */
+export const REMINDER_MINUTES = [0, 5, 10, 15, 30, 60, 1440]
+
 /** "15 minutes before", "1 hour before", "1 day before", "At start time" */
 export function formatReminder(minutes: number): string {
   if (minutes === 0) return 'At start time'

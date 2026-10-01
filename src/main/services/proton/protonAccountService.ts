@@ -303,7 +303,7 @@ class ProtonAccountService {
 
     for (const c of missing) {
       syncService.setWarning(c.id, MISSING_WARNING)
-      calendarRepository.setSyncResult(c.id, MISSING_WARNING)
+      calendarRepository.setSyncError(c.id, MISSING_WARNING)
     }
     await Promise.all(toSync.map((cid) => syncService.syncOne(cid)))
   }

@@ -75,7 +75,7 @@ export function Sidebar() {
   const syncAllProtonAccounts = useAppStore((s) => s.syncAllProtonAccounts)
 
   const hidden = settings?.hiddenCalendarIds ?? []
-  const enabled = calendars.filter((c) => c.enabled)
+  const enabled = useMemo(() => calendars.filter((c) => c.enabled), [calendars])
   const accountSyncing = accounts.some((a) => a.status === 'syncing')
   const busy = syncStatus.running || accountSyncing
 

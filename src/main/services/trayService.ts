@@ -66,11 +66,11 @@ class TrayService {
         ? `Notifications paused until ${formatPause(pausedUntil!)}`
         : null
 
-    // Avoid rebuilding the native menu every 30 s when nothing changed.
+    // Called every 15 s: skip the native tooltip/menu rebuild when nothing changed.
     const menuKey = JSON.stringify([nextLabel, next?.event.id, notifState, settings.notificationsEnabled, paused])
-    this.tray.setToolTip([APP_NAME, next ? `Next: ${nextLabel}` : null, notifState].filter(Boolean).join('\n'))
     if (menuKey === this.lastMenuKey) return
     this.lastMenuKey = menuKey
+    this.tray.setToolTip([APP_NAME, next ? `Next: ${nextLabel}` : null, notifState].filter(Boolean).join('\n'))
 
     const pause = (ms: number | 'tomorrow'): void => {
       const until =

@@ -3,5 +3,5 @@
 
 !macro customUnInstall
   ; Notification identity registered by the app (name + icon shown on toasts).
-  DeleteRegKey HKCU "Software\Classes\AppUserModelId\com.aio.app"
+  DeleteRegKey HKCU "Software\Classes\AppUserModelId\com.all-in-one.app"
 !macroend
