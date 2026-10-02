@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { APP_NAME, APP_TAGLINE } from '@shared/brand'
-import type { AllDayReminder, AppInfo } from '@shared/types'
+import type { AllDayReminder, AppInfo, UpdateStatus } from '@shared/types'
 import { AUTO_SYNC_OPTIONS } from '@shared/sources'
 import { useAppStore } from '../stores/appStore'
 import { AppLogo } from '../components/AppLogo'
@@ -8,6 +8,7 @@ import { ColorPicker } from '../components/ColorPicker'
 import { BellIcon, RefreshIcon } from '../components/icons'
 import { Button, ColorDot, Toggle, inputClass } from '../components/ui'
 import { useNow } from '../hooks/useNow'
+import { useUpdateStatus } from '../hooks/useUpdateStatus'
 import { formatReminder, REMINDER_MINUTES } from '../utils/dates'
 import { errorMessage } from '../utils/errors'
 
@@ -97,6 +98,48 @@ function CalendarNotifyList({ disabled }: { disabled: boolean }) {
   )
 }
 
+function updateText(status: UpdateStatus): string {
+  switch (status.state) {
+    case 'unsupported':
+      return 'Automatic updates work in the installed app (not in development).'
+    case 'checking':
+      return 'Checking for updates…'
+    case 'downloading':
+      return `Downloading version ${status.version}… ${status.percent ?? 0}%`
+    case 'ready':
+      return `Version ${status.version} is ready. Restart to install it.`
+    case 'up-to-date':
+      return 'You have the latest version.'
+    case 'error':
+      return `Could not check for updates: ${status.error}`
+    default:
+      return 'Updates are checked automatically when the app starts and every few hours.'
+  }
+}
+
+function UpdateRow() {
+  const status = useUpdateStatus()
+  if (!status) return null
+  const busy = status.state === 'checking' || status.state === 'downloading'
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-3">
+      {status.state === 'ready' ? (
+        <Button variant="primary" onClick={() => void window.api.updates.install()}>
+          Restart now
+        </Button>
+      ) : (
+        status.state !== 'unsupported' && (
+          <Button onClick={() => void window.api.updates.check()} disabled={busy}>
+            <RefreshIcon size={14} /> Check for updates
+          </Button>
+        )
+      )}
+      <span className={`text-xs ${status.state === 'error' ? 'text-amber-300' : 'text-slate-400'}`}>{updateText(status)}</span>
+    </div>
+  )
+}
+
 function AboutSection() {
   const [info, setInfo] = useState<AppInfo | null>(null)
   useEffect(() => {
@@ -111,6 +154,7 @@ function AboutSection() {
           {APP_NAME} <span className="font-normal text-slate-400">{info ? `version ${info.version}` : ''}</span>
         </p>
         <p className="text-slate-400">{APP_TAGLINE}</p>
+        <UpdateRow />
         <p className="mt-3 text-xs text-slate-500">
           Everything (accounts, cached events, local events and notes) stays on this computer
           {info && (
@@ -243,7 +287,7 @@ export function SettingsPage() {
         <Section title="Sync">
           <Row
             title="Auto-sync link calendars"
-            description="Google Calendar and other web links (not Proton). Also runs shortly after the app starts."
+            description="Google, Outlook and other web links (not Proton). Also runs shortly after the app starts."
           >
             <select
               className={inputClass}
@@ -274,7 +318,7 @@ export function SettingsPage() {
               onChange={(showLocalEvents) => void updateSettings({ showLocalEvents })}
             />
           </Row>
-          <Row title="Default color" description="Used for new local events and the sidebar entry.">
+          <Row title="Default color" description="Used by every local event set to “Default” (existing ones change too) and the sidebar entry.">
             <ColorPicker value={settings.localEventColor} onChange={(localEventColor) => void updateSettings({ localEventColor })} />
           </Row>
         </Section>

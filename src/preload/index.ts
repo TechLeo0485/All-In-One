@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { IPC } from '@shared/ipcChannels'
-import type { CalendarApi, OpenEventRequest, ProtonAccount, SyncStatus } from '@shared/types'
+import type { CalendarApi, OpenEventRequest, ProtonAccount, SyncStatus, UpdateStatus } from '@shared/types'
 
 /**
  * The only bridge between the sandboxed renderer and the main process.
@@ -18,6 +18,7 @@ const api: CalendarApi = {
   events: {
     listInRange: (start, end) => ipcRenderer.invoke(IPC.eventsListInRange, start, end),
     get: (id) => ipcRenderer.invoke(IPC.eventsGet, id),
+    search: (query) => ipcRenderer.invoke(IPC.eventsSearch, query),
     createLocal: (input) => ipcRenderer.invoke(IPC.eventsCreateLocal, input),
     updateLocal: (id, input) => ipcRenderer.invoke(IPC.eventsUpdateLocal, id, input),
     removeLocal: (id) => ipcRenderer.invoke(IPC.eventsRemoveLocal, id)
@@ -43,6 +44,16 @@ const api: CalendarApi = {
   },
   app: {
     info: () => ipcRenderer.invoke(IPC.appInfo)
+  },
+  updates: {
+    status: () => ipcRenderer.invoke(IPC.updatesStatus),
+    check: () => ipcRenderer.invoke(IPC.updatesCheck),
+    install: () => ipcRenderer.invoke(IPC.updatesInstall),
+    onStatusChange: (callback) => {
+      const listener = (_event: IpcRendererEvent, status: UpdateStatus): void => callback(status)
+      ipcRenderer.on(IPC.updatesStatusChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.updatesStatusChanged, listener)
+    }
   },
   notifications: {
     test: () => ipcRenderer.invoke(IPC.notificationsTest),

@@ -100,7 +100,8 @@ export function localEventInput(value: unknown): LocalEventInput {
     title: str(v.title, 'Title', { required: true, max: 500 }),
     description: str(v.description ?? '', 'Description'),
     location: str(v.location ?? '', 'Location', { max: 1000 }),
-    color: color(v.color),
+    // Empty = follow the default local event color from Settings.
+    color: v.color === null || v.color === undefined || v.color === '' ? null : color(v.color),
     startTime,
     endTime,
     allDay,

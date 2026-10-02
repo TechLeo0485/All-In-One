@@ -8,6 +8,25 @@ export function isGoogleCalendarUrl(url: string): boolean {
 }
 
 /**
+ * Outlook "Publish a calendar" links: outlook.live.com (personal Outlook.com /
+ * Hotmail accounts) and outlook.office365.com / outlook.office.com (work or school).
+ */
+export function isOutlookCalendarUrl(url: string): boolean {
+  const host = hostOf(url)
+  return host === 'outlook.live.com' || host === 'outlook.office365.com' || host === 'outlook.office.com'
+}
+
+/**
+ * Outlook shows an HTML link and an ICS link side by side when publishing; people often
+ * copy the HTML one. Both share the same token, so ".../calendar.html" maps to
+ * ".../calendar.ics" (also "reachcalendar.html" for work accounts).
+ */
+export function outlookIcsUrl(url: string): string {
+  const trimmed = url.trim()
+  return isOutlookCalendarUrl(trimmed) ? trimmed.replace(/calendar\.html(?=$|[?#])/i, 'calendar.ics') : trimmed
+}
+
+/**
  * Whether a calendar may be fetched on a timer: web links only (Google, Outlook,
  * any ICS feed). Proton is excluded on purpose: Proton calendars (account exports,
  * share links and files) only update when the user clicks refresh.

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, nativeTheme, Notification, shell } from 'electron'
+import { app, BrowserWindow, dialog, nativeTheme, Notification, shell } from 'electron'
 import { join } from 'node:path'
 import { APP_NAME } from '@shared/brand'
 import { IPC } from '@shared/ipcChannels'
@@ -6,6 +6,7 @@ import type { AppSettings, OpenEventRequest } from '@shared/types'
 import { setUpDataFolder } from './dataFolder'
 import { calendarRepository } from './database/calendarRepository'
 import { closeDb, getDb } from './database/connection'
+import { DatabaseUpgradeError } from './database/migrations'
 import { settingsRepository } from './database/settingsRepository'
 import { protonAccountService } from './services/proton/protonAccountService'
 import { registerIpcHandlers } from './ipc/registerHandlers'
@@ -13,6 +14,7 @@ import { syncService } from './sync/syncService'
 import { reminderService } from './services/reminderService'
 import { autoSyncService } from './services/autoSyncService'
 import { trayService } from './services/trayService'
+import { updateService } from './services/updateService'
 import { appIconFile, createNotification, registerWindowsIdentity } from './services/windowsIdentity'
 
 /** Passed by the "Start with Windows" login item: start in the tray, no window. */
@@ -27,6 +29,8 @@ let mainWindow: BrowserWindow | null = null
 /** True once the user chose Quit (tray menu, or close with close-to-tray off). */
 let quitting = false
 let trayHintShown = false
+/** Version we already showed the "update ready" notification for. */
+let updateNotifiedVersion: string | null = null
 
 function createWindow(showOnReady: boolean): BrowserWindow {
   // Dark UI: also makes the Windows title bar dark.
@@ -129,6 +133,30 @@ function openEvent(request: OpenEventRequest): void {
   }
 }
 
+/**
+ * Startup failed before any window exists, so a main-process error box is the only
+ * way to tell the user (the in-app askConfirm dialogs need the renderer).
+ */
+function reportDatabaseError(err: unknown): void {
+  console.error('[db] could not open the database:', err)
+  const reason = err instanceof Error ? err.message : String(err)
+  const backup = err instanceof DatabaseUpgradeError && err.backupFile ? `
+
+A backup from before the update is at:
+${err.backupFile}` : ''
+  dialog.showErrorBox(
+    `${APP_NAME} could not open its data`,
+    `${reason}
+
+Your data has not been deleted. Data folder:
+${app.getPath('userData')}${backup}
+
+` +
+      'Try starting the app again. If this keeps happening, reinstall the previous version and contact the developer.'
+  )
+  app.exit(1)
+}
+
 function quitApp(): void {
   quitting = true
   app.quit()
@@ -162,7 +190,14 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     // Notifications show "All-In-One" and its icon (not "Electron"), in dev and installed.
     registerWindowsIdentity()
-    getDb() // open + migrate before anything else touches the database
+    // Open + migrate before anything else touches the database. If that fails, say
+    // so and quit: otherwise the app would sit in the background with no window.
+    try {
+      getDb()
+    } catch (err) {
+      reportDatabaseError(err)
+      return
+    }
     if (dataMigration) {
       // Proton calendars point at export files inside the data folder.
       const moved = calendarRepository.rebaseFileSources(dataMigration.fromUrl, dataMigration.toUrl)
@@ -192,11 +227,29 @@ if (!app.requestSingleInstanceLock()) {
         void syncService.syncAll()
         void protonAccountService.syncAll()
       },
+      installUpdate: () => updateService.install(),
       quit: quitApp
     })
     // Reminders run in the main process, so they also fire while the window is hidden.
     reminderService.start(openEvent, () => trayService.update())
     autoSyncService.start()
+
+    // Updates download in the background; once ready, tell the user once per version
+    // (also when the app started hidden in the tray at login).
+    updateService.onStatusChange((status) => {
+      sendToRenderer(IPC.updatesStatusChanged, status)
+      trayService.update()
+      if (status.state === 'ready' && status.version !== updateNotifiedVersion && Notification.isSupported()) {
+        updateNotifiedVersion = status.version
+        const notification = createNotification({
+          title: `${APP_NAME} ${status.version} is ready`,
+          body: 'Click to open, then choose Restart now. Otherwise it installs the next time you quit.'
+        })
+        notification.on('click', () => showWindow())
+        notification.show()
+      }
+    })
+    updateService.start()
 
     // Connected Proton accounts (exports run only on request).
     // (New calendars from an export reach the UI via the sync status push that follows.)
@@ -222,6 +275,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('will-quit', () => {
     reminderService.stop()
     autoSyncService.stop()
+    updateService.stop()
     trayService.destroy()
     protonAccountService.shutdown() // aborts in-flight exports before the DB closes
     closeDb()

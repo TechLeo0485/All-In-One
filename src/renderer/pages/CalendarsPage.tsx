@@ -3,7 +3,7 @@ import type { CalendarSource } from '@shared/types'
 import { useAppStore } from '../stores/appStore'
 import { formatRelative } from '../utils/dates'
 import { useNow } from '../hooks/useNow'
-import { isFileSource } from '@shared/sources'
+import { isFileSource, isGoogleCalendarUrl, isOutlookCalendarUrl } from '@shared/sources'
 import { fileNameFromUrl, filePathFromUrl, maskShareUrl } from '../utils/sources'
 import { CalendarSourceDialog } from '../components/CalendarSourceDialog'
 import { AlertIcon, PlusIcon, RefreshIcon } from '../components/icons'
@@ -14,7 +14,8 @@ const STALE_EXPORT_MS = 7 * 86_400_000
 
 function CalendarCard({ calendar, onEdit }: { calendar: CalendarSource; onEdit: () => void }) {
   // Select only this card's data so a status push doesn't re-render every card.
-  const syncRunning = useAppStore((s) => s.syncStatus.running)
+  // Only this calendar's own sync counts; another calendar syncing must not spin this card.
+  const syncing = useAppStore((s) => s.syncStatus.syncingIds.includes(calendar.id))
   const result = useAppStore((s) => s.syncStatus.results.find((r) => r.calendarId === calendar.id))
   const updateCalendar = useAppStore((s) => s.updateCalendar)
   const removeCalendar = useAppStore((s) => s.removeCalendar)
@@ -59,7 +60,12 @@ function CalendarCard({ calendar, onEdit }: { calendar: CalendarSource; onEdit: 
           </p>
         ) : (
           <p className="truncate text-xs text-slate-500" title="URL hidden because it contains an access token">
-            Share link · {maskShareUrl(calendar.sourceUrl)}
+            {isGoogleCalendarUrl(calendar.sourceUrl)
+              ? 'Google Calendar'
+              : isOutlookCalendarUrl(calendar.sourceUrl)
+                ? 'Outlook'
+                : 'Share link'}{' '}
+            · {maskShareUrl(calendar.sourceUrl)}
           </p>
         )}
         <p className="mt-2 text-xs text-slate-400">
@@ -95,10 +101,10 @@ function CalendarCard({ calendar, onEdit }: { calendar: CalendarSource; onEdit: 
           <Button
             variant="ghost"
             title={isFile ? 'Re-read file' : 'Sync now'}
-            disabled={syncRunning}
+            disabled={syncing}
             onClick={() => void syncOne(calendar.id)}
           >
-            {syncRunning ? <Spinner /> : <RefreshIcon />}
+            {syncing ? <Spinner /> : <RefreshIcon />}
           </Button>
         )}
         {isFile && <Button onClick={() => void updateFromFile()}>Update from file…</Button>}
@@ -145,7 +151,7 @@ export function CalendarsPage() {
               <button className="text-blue-400 hover:underline" onClick={() => setView('accounts')}>
                 connected Proton accounts
               </button>{' '}
-              appear here after you sync them. You can also add an exported .ics file, a share link or a Google Calendar. All are
+              appear here after you sync them. You can also add an exported .ics file, a share link, a Google Calendar or an Outlook calendar. All are
               read-only.
             </p>
           </div>

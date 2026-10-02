@@ -10,6 +10,7 @@ import { isFileSource } from '@shared/sources'
 import { fileSourceService } from '../services/fileSourceService'
 import { protonAccountService } from '../services/proton/protonAccountService'
 import { reminderService } from '../services/reminderService'
+import { updateService } from '../services/updateService'
 import { syncService } from '../sync/syncService'
 import * as v from './validation'
 
@@ -77,6 +78,7 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
     eventRepository.listInRange(v.rangeBound(start, 'start'), v.rangeBound(end, 'end'))
   )
   handle(IPC.eventsGet, (_e, id) => eventRepository.get(v.id(id)))
+  handle(IPC.eventsSearch, (_e, query) => eventRepository.search(v.str(query, 'Search', { max: 200 })))
   handle(IPC.eventsCreateLocal, (_e, input) => withEventsChanged(eventRepository.createLocal(v.localEventInput(input))))
   handle(IPC.eventsUpdateLocal, (_e, id, input) =>
     withEventsChanged(eventRepository.updateLocal(v.id(id), v.localEventInput(input)))
@@ -110,6 +112,11 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
 
   // App
   handle(IPC.appInfo, () => ({ name: APP_NAME, version: app.getVersion(), dataFolder: app.getPath('userData') }))
+
+  // Updates
+  handle(IPC.updatesStatus, () => updateService.getStatus())
+  handle(IPC.updatesCheck, () => updateService.check())
+  handle(IPC.updatesInstall, () => updateService.install())
 
   // Notifications
   handle(IPC.notificationsTest, () => reminderService.showTest())

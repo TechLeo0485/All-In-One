@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type SyntheticEvent } from 'react'
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
-import type { DateSelectArg, EventClickArg, EventDropArg, EventInput, EventSourceFuncArg } from '@fullcalendar/core'
+import type { DateSelectArg, DatesSetArg, EventClickArg, EventDropArg, EventInput, EventSourceFuncArg } from '@fullcalendar/core'
 import type { EventResizeDoneArg } from '@fullcalendar/interaction'
 import type { CalendarEvent, LocalEventInput } from '@shared/types'
 import { useAppStore } from '../stores/appStore'
+import { useNow } from '../hooks/useNow'
+import { DatePicker } from '../components/DatePicker'
 import { toDateString } from '../utils/dates'
 import { errorMessage } from '../utils/errors'
 
@@ -28,6 +30,31 @@ export function CalendarPage() {
   const openEventEditor = useAppStore((s) => s.openEventEditor)
   const notify = useAppStore((s) => s.notify)
   const refreshEvents = useAppStore((s) => s.refreshEvents)
+  // Re-renders every minute so events darken as soon as they end.
+  const now = useNow(60_000)
+
+  // Clicking the title ("Sep 27 – Oct 3, 2026") opens a date picker to jump anywhere.
+  const [range, setRange] = useState<{ start: Date; end: Date } | null>(null)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const closePicker = useCallback(() => setPickerOpen(false), [])
+  const onDatesSet = (arg: DatesSetArg): void => {
+    localStorage.setItem(VIEW_STORAGE_KEY, arg.view.type)
+    setRange({ start: arg.view.currentStart, end: arg.view.currentEnd })
+    // FullCalendar renders the title; make it reachable by keyboard and explain it.
+    const title = document.querySelector<HTMLElement>(TITLE_SELECTOR)
+    if (title) {
+      title.setAttribute('role', 'button')
+      title.setAttribute('tabindex', '0')
+      title.title = 'Pick a date'
+    }
+  }
+  const onTitleActivate = (e: SyntheticEvent): void => {
+    const isTitle = (e.target as Element).closest(TITLE_SELECTOR)
+    if (!isTitle) return
+    if (e.type === 'keydown' && !['Enter', ' '].includes((e as KeyboardEvent).key)) return
+    e.preventDefault()
+    setPickerOpen((open) => !open)
+  }
 
   // [calendarId, color] of enabled + visible calendars, as a string so that new but
   // equal arrays (after a sync or an unrelated settings change) don't trigger a refetch.
@@ -111,7 +138,7 @@ export function CalendarPage() {
         title: existing.title,
         description: existing.description,
         location: existing.location,
-        color: existing.color ?? localColor,
+        color: existing.color, // keep "default" as default, so it still follows Settings
         reminderMinutes: existing.reminderMinutes,
         allDay: event.allDay,
         startTime: event.allDay ? toDateString(start) : start.toISOString(),
@@ -130,12 +157,30 @@ export function CalendarPage() {
 
   return (
     <div className="h-full p-4">
-      <div className="h-full rounded-xl border border-slate-800 bg-slate-900 p-4 shadow-sm">
+      <div
+        className="relative h-full rounded-xl border border-slate-800 bg-slate-900 p-4 shadow-sm"
+        onClick={onTitleActivate}
+        onKeyDown={onTitleActivate}
+      >
+        {pickerOpen && range && (
+          <div className="absolute top-14 left-1/2 z-30 -translate-x-1/2">
+            <DatePicker
+              rangeStart={range.start}
+              rangeEnd={range.end}
+              toggleSelector={TITLE_SELECTOR}
+              onClose={closePicker}
+              onPick={(date) => {
+                calendarRef.current?.getApi().gotoDate(date)
+                setPickerOpen(false)
+              }}
+            />
+          </div>
+        )}
         <FullCalendar
           ref={calendarRef}
           plugins={PLUGINS}
           initialView={initialView()}
-          datesSet={(arg) => localStorage.setItem(VIEW_STORAGE_KEY, arg.view.type)}
+          datesSet={onDatesSet}
           eventDrop={(arg) => void onEventChange(arg)}
           eventResize={(arg) => void onEventChange(arg)}
           headerToolbar={HEADER_TOOLBAR}
@@ -151,7 +196,11 @@ export function CalendarPage() {
           scrollTime="08:00:00"
           eventTimeFormat={TIME_FORMAT}
           slotLabelFormat={TIME_FORMAT}
-          eventClassNames={(arg) => (arg.event.id === selectedEventId ? ['ring-2', 'ring-white', 'ring-offset-1', 'ring-offset-slate-900'] : [])}
+          eventClassNames={(arg) => [
+            ...(arg.event.id === selectedEventId ? ['ring-2', 'ring-white', 'ring-offset-1', 'ring-offset-slate-900'] : []),
+            // Not FullCalendar's own isPast: that is only recomputed occasionally, not every minute.
+            ...(isEnded(arg.event.end ?? arg.event.start, now) ? ['event-ended'] : [])
+          ]}
         />
       </div>
     </div>
@@ -165,12 +214,18 @@ const BUTTON_TEXT = { today: 'Today', month: 'Month', week: 'Week', day: 'Day' }
 const TIME_FORMAT = { hour: 'numeric', minute: '2-digit', meridiem: 'short' } as const
 
 const VIEW_STORAGE_KEY = 'calendar.view'
+const TITLE_SELECTOR = '.fc-toolbar-title'
 const VIEWS = ['dayGridMonth', 'timeGridWeek', 'timeGridDay']
 
 /** Restores the last used Month/Week/Day view. */
 function initialView(): string {
   const saved = localStorage.getItem(VIEW_STORAGE_KEY)
   return saved && VIEWS.includes(saved) ? saved : 'timeGridWeek'
+}
+
+/** All-day ends are exclusive local midnights, so a full-day event ends when the day does. */
+function isEnded(end: Date | null, now: number): boolean {
+  return end !== null && end.getTime() <= now
 }
 
 function toFullCalendarEvent(e: CalendarEvent, color: string): EventInput {

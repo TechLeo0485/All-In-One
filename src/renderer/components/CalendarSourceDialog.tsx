@@ -2,13 +2,12 @@ import { useState, type FormEvent } from 'react'
 import type { CalendarSource } from '@shared/types'
 import { useAppStore } from '../stores/appStore'
 import { nextUnusedColor } from '@shared/colors'
-import { isGoogleCalendarUrl } from '@shared/sources'
-import { isFileSource } from '@shared/sources'
+import { isFileSource, isGoogleCalendarUrl, isOutlookCalendarUrl, outlookIcsUrl } from '@shared/sources'
 import { fileNameFromUrl, filePathFromUrl } from '../utils/sources'
 import { ColorPicker } from './ColorPicker'
 import { Button, Field, Modal, TextInput } from './ui'
 
-type SourceKind = 'file' | 'link' | 'google'
+type SourceKind = 'file' | 'link' | 'google' | 'outlook'
 
 function SourceKindTabs({ value, onChange }: { value: SourceKind; onChange: (kind: SourceKind) => void }) {
   const tab = (kind: SourceKind, title: string, subtitle: string) => (
@@ -28,6 +27,7 @@ function SourceKindTabs({ value, onChange }: { value: SourceKind; onChange: (kin
       {tab('file', 'Exported file', 'Free Proton accounts')}
       {tab('link', 'Share link', 'Proton paid plans, any ICS URL')}
       {tab('google', 'Google Calendar', 'Secret iCal address')}
+      {tab('outlook', 'Outlook', 'Published ICS link')}
     </div>
   )
 }
@@ -45,7 +45,9 @@ export function CalendarSourceDialog({ calendar, onClose }: { calendar?: Calenda
       ? 'file'
       : isGoogleCalendarUrl(calendar.sourceUrl)
         ? 'google'
-        : 'link'
+        : isOutlookCalendarUrl(calendar.sourceUrl)
+          ? 'outlook'
+          : 'link'
   const [kind, setKind] = useState<SourceKind>(initialKind)
   const [name, setName] = useState(calendar?.name ?? '')
   const [color, setColor] = useState(calendar?.color ?? nextUnusedColor(calendars.map((c) => c.color)))
@@ -81,13 +83,16 @@ export function CalendarSourceDialog({ calendar, onClose }: { calendar?: Calenda
       return
     }
 
-    const sourceUrl = kind === 'file' ? fileUrl : linkUrl.trim()
+    const sourceUrl = kind === 'file' ? fileUrl : kind === 'outlook' ? outlookIcsUrl(linkUrl) : linkUrl.trim()
     if (kind === 'file' && !sourceUrl) return setError('Choose the .ics file you exported from Proton')
     if (kind === 'link' && !/^(https?|webcals?):\/\//i.test(sourceUrl)) {
       return setError('Paste the full share link, starting with https://')
     }
     if (kind === 'google' && !(isGoogleCalendarUrl(sourceUrl) && /\/ical\/.+\.ics/i.test(sourceUrl))) {
       return setError('Paste the “Secret address in iCal format” (https://calendar.google.com/calendar/ical/…/basic.ics)')
+    }
+    if (kind === 'outlook' && !(isOutlookCalendarUrl(sourceUrl) && /\/owa\/calendar\/.+\.ics(?=$|[?#])/i.test(sourceUrl))) {
+      return setError('Paste the ICS link from Outlook’s “Publish a calendar” (https://outlook.…/owa/calendar/…/calendar.ics)')
     }
 
     setSaving(true)
@@ -170,6 +175,40 @@ export function CalendarSourceDialog({ calendar, onClose }: { calendar?: Calenda
                 value={linkUrl}
                 onChange={(e) => setLinkUrl(e.target.value)}
                 placeholder="https://calendar.google.com/calendar/ical/…/private-…/basic.ics"
+                spellCheck={false}
+              />
+            </Field>
+          </div>
+        ) : kind === 'outlook' ? (
+          <div className="space-y-3">
+            <ol className="list-decimal space-y-1 rounded-lg bg-slate-800/60 py-3 pr-3 pl-8 text-xs text-slate-300">
+              <li>
+                Open <span className="font-medium">outlook.live.com</span> (personal) or{' '}
+                <span className="font-medium">outlook.office.com</span> (work or school) in a browser, or use the new Outlook
+                for Windows.
+              </li>
+              <li>
+                Click the gear → <span className="font-medium">Calendar</span> →{' '}
+                <span className="font-medium">Shared calendars</span>.
+              </li>
+              <li>
+                Under <span className="font-medium">Publish a calendar</span>, pick the calendar, choose{' '}
+                <span className="font-medium">Can view all details</span> and click{' '}
+                <span className="font-medium">Publish</span>.
+              </li>
+              <li>
+                Click the <span className="font-medium">ICS</span> link → <span className="font-medium">Copy link</span>{' '}
+                and paste it below.
+              </li>
+            </ol>
+            <Field
+              label="Published ICS link"
+              hint="Read-only. Outlook can take a while to publish changes, so very recent edits may show up late. Anyone with the link can read the calendar; it is stored only on this computer. If “Publish a calendar” is missing on a work account, your organization has turned it off."
+            >
+              <TextInput
+                value={linkUrl}
+                onChange={(e) => setLinkUrl(e.target.value)}
+                placeholder="https://outlook.live.com/owa/calendar/…/calendar.ics"
                 spellCheck={false}
               />
             </Field>

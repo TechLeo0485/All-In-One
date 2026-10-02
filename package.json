@@ -1,7 +1,7 @@
 {
   "name": "all-in-one",
   "productName": "All-In-One",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "All-In-One: all your Proton calendars, meeting notes and reminders in one desktop app.",
   "author": "All-In-One",
   "main": "./out/main/index.js",
@@ -11,6 +11,7 @@
     "build": "npm run typecheck && electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test:migrations": "node scripts/test-migrations.mjs",
     "postinstall": "electron-builder install-app-deps",
     "rebuild": "electron-builder install-app-deps",
     "dist": "npm run build && electron-builder",
@@ -37,6 +38,13 @@
       "**/node_modules/better-sqlite3/**"
     ],
     "icon": "resources/icon.png",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "TechLeo0485",
+        "repo": "All-In-One"
+      }
+    ],
     "win": {
       "target": "nsis",
       "executableName": "All-In-One"
@@ -65,6 +73,7 @@
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",
+    "electron-updater": "^6.8.9",
     "ical.js": "^2.2.1"
   },
   "devDependencies": {

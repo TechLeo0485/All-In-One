@@ -11,7 +11,7 @@ import {
   toLocalInputValue
 } from '../utils/dates'
 import { ColorPicker } from './ColorPicker'
-import { Button, Field, inputClass, Modal, TextInput } from './ui'
+import { Button, ColorDot, Field, inputClass, Modal, TextInput } from './ui'
 
 const REMINDER_OPTIONS: { label: string; value: number | null }[] = [
   { label: 'No reminder', value: null },
@@ -30,7 +30,8 @@ interface FormState {
   end: string
   location: string
   description: string
-  color: string
+  /** null = follow the default color from Settings */
+  color: string | null
   reminderMinutes: number | null
 }
 
@@ -45,7 +46,7 @@ function shiftEnd(form: FormState, newStart: string): string {
   return toLocalInputValue(new Date(new Date(newStart).getTime() + ms))
 }
 
-function initialState(input: Partial<LocalEventInput>, defaultColor: string): FormState {
+function initialState(input: Partial<LocalEventInput>): FormState {
   const allDay = input.allDay ?? false
   let start: string
   let end: string
@@ -65,7 +66,7 @@ function initialState(input: Partial<LocalEventInput>, defaultColor: string): Fo
     end,
     location: input.location ?? '',
     description: input.description ?? '',
-    color: input.color ?? defaultColor,
+    color: input.color ?? null,
     reminderMinutes: input.reminderMinutes ?? null
   }
 }
@@ -84,10 +85,7 @@ export function LocalEventDialog() {
   const defaultColor = useAppStore((s) => s.settings?.localEventColor ?? '#10b981')
 
   const [form, setForm] = useState<FormState>(() =>
-    initialState(
-      editor?.mode === 'edit' ? { ...editor.event, color: editor.event.color ?? undefined } : (editor?.defaults ?? {}),
-      defaultColor
-    )
+    initialState(editor?.mode === 'edit' ? editor.event : (editor?.defaults ?? {}))
   )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -200,8 +198,22 @@ export function LocalEventDialog() {
               ))}
             </select>
           </Field>
-          <Field label="Color">
-            <ColorPicker value={form.color} onChange={(color) => update({ color })} />
+          <Field
+            label="Color"
+            hint={form.color === null ? 'Follows the local event color in Settings, also when you change it later.' : undefined}
+          >
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => update({ color: null })}
+                className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition ${
+                  form.color === null ? 'border-slate-300 text-slate-100' : 'border-slate-700 text-slate-400 hover:border-slate-500'
+                }`}
+              >
+                <ColorDot color={defaultColor} size={10} /> Default
+              </button>
+              <ColorPicker value={form.color} onChange={(color) => update({ color })} />
+            </div>
           </Field>
         </div>
 

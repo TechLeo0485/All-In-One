@@ -80,6 +80,15 @@ textarea,
 }
 .fc .fc-toolbar-title {
   @apply text-lg font-semibold text-slate-100;
+  /* Clickable: opens the date picker (CalendarPage). */
+  @apply cursor-pointer rounded-md px-2 py-0.5 transition-colors hover:bg-slate-800;
+}
+.fc .fc-toolbar-title::after {
+  content: '▾';
+  @apply ml-1.5 text-sm text-slate-500;
+}
+.fc .fc-toolbar-title:focus-visible {
+  @apply ring-2 ring-blue-500/50 outline-none;
 }
 .fc .fc-col-header-cell-cushion,
 .fc .fc-daygrid-day-number {
@@ -111,11 +120,11 @@ textarea,
   border-top-color: color-mix(in srgb, var(--color-slate-700) 30%, transparent);
 }
 /*
- * Week/Day views: ~10 hours visible at once (20 half-hour slots), the rest scrolls.
- * 200px ≈ page padding + toolbar + day header + all-day row.
+ * Week/Day views: fixed 60px per hour (two 30px half-hour slots), whatever the
+ * window size; a taller window shows more hours, the rest scrolls.
  */
 .fc .fc-timegrid-slot {
-  height: max(1.5rem, calc((100vh - 200px) / 20));
+  height: 30px;
 }
 .fc .fc-event {
   cursor: pointer;
@@ -134,6 +143,10 @@ textarea,
 .fc .fc-daygrid-dot-event .fc-event-title,
 .fc .fc-daygrid-dot-event .fc-event-time {
   @apply text-slate-200;
+}
+/* Events that have already ended: same color, a little darker. */
+.fc .fc-event.event-ended {
+  filter: brightness(0.7);
 }
 .fc .fc-daygrid-more-link {
   @apply text-slate-400;

@@ -6,12 +6,16 @@
 - Read-only sync of **multiple Proton accounts, free plans included**. Log in once per account, then
   click **Sync** to download all of its calendars. Exported .ics files and share links also work.
   Nothing is ever written back to Proton.
-- **Google Calendar** (and other ICS links such as Outlook) via the calendar's secret iCal address.
+- **Google Calendar** via the calendar's secret iCal address, and **Outlook** (Outlook.com and Microsoft 365)
+  via its published ICS link. Any other ICS link works too.
 - **Proton syncs manually only:** Proton is never fetched in the background or at startup; it updates
-  when you click refresh / **Sync now**. Google and other links **auto-sync** (every 30 min by default,
+  when you click refresh / **Sync now**. Google, Outlook and other links **auto-sync** (every 30 min by default,
   configurable in Settings).
 
-**New users:** see **[docs/HELP.md](docs/HELP.md)** for how to get your Google and Proton calendar links.
+- **Automatic updates:** the installed app checks GitHub Releases at startup and every few hours,
+  downloads new versions in the background and offers **Restart now** (or installs when you quit).
+
+**New users:** see **[docs/HELP.md](docs/HELP.md)** for how to get your Google, Outlook and Proton calendar links.
 - Month, week and day views (FullCalendar), with a color per calendar.
 - Show or hide calendars from the sidebar; enable or disable syncing per calendar.
 - Local events with title, time, description, location, color and desktop reminders. Drag and resize

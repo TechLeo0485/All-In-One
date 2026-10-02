@@ -24,7 +24,7 @@ type StatusListener = (status: SyncStatus) => void
  * left untouched, so the user still sees their last known schedule offline.
  */
 class SyncService {
-  private status: SyncStatus = { running: false, lastRunAt: null, results: [] }
+  private status: SyncStatus = { running: false, syncingIds: [], lastRunAt: null, results: [] }
   /** All runs are serialized through this chain so they never write concurrently. */
   private queue: Promise<unknown> = Promise.resolve()
   /** A queued-but-not-started full sync; further syncAll() calls join it. */
@@ -89,7 +89,7 @@ class SyncService {
   }
 
   private async run(calendars: CalendarSource[]): Promise<SyncStatus> {
-    this.setStatus({ ...this.status, running: true })
+    this.setStatus({ ...this.status, running: true, syncingIds: calendars.map((c) => c.id) })
     // syncCalendar never throws, so `running` is always reset.
     const results = await Promise.all(calendars.map((c) => this.syncCalendar(c)))
 
@@ -99,6 +99,7 @@ class SyncService {
     const existingIds = new Set(calendarRepository.list().map((c) => c.id))
     this.setStatus({
       running: false,
+      syncingIds: [],
       lastRunAt: new Date().toISOString(),
       results: [...merged.values()].filter((r) => existingIds.has(r.calendarId))
     })

@@ -1,5 +1,6 @@
 import ICAL from 'ical.js'
 import { createHash } from 'node:crypto'
+import type { AttendeeStatus, EventAttendee } from '@shared/types'
 import type { SyncedEventData } from '../database/eventRepository'
 
 /**
@@ -72,7 +73,8 @@ export function parseIcs(calendarId: string, icsText: string, options: ParseOpti
       startTime,
       endTime,
       allDay: start.isDate,
-      location: item.location || ''
+      location: item.location || '',
+      attendees: readAttendees(item)
     })
   }
 
@@ -119,7 +121,126 @@ export function parseIcs(calendarId: string, icsText: string, options: ParseOpti
     pushEvent(ev, ev.startDate, ev.endDate, `${ev.uid}::${ev.recurrenceId.toString()}`)
   }
 
+  return mergeDuplicates(out)
+}
+
+/**
+ * Some feeds contain one copy of a meeting per guest, each with its own UID (seen
+ * with Google calendars), which would show the meeting once per guest. Copies with
+ * the same title, time and location are merged into one event with the combined
+ * guest list. The copy with the smallest external ID is kept so the event ID (and
+ * any note attached to it) stays the same across syncs.
+ */
+function mergeDuplicates(events: SyncedEventData[]): SyncedEventData[] {
+  const groups = new Map<string, SyncedEventData[]>()
+  for (const e of events) {
+    const key = [e.title, e.startTime, e.endTime, e.allDay, e.location].join('\n')
+    const group = groups.get(key)
+    if (group) group.push(e)
+    else groups.set(key, [e])
+  }
+
+  const out: SyncedEventData[] = []
+  for (const group of groups.values()) {
+    if (group.length === 1) {
+      out.push(group[0])
+      continue
+    }
+    group.sort((a, b) => (a.externalId < b.externalId ? -1 : a.externalId > b.externalId ? 1 : 0))
+    out.push({
+      ...group[0],
+      description: group.find((e) => e.description)?.description ?? '',
+      attendees: mergeAttendees(group.flatMap((e) => e.attendees))
+    })
+  }
   return out
+}
+
+/** One entry per email; an actual RSVP wins over "no answer yet". */
+function mergeAttendees(attendees: EventAttendee[]): EventAttendee[] {
+  const byEmail = new Map<string, EventAttendee>()
+  for (const a of attendees) {
+    const key = a.email.toLowerCase()
+    const existing = byEmail.get(key)
+    if (!existing) {
+      byEmail.set(key, a)
+      continue
+    }
+    byEmail.set(key, {
+      name: existing.name || a.name,
+      email: existing.email,
+      status: existing.status === 'needs-action' ? a.status : existing.status,
+      isOrganizer: existing.isOrganizer || a.isOrganizer,
+      optional: existing.optional && a.optional
+    })
+  }
+  return sortAttendees([...byEmail.values()])
+}
+
+/** Organizer first, then by name/email. */
+function sortAttendees(attendees: EventAttendee[]): EventAttendee[] {
+  return attendees.sort(
+    (a, b) => Number(b.isOrganizer) - Number(a.isOrganizer) || (a.name || a.email).localeCompare(b.name || b.email)
+  )
+}
+
+const STATUS_BY_PARTSTAT: Record<string, AttendeeStatus> = {
+  ACCEPTED: 'accepted',
+  DECLINED: 'declined',
+  TENTATIVE: 'tentative'
+}
+
+/**
+ * Guests from ATTENDEE lines, plus the ORGANIZER. Rooms and other resources are
+ * left out (the room already shows as the location). Events without guests return
+ * an empty list, even though Google still names the calendar owner as organizer.
+ */
+function readAttendees(ev: ICAL.Event): EventAttendee[] {
+  const people = ev.component.getAllProperties('attendee').filter((p) => {
+    const cutype = String(p.getParameter('cutype') ?? 'INDIVIDUAL').toUpperCase()
+    return cutype !== 'ROOM' && cutype !== 'RESOURCE'
+  })
+  if (people.length === 0) return []
+
+  const organizer = ev.component.getFirstProperty('organizer')
+  const organizerEmail = organizer ? emailOf(organizer) : ''
+
+  const attendees: EventAttendee[] = people
+    .map((p) => {
+      const email = emailOf(p)
+      return {
+        name: paramText(p, 'cn', email),
+        email,
+        status: STATUS_BY_PARTSTAT[String(p.getParameter('partstat') ?? '').toUpperCase()] ?? 'needs-action',
+        isOrganizer: Boolean(organizerEmail) && email.toLowerCase() === organizerEmail.toLowerCase(),
+        optional: String(p.getParameter('role') ?? '').toUpperCase() === 'OPT-PARTICIPANT'
+      }
+    })
+    .filter((a) => a.email || a.name)
+
+  if (organizer && organizerEmail && !attendees.some((a) => a.isOrganizer)) {
+    attendees.push({
+      name: paramText(organizer, 'cn', organizerEmail),
+      email: organizerEmail,
+      status: 'accepted',
+      isOrganizer: true,
+      optional: false
+    })
+  }
+  return mergeAttendees(attendees)
+}
+
+/** "mailto:a@b.com" -> "a@b.com" (falls back to the EMAIL parameter). */
+function emailOf(prop: ICAL.Property): string {
+  const value = String(prop.getFirstValue() ?? '').trim()
+  const email = value.replace(/^mailto:/i, '')
+  return email.includes('@') ? email : String(prop.getParameter('email') ?? email)
+}
+
+/** A text parameter, or '' if it just repeats the email address (Google sets CN to the email). */
+function paramText(prop: ICAL.Property, name: string, email: string): string {
+  const value = String(prop.getParameter(name) ?? '').trim()
+  return value.toLowerCase() === email.toLowerCase() ? '' : value
 }
 
 /** Deterministic ID so the same feed item always maps to the same row (and note). */

@@ -1,10 +1,81 @@
+import { useState } from 'react'
+import type { AttendeeStatus, EventAttendee } from '@shared/types'
 import { useAppStore } from '../stores/appStore'
 import { useEventDetails } from '../hooks/useEventDetails'
 import { formatEventWhen, formatReminder } from '../utils/dates'
 import { findFirstUrl, linkify } from '../utils/linkify'
-import { BellIcon, ClockIcon, ExternalIcon, LockIcon, MapPinIcon, XIcon } from './icons'
+import { BellIcon, ClockIcon, ExternalIcon, LockIcon, MapPinIcon, UsersIcon, XIcon } from './icons'
 import { NotesEditor } from './NotesEditor'
 import { Button, ColorDot, Spinner } from './ui'
+
+/** Long guest lists start collapsed to keep the notes editor in view. */
+const GUESTS_COLLAPSED = 8
+
+const STATUS_STYLE: Record<AttendeeStatus, { mark: string; className: string; label: string }> = {
+  accepted: { mark: '✓', className: 'bg-emerald-500/20 text-emerald-300', label: 'Accepted' },
+  tentative: { mark: '?', className: 'bg-amber-500/20 text-amber-300', label: 'Maybe' },
+  declined: { mark: '✕', className: 'bg-red-500/20 text-red-300', label: 'Declined' },
+  'needs-action': { mark: '•', className: 'bg-slate-700 text-slate-400', label: 'Awaiting reply' }
+}
+
+function guestSummary(attendees: EventAttendee[]): string {
+  const count = (status: AttendeeStatus): number => attendees.filter((a) => a.status === status).length
+  const parts = [
+    [count('accepted'), 'yes'],
+    [count('tentative'), 'maybe'],
+    [count('declined'), 'no'],
+    [count('needs-action'), 'awaiting']
+  ]
+    .filter(([n]) => n)
+    .map(([n, label]) => `${n} ${label}`)
+  return `${attendees.length} ${attendees.length === 1 ? 'guest' : 'guests'} · ${parts.join(', ')}`
+}
+
+function GuestList({ attendees }: { attendees: EventAttendee[] }) {
+  const [expanded, setExpanded] = useState(false)
+  const visible = expanded ? attendees : attendees.slice(0, GUESTS_COLLAPSED)
+
+  return (
+    <div className="space-y-2 pl-6 text-sm">
+      <p className="flex items-center gap-2 text-slate-300">
+        <UsersIcon className="shrink-0 text-slate-500" />
+        {guestSummary(attendees)}
+      </p>
+      <ul className="space-y-1.5 pl-6">
+        {visible.map((a) => {
+          const style = STATUS_STYLE[a.status]
+          const tags = [a.isOrganizer && 'Organizer', a.optional && 'Optional'].filter(Boolean).join(' · ')
+          return (
+            <li key={a.email || a.name} className="flex items-start gap-2">
+              <span
+                className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full text-[10px] ${style.className}`}
+                title={style.label}
+                aria-label={style.label}
+              >
+                {style.mark}
+              </span>
+              <span className="min-w-0">
+                <span className="selectable block truncate text-slate-200" title={a.email}>
+                  {a.name || a.email}
+                </span>
+                {(a.name && a.email) || tags ? (
+                  <span className="selectable block truncate text-xs text-slate-500">
+                    {[a.name && a.email, tags].filter(Boolean).join(' · ')}
+                  </span>
+                ) : null}
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+      {attendees.length > GUESTS_COLLAPSED && (
+        <button className="pl-6 text-xs text-blue-400 hover:underline" onClick={() => setExpanded(!expanded)}>
+          {expanded ? 'Show fewer' : `Show all ${attendees.length} guests`}
+        </button>
+      )}
+    </div>
+  )
+}
 
 /** Right-hand panel: details of the selected event plus its notes. */
 export function EventDetailsPanel() {
@@ -39,6 +110,7 @@ export function EventDetailsPanel() {
       }
     }
   }
+  const hasMoreDetails = Boolean(event && (meetingUrl || event.description || event.attendees.length || event.isLocalEvent))
   const color = event?.isLocalEvent ? (event.color ?? localColor) : (calendar?.color ?? '#64748b')
 
   return (
@@ -95,50 +167,58 @@ export function EventDetailsPanel() {
                   )}
                 </p>
               </div>
-
-              {meetingUrl && (
-                <div className="pl-6">
-                  <a
-                    href={meetingUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500"
-                  >
-                    <ExternalIcon /> Open meeting link
-                  </a>
-                </div>
-              )}
-
-              {event.description && (
-                <p className="selectable pl-6 text-sm break-words whitespace-pre-wrap text-slate-200">
-                  {linkify(event.description)}
-                </p>
-              )}
-
-              {event.isLocalEvent && (
-                <div className="flex gap-2 pl-6">
-                  <Button onClick={() => openEventEditor({ mode: 'edit', event })}>Edit event</Button>
-                  <Button
-                    variant="danger"
-                    onClick={() => {
-                      void askConfirm({
-                        title: 'Delete event?',
-                        message: `"${event.title}" and its meeting notes will be permanently deleted.`,
-                        confirmLabel: 'Delete event',
-                        danger: true
-                      }).then((ok) => {
-                        if (ok) void deleteLocalEvent(event.id)
-                      })
-                    }}
-                  >
-                    Delete event
-                  </Button>
-                </div>
-              )}
             </section>
 
+            {/* Notes sit right under the event summary so they're visible without scrolling past long descriptions or guest lists. */}
             <hr className="border-slate-800" />
             <NotesEditor eventId={event.id} />
+
+            {hasMoreDetails && <hr className="border-slate-800" />}
+            {hasMoreDetails && (
+              <section className="space-y-3">
+                {meetingUrl && (
+                  <div className="pl-6">
+                    <a
+                      href={meetingUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500"
+                    >
+                      <ExternalIcon /> Open meeting link
+                    </a>
+                  </div>
+                )}
+
+                {event.description && (
+                  <p className="selectable pl-6 text-sm break-words whitespace-pre-wrap text-slate-200">
+                    {linkify(event.description)}
+                  </p>
+                )}
+
+                {event.attendees.length > 0 && <GuestList key={event.id} attendees={event.attendees} />}
+
+                {event.isLocalEvent && (
+                  <div className="flex gap-2 pl-6">
+                    <Button onClick={() => openEventEditor({ mode: 'edit', event })}>Edit event</Button>
+                    <Button
+                      variant="danger"
+                      onClick={() => {
+                        void askConfirm({
+                          title: 'Delete event?',
+                          message: `"${event.title}" and its meeting notes will be permanently deleted.`,
+                          confirmLabel: 'Delete event',
+                          danger: true
+                        }).then((ok) => {
+                          if (ok) void deleteLocalEvent(event.id)
+                        })
+                      }}
+                    >
+                      Delete event
+                    </Button>
+                  </div>
+                )}
+              </section>
+            )}
           </>
         )}
       </div>

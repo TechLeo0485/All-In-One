@@ -11,6 +11,7 @@ export const IPC = {
 
   eventsListInRange: 'events:listInRange',
   eventsGet: 'events:get',
+  eventsSearch: 'events:search',
   eventsCreateLocal: 'events:createLocal',
   eventsUpdateLocal: 'events:updateLocal',
   eventsRemoveLocal: 'events:removeLocal',
@@ -29,6 +30,12 @@ export const IPC = {
   settingsUpdate: 'settings:update',
 
   appInfo: 'app:info',
+
+  updatesStatus: 'updates:status',
+  updatesCheck: 'updates:check',
+  updatesInstall: 'updates:install',
+  /** main -> renderer push */
+  updatesStatusChanged: 'updates:statusChanged',
 
   notificationsTest: 'notifications:test',
   /** main -> renderer push */

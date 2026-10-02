@@ -5,6 +5,7 @@ import { useNow } from '../hooks/useNow'
 import { AlertIcon, CalendarIcon, EyeIcon, EyeOffIcon, LayersIcon, PlusIcon, RefreshIcon, SettingsIcon, UsersIcon } from './icons'
 import { Button, ColorDot, Spinner } from './ui'
 import { AppLogo } from './AppLogo'
+import { SearchBox } from './SearchBox'
 import { APP_NAME } from '@shared/brand'
 
 function CalendarRow({
@@ -115,6 +116,9 @@ export function Sidebar() {
         >
           <PlusIcon /> New local event
         </Button>
+        <div className="mt-2">
+          <SearchBox />
+        </div>
       </div>
 
       <div className="mt-5 flex-1 overflow-y-auto px-3">
@@ -186,7 +190,7 @@ export function Sidebar() {
           {accountSyncing
             ? 'Downloading from Proton…'
             : syncStatus.running
-              ? 'Syncing…'
+              ? `Syncing ${syncStatus.syncingIds.length === 1 ? '1 calendar' : `${syncStatus.syncingIds.length} calendars`}…`
               : `Last sync ${formatRelative(syncStatus.lastRunAt)}`}
         </p>
       </div>

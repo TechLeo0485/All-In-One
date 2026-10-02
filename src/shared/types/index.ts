@@ -70,11 +70,40 @@ export interface CalendarEvent {
   allDay: boolean
   location: string
   isLocalEvent: boolean
-  /** Only used by local events; synced events take the calendar color */
+  /** Local events only; null = the default color from Settings. Synced events take the calendar color */
   color: string | null
   /** Minutes before start to show a notification (local events only) */
   reminderMinutes: number | null
+  /** Organizer and guests from the feed (ORGANIZER / ATTENDEE); empty for local events */
+  attendees: EventAttendee[]
   createdAt: string
+}
+
+/** RSVP state from the iCalendar PARTSTAT parameter. */
+export type AttendeeStatus = 'accepted' | 'declined' | 'tentative' | 'needs-action'
+
+export interface EventAttendee {
+  /** Display name (CN); empty if the feed only has an email address */
+  name: string
+  email: string
+  status: AttendeeStatus
+  isOrganizer: boolean
+  /** ROLE=OPT-PARTICIPANT */
+  optional: boolean
+}
+
+/** Where a search matched, in the order results describe it. */
+export type SearchMatchField = 'title' | 'location' | 'guests' | 'description' | 'notes' | 'calendar'
+
+export interface EventSearchResult {
+  /** For recurring events: the next matching date (or the latest past one) */
+  event: CalendarEvent
+  calendarName: string | null
+  matchedIn: SearchMatchField
+  /** Text around the match ('' when it matched the title) */
+  snippet: string
+  /** How many dates of this recurring event match (1 for single events) */
+  occurrences: number
 }
 
 export interface LocalEventInput {
@@ -84,7 +113,8 @@ export interface LocalEventInput {
   endTime: string
   allDay: boolean
   location: string
-  color: string
+  /** null = follow the default local event color from Settings */
+  color: string | null
   reminderMinutes: number | null
 }
 
@@ -106,6 +136,8 @@ export interface CalendarSyncResult {
 
 export interface SyncStatus {
   running: boolean
+  /** Calendars being fetched right now (only these show a spinner) */
+  syncingIds: string[]
   lastRunAt: string | null
   results: CalendarSyncResult[]
 }
@@ -153,6 +185,22 @@ export interface AppInfo {
   dataFolder: string
 }
 
+/**
+ * Auto-update state (installed app only; updates come from GitHub Releases).
+ * 'unsupported' – development build, updates are disabled
+ * 'ready'       – downloaded; installs on restart (or whenever the app quits)
+ */
+export type UpdateState = 'unsupported' | 'idle' | 'checking' | 'downloading' | 'ready' | 'up-to-date' | 'error'
+
+export interface UpdateStatus {
+  state: UpdateState
+  /** The new version, while downloading or ready */
+  version: string | null
+  /** Download progress 0–100 */
+  percent: number | null
+  error: string | null
+}
+
 /** Sent to the renderer when the user clicks a reminder (or the tray's next event). */
 export interface OpenEventRequest {
   eventId: string
@@ -179,6 +227,8 @@ export interface CalendarApi {
   events: {
     listInRange(start: string, end: string): Promise<CalendarEvent[]>
     get(id: string): Promise<CalendarEvent | null>
+    /** Searches title, description, location, guests, notes and calendar name together. */
+    search(query: string): Promise<EventSearchResult[]>
     createLocal(input: LocalEventInput): Promise<CalendarEvent>
     updateLocal(id: string, input: LocalEventInput): Promise<CalendarEvent>
     removeLocal(id: string): Promise<void>
@@ -201,6 +251,14 @@ export interface CalendarApi {
   }
   app: {
     info(): Promise<AppInfo>
+  }
+  updates: {
+    status(): Promise<UpdateStatus>
+    /** Checks GitHub now (an available update downloads automatically). */
+    check(): Promise<UpdateStatus>
+    /** Restarts the app and installs the downloaded update. */
+    install(): Promise<void>
+    onStatusChange(callback: (status: UpdateStatus) => void): () => void
   }
   notifications: {
     /** Shows a sample reminder so the user can check Windows notification settings. */

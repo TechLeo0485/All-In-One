@@ -51,6 +51,12 @@ export const LayersIcon = (p: IconProps) => (
     <path d="m2 17 10 5 10-5M2 12l10 5 10-5" />
   </Icon>
 )
+export const SearchIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="11" cy="11" r="8" />
+    <path d="m21 21-4.3-4.3" />
+  </Icon>
+)
 export const XIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M18 6 6 18M6 6l12 12" />

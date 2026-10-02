@@ -7,6 +7,7 @@ import { LocalEventDialog } from './components/LocalEventDialog'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Toasts } from './components/Toasts'
+import { UpdateBanner } from './components/UpdateBanner'
 import { Spinner } from './components/ui'
 import { AccountsPage } from './pages/AccountsPage'
 import { CalendarPage } from './pages/CalendarPage'
@@ -37,28 +38,31 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-full">
-      <Sidebar />
-      <main className="min-w-0 flex-1">
-        <ErrorBoundary area={view === 'calendar' ? 'calendar view' : `${view} page`} key={view}>
-          {view === 'calendar' && <CalendarPage />}
-          {view === 'accounts' && <AccountsPage />}
-          {view === 'calendars' && <CalendarsPage />}
-          {view === 'settings' && <SettingsPage />}
-        </ErrorBoundary>
-      </main>
-      {view === 'calendar' && (
-        // Keyed by event so selecting another event clears a previous error.
-        <ErrorBoundary area="event details" key={selectedEventId ?? 'none'}>
-          <EventDetailsPanel />
-        </ErrorBoundary>
-      )}
-      {/* Keyed so each opening starts with fresh form state */}
-      {eventEditor && (
-        <ErrorBoundary area="event editor">
-          <LocalEventDialog key={eventEditor.mode === 'edit' ? eventEditor.event.id : 'new'} />
-        </ErrorBoundary>
-      )}
+    <div className="flex h-full flex-col">
+      <UpdateBanner />
+      <div className="flex min-h-0 flex-1">
+        <Sidebar />
+        <main className="min-w-0 flex-1">
+          <ErrorBoundary area={view === 'calendar' ? 'calendar view' : `${view} page`} key={view}>
+            {view === 'calendar' && <CalendarPage />}
+            {view === 'accounts' && <AccountsPage />}
+            {view === 'calendars' && <CalendarsPage />}
+            {view === 'settings' && <SettingsPage />}
+          </ErrorBoundary>
+        </main>
+        {view === 'calendar' && (
+          // Keyed by event so selecting another event clears a previous error.
+          <ErrorBoundary area="event details" key={selectedEventId ?? 'none'}>
+            <EventDetailsPanel />
+          </ErrorBoundary>
+        )}
+        {/* Keyed so each opening starts with fresh form state */}
+        {eventEditor && (
+          <ErrorBoundary area="event editor">
+            <LocalEventDialog key={eventEditor.mode === 'edit' ? eventEditor.event.id : 'new'} />
+          </ErrorBoundary>
+        )}
+      </div>
       <ConfirmDialog />
       <Toasts />
     </div>

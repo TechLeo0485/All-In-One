@@ -4,12 +4,15 @@ import { APP_NAME } from '@shared/brand'
 import type { OpenEventRequest } from '@shared/types'
 import { settingsRepository } from '../database/settingsRepository'
 import { reminderService } from './reminderService'
+import { updateService } from './updateService'
 
 export interface TrayActions {
   show(): void
   openEvent(request: OpenEventRequest): void
   /** User-initiated refresh of all calendars (the app never syncs on its own). */
   refresh(): void
+  /** Restart and install a downloaded update. */
+  installUpdate(): void
   quit(): void
 }
 
@@ -66,8 +69,11 @@ class TrayService {
         ? `Notifications paused until ${formatPause(pausedUntil!)}`
         : null
 
+    const update = updateService.getStatus()
+    const updateVersion = update.state === 'ready' ? update.version : null
+
     // Called every 15 s: skip the native tooltip/menu rebuild when nothing changed.
-    const menuKey = JSON.stringify([nextLabel, next?.event.id, notifState, settings.notificationsEnabled, paused])
+    const menuKey = JSON.stringify([nextLabel, next?.event.id, notifState, settings.notificationsEnabled, paused, updateVersion])
     if (menuKey === this.lastMenuKey) return
     this.lastMenuKey = menuKey
     this.tray.setToolTip([APP_NAME, next ? `Next: ${nextLabel}` : null, notifState].filter(Boolean).join('\n'))
@@ -114,6 +120,9 @@ class TrayService {
               ]
             },
         { type: 'separator' },
+        ...(updateVersion
+          ? [{ label: `Restart to update (version ${updateVersion})`, click: () => actions.installUpdate() }]
+          : []),
         { label: 'Quit', click: () => actions.quit() }
       ])
     )

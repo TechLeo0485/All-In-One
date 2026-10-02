@@ -1,0 +1,57 @@
+# Builds the Windows installer and publishes it as a GitHub Release.
+#
+# How to release:
+#   1. Bump "version" in package.json (e.g. 1.0.1) and commit.
+#   2. git tag v1.0.1 && git push origin main --tags
+# The tag must match package.json, otherwise the job stops before building.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # create the release and upload files
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Check tag matches package.json version
+        shell: bash
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $version"
+            exit 1
+          fi
+
+      # postinstall rebuilds better-sqlite3 for Electron.
+      - run: npm ci
+
+      # Upgrades databases from every older version; a failure stops the release so
+      # no user gets an update that can't open their data.
+      - run: npm run test:migrations
+
+      - run: npm run build
+
+      # Publishing is done by the next step, so electron-builder only packages.
+      - run: npx electron-builder --win --publish never
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: All-In-One ${{ github.ref_name }}
+          generate_release_notes: true
+          # Installed apps read latest.yml to find updates (blockmap = smaller downloads).
+          files: |
+            release/All-In-One-Setup-*.exe
+            release/All-In-One-Setup-*.exe.blockmap
+            release/latest.yml
