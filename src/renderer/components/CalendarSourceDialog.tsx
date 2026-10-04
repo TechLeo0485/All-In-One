@@ -17,59 +17,119 @@ type Provider = 'proton' | 'google' | 'outlook' | 'other'
 /** How a calendar is connected: a Proton login, an ICS link or an exported .ics file. */
 type Method = 'account' | 'link' | 'file'
 
-const PROVIDERS: { id: Provider; title: string; subtitle: string }[] = [
-  { id: 'proton', title: 'Proton', subtitle: 'Account login, link or file' },
-  { id: 'google', title: 'Google Calendar', subtitle: 'Secret iCal address' },
-  { id: 'outlook', title: 'Outlook', subtitle: 'Published ICS link' },
-  { id: 'other', title: 'Other', subtitle: 'Any ICS link or file' }
+const PROVIDERS: { id: Provider; title: string; subtitle: string; badge: string; badgeClass: string }[] = [
+  { id: 'proton', title: 'Proton', subtitle: 'Login, link or file', badge: 'P', badgeClass: 'bg-violet-500/20 text-violet-300' },
+  { id: 'google', title: 'Google', subtitle: 'Secret iCal address', badge: 'G', badgeClass: 'bg-blue-500/20 text-blue-300' },
+  { id: 'outlook', title: 'Outlook', subtitle: 'Published ICS link', badge: 'O', badgeClass: 'bg-sky-500/20 text-sky-300' },
+  { id: 'other', title: 'Other', subtitle: 'Any ICS link or file', badge: 'ICS', badgeClass: 'bg-slate-700 text-slate-300' }
 ]
 
-const METHODS: Record<Provider, { id: Method; title: string; subtitle: string }[]> = {
+const METHODS: Record<Provider, { id: Method; title: string; subtitle: string; recommended?: boolean }[]> = {
   proton: [
     {
       id: 'account',
-      title: 'Log in to account',
-      subtitle: 'All calendars, free plans'
+      title: 'Log in to your Proton account',
+      subtitle: 'Downloads all calendars of the account when you click Sync. Works on free plans.',
+      recommended: true
     },
-    { id: 'link', title: 'Share link', subtitle: 'Paid plans' },
-    { id: 'file', title: 'Exported file', subtitle: 'Download ICS yourself' }
+    { id: 'link', title: 'Share link', subtitle: 'A “Share with anyone” link of one calendar. Needs a paid plan.' },
+    { id: 'file', title: 'Exported .ics file', subtitle: 'Export from Proton yourself and pick the file.' }
   ],
   google: [{ id: 'link', title: '', subtitle: '' }],
   outlook: [{ id: 'link', title: '', subtitle: '' }],
   other: [
-    { id: 'link', title: 'ICS link', subtitle: 'https:// or webcal://' },
-    { id: 'file', title: '.ics file', subtitle: 'From this computer' }
+    { id: 'link', title: 'ICS link', subtitle: 'An https:// or webcal:// address from any calendar app.' },
+    { id: 'file', title: '.ics file', subtitle: 'A calendar file on this computer.' }
   ]
 }
 
-function ChoiceTabs<T extends string>({
+/** Numbered heading that separates the dialog's steps. */
+function StepHeading({ step, title }: { step: number; title: string }) {
+  return (
+    <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold tracking-wide text-slate-400 uppercase">
+      <span className="flex size-5 items-center justify-center rounded-full bg-slate-800 text-[11px] text-slate-300">
+        {step}
+      </span>
+      {title}
+    </h3>
+  )
+}
+
+function ProviderPicker({ value, onChange }: { value: Provider; onChange: (provider: Provider) => void }) {
+  return (
+    <div className="grid grid-cols-4 gap-2" role="radiogroup" aria-label="Calendar service">
+      {PROVIDERS.map((p) => {
+        const selected = value === p.id
+        return (
+          <button
+            key={p.id}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            onClick={() => onChange(p.id)}
+            className={`flex flex-col items-center gap-1.5 rounded-xl border px-2 py-3 text-center transition ${
+              selected
+                ? 'border-blue-500 bg-blue-500/10 ring-1 ring-blue-500'
+                : 'border-slate-800 bg-slate-950/40 hover:border-slate-600'
+            }`}
+          >
+            <span className={`flex size-9 items-center justify-center rounded-lg text-sm font-bold ${p.badgeClass}`}>
+              {p.badge}
+            </span>
+            <span className="text-sm font-medium">{p.title}</span>
+            <span className="text-[11px] leading-tight text-slate-400">{p.subtitle}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function MethodPicker({
   options,
   value,
-  onChange,
-  small = false
+  onChange
 }: {
-  options: { id: T; title: string; subtitle: string }[]
-  value: T
-  onChange: (value: T) => void
-  small?: boolean
+  options: (typeof METHODS)[Provider]
+  value: Method
+  onChange: (method: Method) => void
 }) {
   return (
-    <div className="flex gap-2">
-      {options.map((o) => (
-        <button
-          key={o.id}
-          type="button"
-          onClick={() => onChange(o.id)}
-          className={`flex-1 rounded-lg border text-left transition ${small ? 'px-2.5 py-1.5' : 'px-3 py-2'} ${
-            value === o.id
-              ? 'border-blue-500 bg-slate-800/60 ring-1 ring-blue-500'
-              : 'border-slate-800 hover:border-slate-600'
-          }`}
-        >
-          <span className={`block font-medium ${small ? 'text-xs' : 'text-sm'}`}>{o.title}</span>
-          <span className="block text-xs text-slate-400">{o.subtitle}</span>
-        </button>
-      ))}
+    <div className="divide-y divide-slate-800 rounded-xl border border-slate-800" role="radiogroup" aria-label="How to connect">
+      {options.map((o) => {
+        const selected = value === o.id
+        return (
+          <button
+            key={o.id}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            onClick={() => onChange(o.id)}
+            className={`flex w-full items-start gap-3 px-3.5 py-2.5 text-left transition first:rounded-t-xl last:rounded-b-xl ${
+              selected ? 'bg-slate-800/70' : 'hover:bg-slate-800/40'
+            }`}
+          >
+            <span
+              className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border-2 ${
+                selected ? 'border-blue-500' : 'border-slate-600'
+              }`}
+            >
+              {selected && <span className="size-2 rounded-full bg-blue-500" />}
+            </span>
+            <span className="min-w-0">
+              <span className="flex items-center gap-2 text-sm font-medium">
+                {o.title}
+                {o.recommended && (
+                  <span className="rounded-full bg-emerald-500/15 px-1.5 py-px text-[10px] font-semibold text-emerald-300">
+                    Recommended
+                  </span>
+                )}
+              </span>
+              <span className="block text-xs text-slate-400">{o.subtitle}</span>
+            </span>
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -199,6 +259,7 @@ export function CalendarSourceDialog({ calendar, onClose }: { calendar?: Calenda
   return (
     <Modal
       title={calendar ? 'Edit calendar' : 'Add calendar'}
+      width={isAccountCalendar ? undefined : 'max-w-2xl'}
       onClose={onClose}
       footer={
         <>
@@ -211,10 +272,20 @@ export function CalendarSourceDialog({ calendar, onClose }: { calendar?: Calenda
     >
       <form id="calendar-form" onSubmit={onSubmit} className="space-y-4">
         {!isAccountCalendar && (
-          <div className="space-y-2">
-            <ChoiceTabs options={PROVIDERS} value={provider} onChange={chooseProvider} />
-            {methods.length > 1 && <ChoiceTabs options={methods} value={method} onChange={chooseMethod} small />}
-          </div>
+          <>
+            <section>
+              <StepHeading step={1} title="Calendar service" />
+              <ProviderPicker value={provider} onChange={chooseProvider} />
+            </section>
+            {methods.length > 1 && (
+              <section>
+                <StepHeading step={2} title="How to connect" />
+                <MethodPicker options={methods} value={method} onChange={chooseMethod} />
+              </section>
+            )}
+            <hr className="border-slate-800" />
+            <StepHeading step={methods.length > 1 ? 3 : 2} title={isLogin ? 'Account' : 'Details'} />
+          </>
         )}
 
         {isAccountCalendar ? (

@@ -45,6 +45,11 @@ function createWindow(showOnReady: boolean): BrowserWindow {
     icon: appIconFile(),
     backgroundColor: '#020617',
     autoHideMenuBar: true,
+    // Our own title bar (TitleBar.tsx) without the app icon, so there is no icon to
+    // open the Windows system menu (Restore/Move/Size/...). Windows still draws the
+    // minimize/maximize/close buttons. Height must match TITLE_BAR_HEIGHT there.
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#0f172a', symbolColor: '#cbd5e1', height: 32 },
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       // Security: the renderer gets no Node access. Everything goes through the
@@ -56,6 +61,8 @@ function createWindow(showOnReady: boolean): BrowserWindow {
   })
 
   if (showOnReady) win.once('ready-to-show', () => win.show())
+  // Right-clicking the title bar would still open the system menu.
+  win.on('system-context-menu', (event) => event.preventDefault())
 
   // Links (e.g. inside meeting notes or event descriptions) open in the system
   // browser; the app window itself never navigates away.

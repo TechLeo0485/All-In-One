@@ -7,6 +7,7 @@ import { LocalEventDialog } from './components/LocalEventDialog'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Toasts } from './components/Toasts'
+import { TitleBar } from './components/TitleBar'
 import { UpdateBanner } from './components/UpdateBanner'
 import { Spinner } from './components/ui'
 import { CalendarPage } from './pages/CalendarPage'
@@ -29,8 +30,11 @@ export default function App() {
 
   if (!ready) {
     return (
-      <div className="flex h-full items-center justify-center text-slate-500">
-        <Spinner />
+      <div className="flex h-full flex-col">
+        <TitleBar />
+        <div className="flex flex-1 items-center justify-center text-slate-500">
+          <Spinner />
+        </div>
         <Toasts />
       </div>
     )
@@ -38,6 +42,7 @@ export default function App() {
 
   return (
     <div className="flex h-full flex-col">
+      <TitleBar />
       <UpdateBanner />
       <div className="flex min-h-0 flex-1">
         <Sidebar />
