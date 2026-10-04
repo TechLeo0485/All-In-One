@@ -1,7 +1,7 @@
 {
   "name": "all-in-one",
   "productName": "All-In-One",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "All-In-One: all your Proton calendars, meeting notes and reminders in one desktop app.",
   "author": "All-In-One",
   "main": "./out/main/index.js",
