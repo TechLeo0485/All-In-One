@@ -33,8 +33,12 @@ export function outlookIcsUrl(url: string): string {
  */
 export function isAutoSyncSource(calendar: { sourceUrl: string; accountId: string | null; enabled: boolean }): boolean {
   if (!calendar.enabled || calendar.accountId) return false
-  const host = hostOf(calendar.sourceUrl)
-  return host !== null && !host.endsWith('proton.me')
+  return hostOf(calendar.sourceUrl) !== null && !isProtonCalendarUrl(calendar.sourceUrl)
+}
+
+/** Proton Calendar share links (calendar.proton.me/api/calendar/v1/url/…). */
+export function isProtonCalendarUrl(url: string): boolean {
+  return hostOf(url)?.endsWith('proton.me') ?? false
 }
 
 /** Exported .ics files are stored as file: URLs. */

@@ -9,7 +9,6 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { Toasts } from './components/Toasts'
 import { UpdateBanner } from './components/UpdateBanner'
 import { Spinner } from './components/ui'
-import { AccountsPage } from './pages/AccountsPage'
 import { CalendarPage } from './pages/CalendarPage'
 import { CalendarsPage } from './pages/CalendarsPage'
 import { SettingsPage } from './pages/SettingsPage'
@@ -45,7 +44,6 @@ export default function App() {
         <main className="min-w-0 flex-1">
           <ErrorBoundary area={view === 'calendar' ? 'calendar view' : `${view} page`} key={view}>
             {view === 'calendar' && <CalendarPage />}
-            {view === 'accounts' && <AccountsPage />}
             {view === 'calendars' && <CalendarsPage />}
             {view === 'settings' && <SettingsPage />}
           </ErrorBoundary>

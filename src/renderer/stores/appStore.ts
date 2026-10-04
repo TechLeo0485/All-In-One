@@ -11,7 +11,7 @@ import type {
 } from '@shared/types'
 import { errorMessage } from '../utils/errors'
 
-export type View = 'calendar' | 'accounts' | 'calendars' | 'settings'
+export type View = 'calendar' | 'calendars' | 'settings'
 
 /** What the local-event dialog is doing, if open. */
 export type EventEditorState =

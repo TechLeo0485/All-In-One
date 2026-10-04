@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { useAppStore, type View } from '../stores/appStore'
 import { formatRelative } from '../utils/dates'
 import { useNow } from '../hooks/useNow'
-import { AlertIcon, CalendarIcon, EyeIcon, EyeOffIcon, LayersIcon, PlusIcon, RefreshIcon, SettingsIcon, UsersIcon } from './icons'
+import { AlertIcon, CalendarIcon, EyeIcon, EyeOffIcon, LayersIcon, PlusIcon, RefreshIcon, SettingsIcon } from './icons'
 import { Button, ColorDot, Spinner } from './ui'
 import { AppLogo } from './AppLogo'
 import { SearchBox } from './SearchBox'
@@ -138,9 +138,9 @@ export function Sidebar() {
           <div key={group.key} className="mb-2">
             {group.title && (
               <button
-                onClick={() => group.key !== 'other' && setView('accounts')}
+                onClick={() => group.key !== 'other' && setView('calendars')}
                 className="flex w-full items-center gap-1.5 px-2 pt-1 pb-0.5 text-left text-[11px] font-medium text-slate-400"
-                title={group.key !== 'other' ? 'Open Proton accounts' : undefined}
+                title={group.key !== 'other' ? 'Manage this Proton account' : undefined}
               >
                 <span className="truncate">{group.title}</span>
                 {group.alert && (
@@ -179,8 +179,8 @@ export function Sidebar() {
         {enabled.length === 0 && (
           <p className="mt-2 px-2 text-xs text-slate-500">
             No calendars yet.{' '}
-            <button className="text-blue-400 hover:underline" onClick={() => setView('accounts')}>
-              Connect an account
+            <button className="text-blue-400 hover:underline" onClick={() => setView('calendars')}>
+              Add a calendar
             </button>
           </p>
         )}
@@ -197,7 +197,6 @@ export function Sidebar() {
 
       <nav className="space-y-0.5 border-t border-slate-800 p-3">
         <NavButton view="calendar" label="Calendar" icon={<CalendarIcon />} />
-        <NavButton view="accounts" label="Proton accounts" icon={<UsersIcon />} />
         <NavButton view="calendars" label="Manage calendars" icon={<LayersIcon />} />
         <NavButton view="settings" label="Settings" icon={<SettingsIcon />} />
       </nav>
