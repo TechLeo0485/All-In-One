@@ -140,7 +140,9 @@ class SyncService {
 async function fetchIcs(url: string): Promise<string> {
   const response = await fetch(normalizeFeedUrl(url), {
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    headers: { Accept: 'text/calendar, */*;q=0.5' }
+    // Google writes Meet join instructions into DESCRIPTION, localized per request; without
+    // this they can come back in an arbitrary language (e.g. Chinese).
+    headers: { Accept: 'text/calendar, */*;q=0.5', 'Accept-Language': 'en-US,en;q=0.9' }
   })
   if (!response.ok) {
     throw new Error(`Server responded with HTTP ${response.status} ${response.statusText}`.trim())
