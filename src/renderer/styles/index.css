@@ -134,7 +134,26 @@ textarea,
   box-shadow: 0 0 0 1px var(--color-slate-900);
 }
 .fc .fc-timegrid-event .fc-event-main {
-  padding: 2px 4px;
+  padding: 3px 6px;
+  line-height: 1.25;
+}
+/* Shorter events (see timeGridSizeClasses in CalendarPage): one line, less padding. */
+.fc .fc-timegrid-event.event-single-line .fc-event-main {
+  padding: 2px 6px;
+}
+.fc .fc-timegrid-event.event-tiny .fc-event-main {
+  padding: 0 6px;
+  font-size: 0.7rem;
+  line-height: 1.15;
+  display: flex;
+  align-items: center;
+}
+.fc .fc-timegrid-event.event-tiny .fc-event-main > * {
+  min-width: 0;
+}
+/* Timezone label in the corner of the time axis (Week/Day). */
+.fc .fc-col-header .fc-timegrid-axis-cushion {
+  @apply text-[0.65rem] font-medium text-slate-500;
 }
 .fc .fc-daygrid-dot-event:hover,
 .fc .fc-daygrid-dot-event.fc-event-mirror {

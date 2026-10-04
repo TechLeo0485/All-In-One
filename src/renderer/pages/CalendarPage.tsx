@@ -1,9 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type SyntheticEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement, type SyntheticEvent } from 'react'
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
-import type { DateSelectArg, DatesSetArg, EventClickArg, EventDropArg, EventInput, EventSourceFuncArg } from '@fullcalendar/core'
+import type {
+  DateSelectArg,
+  DatesSetArg,
+  EventClickArg,
+  EventContentArg,
+  EventDropArg,
+  EventInput,
+  EventSourceFuncArg
+} from '@fullcalendar/core'
 import type { EventResizeDoneArg } from '@fullcalendar/interaction'
 import type { CalendarEvent, LocalEventInput } from '@shared/types'
 import { useAppStore } from '../stores/appStore'
@@ -196,7 +204,10 @@ export function CalendarPage() {
           scrollTime="08:00:00"
           eventTimeFormat={TIME_FORMAT}
           slotLabelFormat={TIME_FORMAT}
+          views={VIEW_OPTIONS}
+          eventContent={renderEventContent}
           eventClassNames={(arg) => [
+            ...timeGridSizeClasses(arg),
             ...(arg.event.id === selectedEventId ? ['ring-2', 'ring-white', 'ring-offset-1', 'ring-offset-slate-900'] : []),
             // Not FullCalendar's own isPast: that is only recomputed occasionally, not every minute.
             ...(isEnded(arg.event.end ?? arg.event.start, now) ? ['event-ended'] : [])
@@ -212,6 +223,77 @@ const PLUGINS = [dayGridPlugin, timeGridPlugin, interactionPlugin]
 const HEADER_TOOLBAR = { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' }
 const BUTTON_TEXT = { today: 'Today', month: 'Month', week: 'Week', day: 'Day' }
 const TIME_FORMAT = { hour: 'numeric', minute: '2-digit', meridiem: 'short' } as const
+
+/**
+ * Week/Day views: the top-left corner of the time axis shows the timezone ("GMT-04").
+ * FullCalendar only puts content there for week numbers, so we render the zone instead.
+ */
+const VIEW_OPTIONS = {
+  timeGrid: {
+    weekNumbers: true,
+    weekNumberContent: (arg: { date: Date }) => (
+      <span title={Intl.DateTimeFormat().resolvedOptions().timeZone}>{gmtOffsetLabel(arg.date)}</span>
+    )
+  }
+}
+
+/** "GMT-04", "GMT+05:30" — the local offset on `date` (it changes with DST). */
+function gmtOffsetLabel(date: Date): string {
+  const offset = -date.getTimezoneOffset()
+  const abs = Math.abs(offset)
+  const minutes = abs % 60
+  return `GMT${offset < 0 ? '-' : '+'}${String(Math.floor(abs / 60)).padStart(2, '0')}${minutes ? `:${String(minutes).padStart(2, '0')}` : ''}`
+}
+
+/** Week/Day events at 60px per hour: under 45 minutes there is room for one line only. */
+const SINGLE_LINE_MINUTES = 45
+/** Under 30 minutes (< 30px tall) the padding and font shrink too. */
+const TINY_MINUTES = 30
+
+function durationMinutes(arg: { event: EventContentArg['event'] }): number {
+  const { start, end } = arg.event
+  if (!start) return 60
+  return ((end ?? new Date(start.getTime() + 60 * 60_000)).getTime() - start.getTime()) / 60_000
+}
+
+function isTimedTimeGridEvent(arg: { event: EventContentArg['event']; view: EventContentArg['view'] }): boolean {
+  return arg.view.type.startsWith('timeGrid') && !arg.event.allDay
+}
+
+function timeGridSizeClasses(arg: { event: EventContentArg['event']; view: EventContentArg['view'] }): string[] {
+  if (!isTimedTimeGridEvent(arg)) return []
+  const minutes = durationMinutes(arg)
+  if (minutes < TINY_MINUTES) return ['event-tiny']
+  if (minutes < SINGLE_LINE_MINUTES) return ['event-single-line']
+  return []
+}
+
+/**
+ * Week/Day events, Google Calendar style: title first, then the time. Short events
+ * get one line ("Interview, 9:00am"), longer ones the full range on a second line.
+ * Month view keeps FullCalendar's default rendering.
+ */
+function renderEventContent(arg: EventContentArg): ReactElement | true {
+  if (!isTimedTimeGridEvent(arg)) return true
+  const { title, start } = arg.event
+  const minutes = durationMinutes(arg)
+  if (minutes < SINGLE_LINE_MINUTES) {
+    const startText = start ? arg.view.calendar.formatDate(start, TIME_FORMAT) : ''
+    return (
+      <div className="truncate">
+        {title ? <span className="font-medium">{title}</span> : null}
+        {title && startText ? ', ' : null}
+        {startText}
+      </div>
+    )
+  }
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      {title && <div className={`font-medium ${minutes >= 75 ? 'line-clamp-2' : 'truncate'}`}>{title}</div>}
+      <div className="truncate opacity-85">{arg.timeText}</div>
+    </div>
+  )
+}
 
 const VIEW_STORAGE_KEY = 'calendar.view'
 const TITLE_SELECTOR = '.fc-toolbar-title'
