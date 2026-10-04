@@ -1,4 +1,5 @@
 import type { AppSettings } from '@shared/types'
+import { DEFAULT_EVENT_STATUSES, normalizeStatuses } from '@shared/eventStatus'
 import { getDb } from './connection'
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -12,7 +13,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   notificationsPausedUntil: '',
   closeToTray: true,
   launchAtStartup: false,
-  autoSyncMinutes: 30
+  autoSyncMinutes: 30,
+  eventStatuses: DEFAULT_EVENT_STATUSES
 }
 
 /** Keys for internal app state kept in the same table (never exposed as settings). */
@@ -28,7 +30,11 @@ let cached: AppSettings | null = null
 export const settingsRepository = {
   get(): AppSettings {
     cached ??= load()
-    return { ...cached, hiddenCalendarIds: [...cached.hiddenCalendarIds] }
+    return {
+      ...cached,
+      hiddenCalendarIds: [...cached.hiddenCalendarIds],
+      eventStatuses: cached.eventStatuses.map((s) => ({ ...s }))
+    }
   },
 
   /** Drops ids of calendars that no longer exist from the hidden list. */
@@ -77,6 +83,7 @@ function load(): AppSettings {
     .prepare(`SELECT key, value FROM settings WHERE key NOT LIKE '${INTERNAL_PREFIX}%'`)
     .all() as { key: string; value: string }[]
   const settings: AppSettings = { ...DEFAULT_SETTINGS }
+  carryOverStatusColors(rows)
   for (const { key, value } of rows) {
     if (!(key in DEFAULT_SETTINGS)) continue
     try {
@@ -91,5 +98,24 @@ function load(): AppSettings {
       // ignore corrupt value, keep default
     }
   }
+  settings.eventStatuses = normalizeStatuses(settings.eventStatuses)
   return settings
+}
+
+/**
+ * The first status version only had fixed statuses with a color each
+ * ("statusColors"); keep colors picked there when the editable list is first loaded.
+ */
+function carryOverStatusColors(rows: { key: string; value: string }[]): void {
+  const old = rows.find((r) => r.key === 'statusColors')
+  if (!old || rows.some((r) => r.key === 'eventStatuses')) return
+  try {
+    const colors = JSON.parse(old.value) as Record<string, unknown>
+    const statuses = DEFAULT_EVENT_STATUSES.map((s) =>
+      typeof colors?.[s.id] === 'string' ? { ...s, color: colors[s.id] as string } : s
+    )
+    rows.push({ key: 'eventStatuses', value: JSON.stringify(statuses) })
+  } catch {
+    // unreadable: defaults
+  }
 }

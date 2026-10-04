@@ -66,14 +66,16 @@ export const accountRepository = {
     }
   },
 
-  /** Deletes the account plus its calendars (cascade), their events (cascade) and notes. */
+  /** Deletes the account plus its calendars (cascade), their events (cascade), notes and statuses. */
   remove(id: string): void {
     const db = getDb()
     db.transaction(() => {
-      db.prepare(
-        `DELETE FROM notes WHERE event_id IN (
-           SELECT e.id FROM events e JOIN calendars c ON c.id = e.calendar_id WHERE c.account_id = ?)`
-      ).run(id)
+      for (const table of ['notes', 'event_statuses']) {
+        db.prepare(
+          `DELETE FROM ${table} WHERE event_id IN (
+             SELECT e.id FROM events e JOIN calendars c ON c.id = e.calendar_id WHERE c.account_id = ?)`
+        ).run(id)
+      }
       db.prepare('DELETE FROM proton_accounts WHERE id = ?').run(id)
     })()
   }

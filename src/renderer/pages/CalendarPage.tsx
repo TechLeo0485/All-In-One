@@ -14,6 +14,7 @@ import type {
 } from '@fullcalendar/core'
 import type { EventResizeDoneArg } from '@fullcalendar/interaction'
 import type { CalendarEvent, LocalEventInput } from '@shared/types'
+import { DEFAULT_EVENT_STATUSES, findStatus } from '@shared/eventStatus'
 import { useAppStore } from '../stores/appStore'
 import { useNow } from '../hooks/useNow'
 import { DatePicker } from '../components/DatePicker'
@@ -71,6 +72,14 @@ export function CalendarPage() {
     return JSON.stringify(calendars.filter((c) => c.enabled && !hidden.has(c.id)).map((c) => [c.id, c.color]))
   }, [calendars, settings?.hiddenCalendarIds])
   const visibleCalendars = useMemo(() => new Map<string, string>(JSON.parse(visibleKey)), [visibleKey])
+
+  // Outline color per status: events get a `status-<id>` class (ids and colors are
+  // validated in main, so they are safe in CSS); the outline itself is in index.css.
+  const statuses = settings?.eventStatuses ?? DEFAULT_EVENT_STATUSES
+  const statusCss = useMemo(
+    () => statuses.map((s) => `.fc .fc-event.status-${s.id} { --event-status-color: ${s.color}; }`).join('\n'),
+    [statuses]
+  )
 
   const showLocal = settings?.showLocalEvents ?? true
   const localColor = settings?.localEventColor ?? '#10b981'
@@ -170,6 +179,7 @@ export function CalendarPage() {
         onClick={onTitleActivate}
         onKeyDown={onTitleActivate}
       >
+        <style>{statusCss}</style>
         {pickerOpen && range && (
           <div className="absolute top-14 left-1/2 z-30 -translate-x-1/2">
             <DatePicker
@@ -210,7 +220,9 @@ export function CalendarPage() {
             ...timeGridSizeClasses(arg),
             ...(arg.event.id === selectedEventId ? ['ring-2', 'ring-white', 'ring-offset-1', 'ring-offset-slate-900'] : []),
             // Not FullCalendar's own isPast: that is only recomputed occasionally, not every minute.
-            ...(isEnded(arg.event.end ?? arg.event.start, now) ? ['event-ended'] : [])
+            ...(isEnded(arg.event.end ?? arg.event.start, now) ? ['event-ended'] : []),
+            // Only events with a picked status get an outline.
+            ...[findStatus(statuses, arg.event.extendedProps.status as string | null)].flatMap((s) => (s ? [`status-${s.id}`] : []))
           ]}
         />
       </div>
@@ -320,6 +332,7 @@ function toFullCalendarEvent(e: CalendarEvent, color: string): EventInput {
     // Only local events can be dragged/resized; Proton events are read-only.
     editable: e.isLocalEvent,
     backgroundColor: color,
-    borderColor: color
+    borderColor: color,
+    extendedProps: { status: e.status }
   }
 }

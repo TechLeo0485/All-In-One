@@ -163,6 +163,14 @@ textarea,
 .fc .fc-daygrid-dot-event .fc-event-time {
   @apply text-slate-200;
 }
+/*
+ * Status outline (only events with a status picked). CalendarPage sets
+ * --event-status-color per `status-<id>` class from the colors in Settings.
+ */
+.fc .fc-event[class*='status-'] {
+  outline: 2px solid var(--event-status-color);
+  outline-offset: -2px;
+}
 /* Events that have already ended: same color, a little darker. */
 .fc .fc-event.event-ended {
   filter: brightness(0.7);

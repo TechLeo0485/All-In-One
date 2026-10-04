@@ -98,6 +98,8 @@ interface AppState {
   closeEventEditor(): void
   saveLocalEvent(input: LocalEventInput): Promise<boolean>
   deleteLocalEvent(id: string): Promise<void>
+  /** A status id from Settings, or null to clear the status. */
+  setEventStatus(id: string, statusId: string | null): Promise<void>
 }
 
 let toastSeq = 0
@@ -286,6 +288,11 @@ export const useAppStore = create<AppState>((set, get) => {
       if (!ok) return
       set((s) => ({ selectedEventId: s.selectedEventId === id ? null : s.selectedEventId }))
       get().refreshEvents()
+    },
+
+    async setEventStatus(id, statusId) {
+      const ok = await attempt(() => window.api.events.setStatus(id, statusId).then(() => true))
+      if (ok) get().refreshEvents()
     }
   }
 })

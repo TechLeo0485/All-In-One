@@ -1,5 +1,6 @@
 import type { AppSettings, CalendarSourceInput, LocalEventInput } from '@shared/types'
 import { AUTO_SYNC_OPTIONS } from '@shared/sources'
+import { MAX_STATUS_LABEL, MAX_STATUSES, normalizeStatuses, STATUS_ID_RE } from '@shared/eventStatus'
 
 /**
  * The renderer is treated as untrusted: every IPC payload is validated here before
@@ -141,7 +142,30 @@ export function settingsPatch(value: unknown): Partial<AppSettings> {
     if (!(AUTO_SYNC_OPTIONS as readonly number[]).includes(n)) fail('Invalid auto-sync interval')
     out.autoSyncMinutes = n
   }
+  if (v.eventStatuses !== undefined) {
+    if (!Array.isArray(v.eventStatuses) || v.eventStatuses.length > MAX_STATUSES) fail('Invalid event statuses')
+    out.eventStatuses = normalizeStatuses(
+      v.eventStatuses.map((item) => {
+        const s = (item ?? {}) as Record<string, unknown>
+        const sid = id(s.id, 'Status id')
+        if (!STATUS_ID_RE.test(sid)) fail('Invalid status id')
+        return {
+          id: sid,
+          label: str(s.label, 'Status name', { required: true, max: MAX_STATUS_LABEL }),
+          color: color(s.color, 'Status color')
+        }
+      })
+    )
+  }
   return out
+}
+
+/** A status id picked on an event, or null to go back to automatic. */
+export function eventStatusId(value: unknown): string | null {
+  if (value === null) return null
+  const sid = id(value, 'Status')
+  if (!STATUS_ID_RE.test(sid)) fail('Invalid status')
+  return sid
 }
 
 export function rangeBound(value: unknown, field: string): string {

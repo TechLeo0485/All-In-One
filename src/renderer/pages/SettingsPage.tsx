@@ -2,10 +2,13 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { APP_NAME, APP_TAGLINE } from '@shared/brand'
 import type { AllDayReminder, AppInfo, UpdateStatus } from '@shared/types'
 import { AUTO_SYNC_OPTIONS } from '@shared/sources'
+import type { EventStatusDef } from '@shared/types'
+import { MAX_STATUS_LABEL, MAX_STATUSES, newStatusId } from '@shared/eventStatus'
+import { nextUnusedColor } from '@shared/colors'
 import { useAppStore } from '../stores/appStore'
 import { AppLogo } from '../components/AppLogo'
 import { ColorPicker } from '../components/ColorPicker'
-import { BellIcon, RefreshIcon } from '../components/icons'
+import { BellIcon, PlusIcon, RefreshIcon } from '../components/icons'
 import { Button, ColorDot, Toggle, inputClass } from '../components/ui'
 import { useNow } from '../hooks/useNow'
 import { useUpdateStatus } from '../hooks/useUpdateStatus'
@@ -170,6 +173,118 @@ function AboutSection() {
   )
 }
 
+/** One status: editable name (saved on Enter / leaving the field), color, order, delete. */
+function StatusRow({
+  status,
+  onChange,
+  onMove,
+  onDelete
+}: {
+  status: EventStatusDef
+  onChange: (patch: Partial<EventStatusDef>) => void
+  onMove: (delta: -1 | 1) => void
+  onDelete: () => void
+}) {
+  const [label, setLabel] = useState(status.label)
+  useEffect(() => setLabel(status.label), [status.label])
+  const commit = (): void => {
+    const trimmed = label.trim()
+    if (trimmed && trimmed !== status.label) onChange({ label: trimmed })
+    else setLabel(status.label)
+  }
+  return (
+    <li className="flex items-center gap-3 py-3">
+      <div className="w-44 shrink-0">
+        <input
+          className={inputClass}
+          value={label}
+          maxLength={MAX_STATUS_LABEL}
+          aria-label="Status name"
+          onChange={(e) => setLabel(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur()
+            if (e.key === 'Escape') setLabel(status.label)
+          }}
+        />
+      </div>
+      <div className="min-w-0 flex-1">
+        <ColorPicker value={status.color} onChange={(color) => onChange({ color })} />
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <Button variant="ghost" className="px-1.5!" title="Move up" onClick={() => onMove(-1)}>
+          ↑
+        </Button>
+        <Button variant="ghost" className="px-1.5!" title="Move down" onClick={() => onMove(1)}>
+          ↓
+        </Button>
+        <Button variant="ghost" className="text-red-400!" onClick={onDelete}>
+          Delete
+        </Button>
+      </div>
+    </li>
+  )
+}
+
+/** Settings → Event status: add, rename, recolor, reorder and delete statuses. */
+function StatusEditor() {
+  const statuses = useAppStore((s) => s.settings?.eventStatuses ?? [])
+  const updateSettings = useAppStore((s) => s.updateSettings)
+  const askConfirm = useAppStore((s) => s.askConfirm)
+  const save = (next: EventStatusDef[]): void => void updateSettings({ eventStatuses: next })
+
+  const move = (id: string, delta: -1 | 1): void => {
+    const list = [...statuses]
+    const from = list.findIndex((s) => s.id === id)
+    const to = from + delta
+    if (to < 0 || to >= list.length) return
+    ;[list[from], list[to]] = [list[to], list[from]]
+    save(list)
+  }
+
+  return (
+    <>
+      <p className="pt-2 text-sm text-slate-400">
+        Pick a status in an event's details; the event is then outlined in the status color. Events without a status
+        have no outline.
+      </p>
+      <ul className="divide-y divide-slate-800">
+        {statuses.map((status) => (
+          <StatusRow
+            key={status.id}
+            status={status}
+            onChange={(patch) => save(statuses.map((s) => (s.id === status.id ? { ...s, ...patch } : s)))}
+            onMove={(delta) => move(status.id, delta)}
+            onDelete={() => {
+              void askConfirm({
+                title: 'Delete status?',
+                message: `Events marked “${status.label}” will no longer have a status.`,
+                confirmLabel: 'Delete status',
+                danger: true
+              }).then((ok) => {
+                if (ok) save(statuses.filter((s) => s.id !== status.id))
+              })
+            }}
+          />
+        ))}
+      </ul>
+      <div className="pb-4">
+        <Button
+          disabled={statuses.length >= MAX_STATUSES}
+          onClick={() =>
+            save([
+              ...statuses,
+              { id: newStatusId(), label: 'New status', color: nextUnusedColor(statuses.map((s) => s.color)) }
+            ])
+          }
+        >
+          <PlusIcon /> Add status
+        </Button>
+      </div>
+    </>
+  )
+}
+
 export function SettingsPage() {
   useNow() // keeps the "paused until" state current
   const settings = useAppStore((s) => s.settings)
@@ -321,6 +436,10 @@ export function SettingsPage() {
           <Row title="Default color" description="Used by every local event set to “Default” (existing ones change too) and the sidebar entry.">
             <ColorPicker value={settings.localEventColor} onChange={(localEventColor) => void updateSettings({ localEventColor })} />
           </Row>
+        </Section>
+
+        <Section title="Event status">
+          <StatusEditor />
         </Section>
 
         <AboutSection />

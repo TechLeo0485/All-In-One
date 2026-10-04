@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import type { AttendeeStatus, EventAttendee } from '@shared/types'
+import type { AttendeeStatus, CalendarEvent, EventAttendee } from '@shared/types'
+import { DEFAULT_EVENT_STATUSES, findStatus } from '@shared/eventStatus'
 import { useAppStore } from '../stores/appStore'
 import { useEventDetails } from '../hooks/useEventDetails'
 import { formatEventWhen, formatReminder } from '../utils/dates'
@@ -73,6 +74,46 @@ function GuestList({ attendees }: { attendees: EventAttendee[] }) {
           {expanded ? 'Show fewer' : `Show all ${attendees.length} guests`}
         </button>
       )}
+    </div>
+  )
+}
+
+/** Status chips from Settings; clicking the selected one again clears it. */
+function StatusPicker({ event }: { event: CalendarEvent }) {
+  const statuses = useAppStore((s) => s.settings?.eventStatuses ?? DEFAULT_EVENT_STATUSES)
+  const setEventStatus = useAppStore((s) => s.setEventStatus)
+  const setView = useAppStore((s) => s.setView)
+  // A status deleted in Settings counts as none.
+  const current = findStatus(statuses, event.status)?.id ?? null
+
+  return (
+    <div className="flex flex-wrap gap-1.5 pl-6" role="radiogroup" aria-label="Status">
+      {statuses.map((o) => {
+        const selected = current === o.id
+        return (
+          <button
+            key={o.id}
+            role="radio"
+            aria-checked={selected}
+            title={selected ? 'Click again to clear the status' : undefined}
+            onClick={() => void setEventStatus(event.id, selected ? null : o.id)}
+            className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition ${
+              selected ? 'font-medium text-white' : 'border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+            }`}
+            style={selected ? { borderColor: o.color, backgroundColor: `${o.color}26` } : undefined}
+          >
+            <span className="size-2 rounded-full" style={{ backgroundColor: o.color }} />
+            {o.label}
+          </button>
+        )
+      })}
+      <button
+        className="px-1 text-xs text-slate-500 hover:text-slate-300 hover:underline"
+        onClick={() => setView('settings')}
+        title="Add, rename or recolor statuses"
+      >
+        {statuses.length ? 'Edit…' : 'Add statuses in Settings…'}
+      </button>
     </div>
   )
 }
@@ -167,6 +208,7 @@ export function EventDetailsPanel() {
                   )}
                 </p>
               </div>
+              <StatusPicker event={event} />
             </section>
 
             {/* Notes sit right under the event summary so they're visible without scrolling past long descriptions or guest lists. */}

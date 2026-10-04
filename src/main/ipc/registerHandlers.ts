@@ -7,6 +7,7 @@ import { eventRepository } from '../database/eventRepository'
 import { noteRepository } from '../database/noteRepository'
 import { settingsRepository } from '../database/settingsRepository'
 import { isFileSource } from '@shared/sources'
+import { findStatus } from '@shared/eventStatus'
 import { fileSourceService } from '../services/fileSourceService'
 import { protonAccountService } from '../services/proton/protonAccountService'
 import { reminderService } from '../services/reminderService'
@@ -84,6 +85,15 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
     withEventsChanged(eventRepository.updateLocal(v.id(id), v.localEventInput(input)))
   )
   handle(IPC.eventsRemoveLocal, (_e, id) => withEventsChanged(eventRepository.removeLocal(v.id(id))))
+  handle(IPC.eventsSetStatus, (_e, id, status) => {
+    const eid = v.id(id)
+    if (!eventRepository.get(eid)) throw new Error('Event not found')
+    const statusId = v.eventStatusId(status)
+    if (statusId !== null && !findStatus(settingsRepository.get().eventStatuses, statusId)) {
+      throw new Error('Unknown status')
+    }
+    withEventsChanged(eventRepository.setStatus(eid, statusId))
+  })
 
   // Notes
   handle(IPC.notesGet, (_e, eventId) => noteRepository.getForEvent(v.id(eventId, 'eventId')))
@@ -106,6 +116,10 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
   handle(IPC.settingsUpdate, (_e, patch) => {
     const parsed = v.settingsPatch(patch)
     const settings = settingsRepository.update(parsed)
+    if (parsed.eventStatuses) {
+      eventRepository.pruneStatuses(settings.eventStatuses.map((s) => s.id))
+      hooks.onEventsChanged() // renamed/recolored/removed statuses show on events
+    }
     hooks.onSettingsChanged(parsed, settings)
     return settings
   })

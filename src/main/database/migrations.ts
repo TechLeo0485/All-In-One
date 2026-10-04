@@ -117,7 +117,16 @@ export const migrations: Migration[] = [
   },
   // v7: folded title/description/location/guests for search, written with each event.
   // Existing rows are filled in by fillMissingSearchText() right after upgrading.
-  (db) => addColumn(db, 'events', 'search_text', "TEXT NOT NULL DEFAULT ''")
+  (db) => addColumn(db, 'events', 'search_text', "TEXT NOT NULL DEFAULT ''"),
+  // v8: status picked by the user per event (Follow-Up / Passed / Failed). Like
+  // notes, no foreign key, so it survives an event briefly leaving its feed.
+  `
+  CREATE TABLE IF NOT EXISTS event_statuses (
+    event_id   TEXT PRIMARY KEY,
+    status     TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  `
 ]
 
 /** SQL text, or a function for changes that need checks or data conversion. */

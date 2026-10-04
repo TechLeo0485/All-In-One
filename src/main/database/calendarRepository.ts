@@ -133,6 +133,7 @@ export const calendarRepository = {
     const db = getDb()
     db.transaction(() => {
       db.prepare('DELETE FROM notes WHERE event_id IN (SELECT id FROM events WHERE calendar_id = ?)').run(id)
+      db.prepare('DELETE FROM event_statuses WHERE event_id IN (SELECT id FROM events WHERE calendar_id = ?)').run(id)
       // Events are removed by ON DELETE CASCADE.
       db.prepare('DELETE FROM calendars WHERE id = ?').run(id)
     })()

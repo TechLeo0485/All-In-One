@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import type { CalendarEvent, EventAttendee, EventSearchResult, LocalEventInput, SearchMatchField } from '@shared/types'
+import type {
+  CalendarEvent,
+  EventAttendee,
+  EventSearchResult,
+  LocalEventInput,
+  SearchMatchField
+} from '@shared/types'
 import { eventSearchText, findMatches, foldText, guestsText, searchTerms, snippetAround } from '@shared/search'
 import { getDb } from './connection'
 
@@ -18,7 +24,12 @@ interface EventRow {
   reminder_minutes: number | null
   attendees: string
   created_at: string
+  /** From event_statuses, when the query joins it */
+  status?: string | null
 }
+
+/** Events plus the status the user picked (if any). */
+const SELECT_EVENTS = 'SELECT e.*, s.status FROM events e LEFT JOIN event_statuses s ON s.event_id = e.id'
 
 /** Event shape produced by the ICS parser, before it is stored. */
 export interface SyncedEventData {
@@ -57,6 +68,7 @@ function toEvent(row: EventRow): CalendarEvent {
     color: row.color,
     reminderMinutes: row.reminder_minutes,
     attendees: parseAttendees(row.attendees),
+    status: row.status ?? null,
     createdAt: row.created_at
   }
 }
@@ -127,9 +139,10 @@ export const eventRepository = {
 
     const rows = db
       .prepare(
-        `SELECT e.*, n.content AS note, c.name AS calendar_name
+        `SELECT e.*, n.content AS note, c.name AS calendar_name, s.status
          FROM events e
          LEFT JOIN notes n ON n.event_id = e.id
+         LEFT JOIN event_statuses s ON s.event_id = e.id
          LEFT JOIN calendars c ON c.id = e.calendar_id
          WHERE (e.is_local_event = 1 OR c.enabled = 1) AND ${clauses.join(' AND ')}
          ORDER BY e.start_time
@@ -181,13 +194,13 @@ export const eventRepository = {
    */
   listInRange(start: string, end: string): CalendarEvent[] {
     const rows = getDb()
-      .prepare('SELECT * FROM events WHERE start_time < ? AND end_time > ? ORDER BY start_time')
+      .prepare(`${SELECT_EVENTS} WHERE e.start_time < ? AND e.end_time > ? ORDER BY e.start_time`)
       .all(end, start) as EventRow[]
     return rows.map(toEvent)
   },
 
   get(id: string): CalendarEvent | null {
-    const row = getDb().prepare('SELECT * FROM events WHERE id = ?').get(id) as EventRow | undefined
+    const row = getDb().prepare(`${SELECT_EVENTS} WHERE e.id = ?`).get(id) as EventRow | undefined
     return row ? toEvent(row) : null
   },
 
@@ -251,7 +264,28 @@ export const eventRepository = {
       const result = db.prepare('DELETE FROM events WHERE id = ? AND is_local_event = 1').run(id)
       if (result.changes === 0) throw new Error('Local event not found')
       db.prepare('DELETE FROM notes WHERE event_id = ?').run(id)
+      db.prepare('DELETE FROM event_statuses WHERE event_id = ?').run(id)
     })()
+  },
+
+  /** Works for synced (read-only) events too: the status is the app's own data. */
+  setStatus(id: string, status: string | null): void {
+    const db = getDb()
+    if (status === null) {
+      db.prepare('DELETE FROM event_statuses WHERE event_id = ?').run(id)
+      return
+    }
+    db.prepare(
+      `INSERT INTO event_statuses (event_id, status, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT (event_id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at`
+    ).run(id, status, new Date().toISOString())
+  },
+
+  /** Drops statuses that were deleted in Settings, so those events go back to automatic. */
+  pruneStatuses(validIds: string[]): void {
+    getDb()
+      .prepare(`DELETE FROM event_statuses WHERE status NOT IN (SELECT value FROM json_each(?))`)
+      .run(JSON.stringify(validIds))
   },
 
   /**

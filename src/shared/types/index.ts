@@ -76,7 +76,18 @@ export interface CalendarEvent {
   reminderMinutes: number | null
   /** Organizer and guests from the feed (ORGANIZER / ATTENDEE); empty for local events */
   attendees: EventAttendee[]
+  /** Id of the status picked by the user (see AppSettings.eventStatuses); null = none. */
+  status: string | null
   createdAt: string
+}
+
+/**
+ * A status from Settings, picked per event. Events with a status are outlined in its color.
+ */
+export interface EventStatusDef {
+  id: string
+  label: string
+  color: string
 }
 
 /** RSVP state from the iCalendar PARTSTAT parameter. */
@@ -173,6 +184,10 @@ export interface AppSettings {
   /* ----- sync ----- */
   /** Refresh non-Proton link calendars every N minutes (and at startup); 0 = off */
   autoSyncMinutes: number
+
+  /* ----- event status ----- */
+  /** Event statuses, in the order they are offered */
+  eventStatuses: EventStatusDef[]
 }
 
 /** 'same-day' = 09:00 on the day, 'day-before' = 18:00 the evening before */
@@ -232,6 +247,8 @@ export interface CalendarApi {
     createLocal(input: LocalEventInput): Promise<CalendarEvent>
     updateLocal(id: string, input: LocalEventInput): Promise<CalendarEvent>
     removeLocal(id: string): Promise<void>
+    /** null = no status. */
+    setStatus(id: string, statusId: string | null): Promise<void>
   }
   notes: {
     get(eventId: string): Promise<Note | null>
