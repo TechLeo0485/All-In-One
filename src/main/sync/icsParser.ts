@@ -27,7 +27,15 @@ export function parseIcs(calendarId: string, icsText: string, options: ParseOpti
   const windowStart = options.windowStart ?? new Date(now - 183 * 86_400_000)
   const windowEnd = options.windowEnd ?? new Date(now + 548 * 86_400_000)
 
-  const root = new ICAL.Component(ICAL.parse(icsText))
+  let jcal: ReturnType<typeof ICAL.parse>
+  try {
+    jcal = ICAL.parse(icsText)
+  } catch {
+    // One malformed line (often from a third-party invite) makes ical.js reject the
+    // whole file. Repair what we can and retry; rethrow if it still fails.
+    jcal = ICAL.parse(repairIcs(icsText))
+  }
+  const root = new ICAL.Component(jcal)
 
   // Embedded VTIMEZONE definitions take priority; IANA TZIDs without a definition
   // are handled by the Intl fallback in toStoredTime().
@@ -251,6 +259,29 @@ export function makeEventId(calendarId: string, externalId: string): string {
 function isCancelled(ev: ICAL.Event): boolean {
   const status = ev.component.getFirstPropertyValue('status')
   return typeof status === 'string' && status.toUpperCase() === 'CANCELLED'
+}
+
+/**
+ * Best-effort fix-up for content lines that have no ':' value delimiter, which
+ * ical.js rejects outright:
+ *  - `NAME;PARAM=text` (e.g. `DESCRIPTION;VALUE=Some text`) becomes `NAME:text`.
+ *  - A bare line with neither ';' nor ':' is a line break that wasn't folded, so it
+ *    is joined onto the previous line.
+ */
+export function repairIcs(icsText: string): string {
+  const lines = icsText.replace(/\r?\n[ \t]/g, '').split(/\r?\n/)
+  const out: string[] = []
+  for (const line of lines) {
+    if (line === '' || line.includes(':')) {
+      out.push(line)
+      continue
+    }
+    const withParam = /^([A-Za-z0-9-]+);[A-Za-z0-9-]+=(.*)$/.exec(line)
+    if (withParam) out.push(`${withParam[1]}:${withParam[2]}`)
+    else if (!line.includes(';') && out.length > 0) out[out.length - 1] += `\\n${line}`
+    // Anything else can't be salvaged; drop it rather than lose the whole calendar.
+  }
+  return out.join('\r\n')
 }
 
 function pad(n: number): string {

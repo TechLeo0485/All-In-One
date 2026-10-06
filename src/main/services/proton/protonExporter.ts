@@ -40,7 +40,13 @@ export interface ExportedCalendar {
 }
 
 const PAGE_LOAD_TIMEOUT_MS = 90_000
-const DOWNLOAD_TIMEOUT_MS = 6 * 60_000
+/** Fetching + decrypting a large calendar on a slow connection can take a while. */
+const EXPORT_TIMEOUT_MS = 10 * 60_000
+const DOWNLOAD_TIMEOUT_MS = EXPORT_TIMEOUT_MS + 60_000
+/** Proton UI reactions (dropdown opening, selection updating) when the app is busy. */
+const UI_STEP_TIMEOUT_MS = 30_000
+/** Attempts per calendar; the page is reloaded between attempts. */
+const MAX_ATTEMPTS = 3
 
 /* ---------- scripts executed inside Proton's page ---------- */
 
@@ -58,6 +64,15 @@ const PAGE_HELPERS = `
   // The export section comes after the import section, so take the last calendar select.
   const exportSelect = () => [...document.querySelectorAll('button[id^="calendar-"]')].pop() || null;
   const options = () => [...document.querySelectorAll('li.dropdown-item button[title]')];
+  const openModal = () => document.querySelector('dialog[open], .modal-two');
+  // A previous export modal that is still closing would swallow clicks on the select.
+  const waitForNoModal = async () => {
+    const start = Date.now();
+    while (openModal() && Date.now() - start < ${UI_STEP_TIMEOUT_MS}) {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await sleep(300);
+    }
+  };
 `
 
 const DETECT_STATE_SCRIPT = `(() => {
@@ -74,7 +89,7 @@ const LIST_CALENDARS_SCRIPT = `(async () => {
   if (!select) throw new Error('EXPORT_CONTROLS_NOT_FOUND');
   const current = select.textContent.trim();
   select.click();
-  const opts = await waitFor(() => { const o = options(); return o.length ? o : null; }, 8000, 'calendar list');
+  const opts = await waitFor(() => { const o = options(); return o.length ? o : null; }, ${UI_STEP_TIMEOUT_MS}, 'calendar list');
   const names = opts.map((o) => o.title);
   // Close the dropdown by re-selecting the current calendar.
   (opts.find((o) => o.title === current) || opts[0]).click();
@@ -86,16 +101,16 @@ const LIST_CALENDARS_SCRIPT = `(async () => {
 function exportCalendarScript(index: number, name: string): string {
   return `(async (index, name) => {
     ${PAGE_HELPERS}
-    // Dismiss any welcome / what's-new dialog that might cover the page.
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    // Dismiss any welcome / what's-new dialog or a previous export modal still closing.
+    await waitForNoModal();
 
     let select = exportSelect();
     if (!select) throw new Error('EXPORT_CONTROLS_NOT_FOUND');
     select.click();
-    const option = await waitFor(() => options()[index], 8000, 'calendar "' + name + '" in list');
+    const option = await waitFor(() => options()[index], ${UI_STEP_TIMEOUT_MS}, 'calendar "' + name + '" in list');
     if (option.title !== name) throw new Error('EXPORT_UI_TIMEOUT: calendar list changed during export');
     option.click();
-    await waitFor(() => { const s = exportSelect(); return s && s.textContent.trim() === name; }, 8000, 'calendar selection');
+    await waitFor(() => { const s = exportSelect(); return s && s.textContent.trim() === name; }, ${UI_STEP_TIMEOUT_MS}, 'calendar selection');
     select = exportSelect();
 
     const row = select.parentElement && select.parentElement.parentElement;
@@ -107,10 +122,11 @@ function exportCalendarScript(index: number, name: string): string {
     // The modal fetches + decrypts all events, then shows the "Save ICS file" submit button.
     const save = await waitFor(
       () => [...document.querySelectorAll('button[type="submit"]')].find((b) => !existingSubmits.has(b) && !b.disabled),
-      5 * 60 * 1000,
+      ${EXPORT_TIMEOUT_MS},
       'export to finish'
     );
     save.click();
+    await waitForNoModal();
     return true;
   })(${index}, ${JSON.stringify(name)})`
 }
@@ -155,7 +171,13 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 
 function describePageError(err: unknown): Error {
   const message = err instanceof Error ? err.message : String(err)
-  if (message.includes('EXPORT_CONTROLS_NOT_FOUND') || message.includes('EXPORT_UI_TIMEOUT')) {
+  if (message.includes('EXPORT_UI_TIMEOUT')) {
+    return new Error(
+      `Proton took too long to respond (${message.replace(/^.*?EXPORT_UI_TIMEOUT: /, '')}). ` +
+        'Try Sync again, or use "Open Proton" and click Download ICS.'
+    )
+  }
+  if (message.includes('EXPORT_CONTROLS_NOT_FOUND')) {
     return new Error(
       `Couldn't operate Proton's export page (${message.replace(/^.*?(EXPORT_\w+)/, '$1')}). ` +
         'Proton may have changed its website. Use "Open Proton" and click Download ICS as a workaround.'
@@ -229,10 +251,17 @@ export async function exportAccountCalendars(
 
   const exec = <T>(script: string): Promise<T> => step(win.webContents.executeJavaScript(script, true) as Promise<T>)
 
-  try {
+  const wait = (ms: number): Promise<unknown> => step(new Promise((r) => setTimeout(r, ms)))
+
+  /** (Re)loads the export page and waits until Proton has rendered it. */
+  const openExportPage = async (): Promise<void> => {
     await step(
       withTimeout(win.loadURL(PROTON_EXPORT_URL), PAGE_LOAD_TIMEOUT_MS, 'Proton did not load (check your internet connection)')
-    )
+    ).catch((e) => {
+      // Proton's app may redirect while loading, which aborts the initial load; the
+      // readiness loop below decides whether the page actually came up.
+      if (e instanceof ExportAbortedError || !String(e).includes('ERR_ABORTED')) throw e
+    })
 
     // Proton is a single-page app: wait until it has decrypted the session and rendered.
     const started = Date.now()
@@ -243,28 +272,54 @@ export async function exportAccountCalendars(
         return 'loading'
       })
       if (state === 'login') throw new LoginRequiredError()
-      if (state === 'ready') break
+      if (state === 'ready') return
       if (Date.now() - started > PAGE_LOAD_TIMEOUT_MS) {
         throw describePageError(new Error('EXPORT_UI_TIMEOUT: export page'))
       }
-      await step(new Promise((r) => setTimeout(r, 500)))
+      await wait(500)
     }
+  }
 
-    const rawNames = await exec<string[]>(LIST_CALENDARS_SCRIPT).catch((e) => {
-      throw e instanceof ExportAbortedError ? e : describePageError(e)
-    })
+  /**
+   * Runs `fn`, retrying on transient failures (slow network, Proton busy) with a
+   * fresh page load each time. Login and cancellation errors are never retried.
+   */
+  const withRetry = async <T>(fn: () => Promise<T>, reloadBeforeRetry = true): Promise<T> => {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        if (attempt > 1 && reloadBeforeRetry) await openExportPage()
+        return await fn()
+      } catch (e) {
+        if (e instanceof ExportAbortedError || e instanceof LoginRequiredError || attempt >= MAX_ATTEMPTS) throw e
+        console.warn(`[proton] attempt ${attempt} failed, retrying: ${e instanceof Error ? e.message : String(e)}`)
+        pending = null
+        await wait(3000 * attempt)
+      }
+    }
+  }
+
+  try {
+    await withRetry(openExportPage, false)
+
+    const rawNames = await withRetry(() =>
+      exec<string[]>(LIST_CALENDARS_SCRIPT).catch((e) => {
+        throw e instanceof ExportAbortedError ? e : describePageError(e)
+      })
+    )
     const names = uniqueCalendarNames(rawNames)
 
     for (let i = 0; i < rawNames.length; i++) {
-      const downloaded = new Promise<string>((resolve, reject) => (pending = { resolve, reject }))
-      downloaded.catch(() => undefined) // handled below; avoid unhandled rejection if we bail early
-      await exec(exportCalendarScript(i, rawNames[i])).catch((e) => {
-        pending = null
-        throw e instanceof ExportAbortedError ? e : describePageError(e)
+      const path = await withRetry(async () => {
+        const downloaded = new Promise<string>((resolve, reject) => (pending = { resolve, reject }))
+        downloaded.catch(() => undefined) // handled below; avoid unhandled rejection if we bail early
+        await exec(exportCalendarScript(i, rawNames[i])).catch((e) => {
+          pending = null
+          throw e instanceof ExportAbortedError ? e : describePageError(e)
+        })
+        return step(withTimeout(downloaded, DOWNLOAD_TIMEOUT_MS, `Export of "${names[i]}" did not finish in time`))
       })
-      const path = await step(withTimeout(downloaded, DOWNLOAD_TIMEOUT_MS, `Export of "${names[i]}" did not finish in time`))
       onCalendar({ name: names[i], path })
-      await step(new Promise((r) => setTimeout(r, 800))) // let the modal close
+      await wait(500)
     }
     return { names }
   } finally {
