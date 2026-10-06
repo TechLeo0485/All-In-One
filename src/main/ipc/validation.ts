@@ -1,5 +1,6 @@
 import type { AppSettings, CalendarSourceInput, LocalEventInput, RecurrenceRule, RecurrenceScope } from '@shared/types'
 import { AUTO_SYNC_OPTIONS } from '@shared/sources'
+import { isValidShortcut } from '@shared/shortcut'
 import { MAX_STATUS_LABEL, MAX_STATUSES, normalizeStatuses, STATUS_ID_RE } from '@shared/eventStatus'
 
 /**
@@ -155,6 +156,11 @@ export function recurrenceScope(value: unknown): RecurrenceScope {
 export function settingsPatch(value: unknown): Partial<AppSettings> {
   const v = (value ?? {}) as Record<string, unknown>
   const out: Partial<AppSettings> = {}
+  if (v.globalShortcut !== undefined) {
+    const shortcut = str(v.globalShortcut, 'Shortcut', { max: 60 })
+    if (shortcut && !isValidShortcut(shortcut)) fail('Invalid shortcut')
+    out.globalShortcut = shortcut
+  }
   if (v.showLocalEvents !== undefined) out.showLocalEvents = Boolean(v.showLocalEvents)
   if (v.localEventColor !== undefined) out.localEventColor = color(v.localEventColor, 'Local event color')
   if (v.hiddenCalendarIds !== undefined) {

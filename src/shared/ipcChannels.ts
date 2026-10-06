@@ -31,6 +31,7 @@ export const IPC = {
   settingsUpdate: 'settings:update',
 
   appInfo: 'app:info',
+  appSuspendShortcut: 'app:suspendShortcut',
 
   updatesStatus: 'updates:status',
   updatesCheck: 'updates:check',

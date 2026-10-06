@@ -44,7 +44,8 @@ const api: CalendarApi = {
     update: (patch) => ipcRenderer.invoke(IPC.settingsUpdate, patch)
   },
   app: {
-    info: () => ipcRenderer.invoke(IPC.appInfo)
+    info: () => ipcRenderer.invoke(IPC.appInfo),
+    suspendShortcut: (suspended) => ipcRenderer.invoke(IPC.appSuspendShortcut, suspended)
   },
   updates: {
     status: () => ipcRenderer.invoke(IPC.updatesStatus),

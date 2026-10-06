@@ -12,6 +12,7 @@ import { protonAccountService } from './services/proton/protonAccountService'
 import { registerIpcHandlers } from './ipc/registerHandlers'
 import { syncService } from './sync/syncService'
 import { reminderService } from './services/reminderService'
+import { shortcutService } from './services/shortcutService'
 import { autoSyncService } from './services/autoSyncService'
 import { trayService } from './services/trayService'
 import { updateService } from './services/updateService'
@@ -127,6 +128,13 @@ function showWindow(): BrowserWindow | null {
   win.show()
   win.focus()
   return win
+}
+
+/** Show/hide shortcut: hides the window when it's in front, otherwise brings it up. */
+function toggleWindow(): void {
+  const win = mainWindow
+  if (win && !win.isDestroyed() && win.isVisible() && !win.isMinimized() && win.isFocused()) win.hide()
+  else showWindow()
 }
 
 /** From a reminder click or the tray's "Next" item: show the window on that event. */
@@ -266,6 +274,8 @@ if (!app.requestSingleInstanceLock()) {
     // Keep the OS login item in sync with the saved setting (e.g. after reinstalling).
     applyLaunchAtStartup(settingsRepository.get().launchAtStartup)
 
+    shortcutService.init(toggleWindow, settingsRepository.get().globalShortcut)
+
     app.on('activate', () => showWindow())
   })
 
@@ -280,6 +290,7 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   app.on('will-quit', () => {
+    shortcutService.dispose()
     reminderService.stop()
     autoSyncService.stop()
     updateService.stop()

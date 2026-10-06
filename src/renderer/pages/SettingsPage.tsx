@@ -5,6 +5,7 @@ import { AUTO_SYNC_OPTIONS } from '@shared/sources'
 import type { EventStatusDef } from '@shared/types'
 import { MAX_STATUS_LABEL, MAX_STATUSES, newStatusId } from '@shared/eventStatus'
 import { nextUnusedColor } from '@shared/colors'
+import { DEFAULT_SHORTCUT, shortcutFromKeyEvent, shortcutKeys } from '@shared/shortcut'
 import { useAppStore } from '../stores/appStore'
 import { AppLogo } from '../components/AppLogo'
 import { ColorPicker } from '../components/ColorPicker'
@@ -52,6 +53,86 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       <h2 className="pt-4 text-xs font-semibold tracking-wide text-slate-500 uppercase">{title}</h2>
       <div className="divide-y divide-slate-800">{children}</div>
     </section>
+  )
+}
+
+/** System-wide show/hide shortcut: shows the current keys, records a new combination. */
+function ShortcutRow() {
+  const shortcut = useAppStore((s) => s.settings?.globalShortcut ?? '')
+  const updateSettings = useAppStore((s) => s.updateSettings)
+  const [recording, setRecording] = useState(false)
+  const [hint, setHint] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!recording) return
+    // Otherwise pressing the current shortcut would hide the window instead of being recorded.
+    void window.api.app.suspendShortcut(true)
+    const onKey = (e: KeyboardEvent): void => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.key === 'Escape' && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) return setRecording(false)
+      const result = shortcutFromKeyEvent(e)
+      if ('pending' in result) return // only modifiers so far
+      if ('error' in result) return setHint(result.error)
+      setRecording(false)
+      void updateSettings({ globalShortcut: result.accelerator })
+    }
+    const stop = (): void => setRecording(false)
+    window.addEventListener('keydown', onKey, true)
+    window.addEventListener('blur', stop)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('blur', stop)
+      void window.api.app.suspendShortcut(false)
+    }
+  }, [recording, updateSettings])
+
+  const start = (): void => {
+    setHint(null)
+    setRecording(true)
+  }
+
+  return (
+    <Row
+      title="Show / hide shortcut"
+      description={
+        recording
+          ? (hint ?? 'Press the new key combination, or Esc to cancel.')
+          : 'Works anywhere in Windows: brings the app to the front, or hides it to the tray when it is already in front.'
+      }
+    >
+      <div className="flex items-center gap-2">
+        {recording ? (
+          <span className="rounded-md border border-blue-500 bg-blue-500/10 px-3 py-1.5 text-xs text-blue-300">Press keys…</span>
+        ) : shortcut ? (
+          <span className="flex items-center gap-1">
+            {shortcutKeys(shortcut).map((k) => (
+              <kbd key={k} className="rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 font-sans text-xs text-slate-200">
+                {k}
+              </kbd>
+            ))}
+          </span>
+        ) : (
+          <span className="text-xs text-slate-500">Off</span>
+        )}
+        {recording ? (
+          <Button onClick={() => setRecording(false)}>Cancel</Button>
+        ) : (
+          <>
+            <Button onClick={start}>{shortcut ? 'Change' : 'Set'}</Button>
+            {shortcut ? (
+              <Button variant="ghost" onClick={() => void updateSettings({ globalShortcut: '' })}>
+                Turn off
+              </Button>
+            ) : (
+              <Button variant="ghost" onClick={() => void updateSettings({ globalShortcut: DEFAULT_SHORTCUT })}>
+                Use default
+              </Button>
+            )}
+          </>
+        )}
+      </div>
+    </Row>
   )
 }
 
@@ -390,6 +471,7 @@ export function SettingsPage() {
               onChange={(closeToTray) => void updateSettings({ closeToTray })}
             />
           </Row>
+          <ShortcutRow />
           <Row title="Start with Windows" description="Starts hidden in the tray when you sign in to Windows. Proton calendars are not downloaded.">
             <Toggle
               checked={settings.launchAtStartup}

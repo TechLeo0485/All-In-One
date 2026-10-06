@@ -210,6 +210,8 @@ export interface AppSettings {
   closeToTray: boolean
   /** Start with Windows, hidden in the tray */
   launchAtStartup: boolean
+  /** System-wide shortcut that shows/hides the window (Electron accelerator, e.g. "Alt+Shift+C"); '' = off */
+  globalShortcut: string
 
   /* ----- sync ----- */
   /** Refresh non-Proton link calendars every N minutes (and at startup); 0 = off */
@@ -299,6 +301,8 @@ export interface CalendarApi {
   }
   app: {
     info(): Promise<AppInfo>
+    /** Pauses the show/hide shortcut while Settings records a new one (so pressing it doesn't hide the window). */
+    suspendShortcut(suspended: boolean): Promise<void>
   }
   updates: {
     status(): Promise<UpdateStatus>

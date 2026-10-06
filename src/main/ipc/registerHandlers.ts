@@ -12,6 +12,7 @@ import { findStatus } from '@shared/eventStatus'
 import { fileSourceService } from '../services/fileSourceService'
 import { protonAccountService } from '../services/proton/protonAccountService'
 import { reminderService } from '../services/reminderService'
+import { shortcutService } from '../services/shortcutService'
 import { updateService } from '../services/updateService'
 import { syncService } from '../sync/syncService'
 import * as v from './validation'
@@ -121,6 +122,10 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
   handle(IPC.settingsGet, () => settingsRepository.get())
   handle(IPC.settingsUpdate, (_e, patch) => {
     const parsed = v.settingsPatch(patch)
+    // Check the shortcut before saving it: another app may already use it.
+    if (parsed.globalShortcut !== undefined && !shortcutService.apply(parsed.globalShortcut)) {
+      throw new Error('That shortcut is already used by another app. Try a different one.')
+    }
     const settings = settingsRepository.update(parsed)
     if (parsed.eventStatuses) {
       eventRepository.pruneStatuses(settings.eventStatuses.map((s) => s.id))
@@ -132,6 +137,7 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
 
   // App
   handle(IPC.appInfo, () => ({ name: APP_NAME, version: app.getVersion(), dataFolder: app.getPath('userData') }))
+  handle(IPC.appSuspendShortcut, (_e, suspended) => shortcutService.setSuspended(Boolean(suspended)))
 
   // Updates
   handle(IPC.updatesStatus, () => updateService.getStatus())

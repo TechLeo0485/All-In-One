@@ -1,5 +1,6 @@
 import type { AppSettings } from '@shared/types'
 import { DEFAULT_EVENT_STATUSES, normalizeStatuses } from '@shared/eventStatus'
+import { DEFAULT_SHORTCUT } from '@shared/shortcut'
 import { getDb } from './connection'
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -13,6 +14,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   notificationsPausedUntil: '',
   closeToTray: true,
   launchAtStartup: false,
+  globalShortcut: DEFAULT_SHORTCUT,
   autoSyncMinutes: 30,
   eventStatuses: DEFAULT_EVENT_STATUSES
 }
