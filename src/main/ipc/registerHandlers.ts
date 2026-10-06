@@ -101,6 +101,9 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
     }
     withEventsChanged(eventRepository.setStatus(eid, statusId))
   })
+  handle(IPC.eventsSetFollowUpReminder, (_e, id, remindAt) => {
+    withEventsChanged(eventRepository.setFollowUpReminder(v.id(id), v.optionalTime(remindAt, 'Reminder time')))
+  })
 
   // Notes
   handle(IPC.notesGet, (_e, eventId) => noteRepository.getForEvent(v.id(eventId, 'eventId')))

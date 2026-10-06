@@ -1,5 +1,6 @@
 import type { CalendarEvent, EventAttendee, EventSearchResult, RecurrenceRule, SearchMatchField } from '@shared/types'
 import { eventSearchText, findMatches, foldText, guestsText, searchTerms, snippetAround } from '@shared/search'
+import { FOLLOW_UP_ID } from '@shared/eventStatus'
 import { htmlToPlainText } from '@shared/htmlText'
 import { getDb } from './connection'
 
@@ -21,12 +22,14 @@ interface EventRow {
   series_id?: string | null
   /** From event_statuses, when the query joins it */
   status?: string | null
+  remind_at?: string | null
+  remind_fired?: number | null
   /** From local_series, when the query joins it */
   series_rule?: string | null
 }
 
 /** Events plus the status the user picked (if any) and the repeat rule of local series. */
-const SELECT_EVENTS = `SELECT e.*, s.status, ls.rule AS series_rule FROM events e
+const SELECT_EVENTS = `SELECT e.*, s.status, s.remind_at, s.remind_fired, ls.rule AS series_rule FROM events e
   LEFT JOIN event_statuses s ON s.event_id = e.id
   LEFT JOIN local_series ls ON ls.id = e.series_id`
 
@@ -77,6 +80,8 @@ function toEvent(row: EventRow): CalendarEvent {
     reminderMinutes: row.reminder_minutes,
     attendees: parseAttendees(row.attendees),
     status: row.status ?? null,
+    followUpAt: row.status === FOLLOW_UP_ID ? (row.remind_at ?? null) : null,
+    followUpReminded: row.remind_fired === 1,
     seriesId: row.series_id ?? null,
     recurrence: parseRule(row.series_rule),
     createdAt: row.created_at
@@ -149,7 +154,7 @@ export const eventRepository = {
 
     const rows = db
       .prepare(
-        `SELECT e.*, n.content AS note, c.name AS calendar_name, s.status, ls.rule AS series_rule
+        `SELECT e.*, n.content AS note, c.name AS calendar_name, s.status, s.remind_at, s.remind_fired, ls.rule AS series_rule
          FROM events e
          LEFT JOIN notes n ON n.event_id = e.id
          LEFT JOIN event_statuses s ON s.event_id = e.id
@@ -237,10 +242,36 @@ export const eventRepository = {
       db.prepare('DELETE FROM event_statuses WHERE event_id = ?').run(id)
       return
     }
+    // A follow-up reminder belongs to the Follow-Up status: switching status drops it.
     db.prepare(
       `INSERT INTO event_statuses (event_id, status, updated_at) VALUES (?, ?, ?)
-       ON CONFLICT (event_id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at`
+       ON CONFLICT (event_id) DO UPDATE SET
+         remind_at = CASE WHEN status = excluded.status THEN remind_at END,
+         remind_fired = CASE WHEN status = excluded.status THEN remind_fired ELSE 0 END,
+         status = excluded.status, updated_at = excluded.updated_at`
     ).run(id, status, new Date().toISOString())
+  },
+
+  /** Sets (or with null, removes) the reminder of an event marked Follow-Up. */
+  setFollowUpReminder(id: string, remindAt: string | null): void {
+    const result = getDb()
+      .prepare(`UPDATE event_statuses SET remind_at = ?, remind_fired = 0, updated_at = ? WHERE event_id = ? AND status = ?`)
+      .run(remindAt, new Date().toISOString(), id, FOLLOW_UP_ID)
+    if (result.changes === 0) throw new Error('Mark the event as Follow-Up first')
+  },
+
+  /** Follow-up reminders that are due and not shown yet (no lateness limit: they wait for the app). */
+  listDueFollowUps(nowIso: string): { eventId: string; remindAt: string }[] {
+    return getDb()
+      .prepare(
+        `SELECT event_id AS eventId, remind_at AS remindAt FROM event_statuses
+         WHERE status = ? AND remind_at IS NOT NULL AND remind_fired = 0 AND remind_at <= ?`
+      )
+      .all(FOLLOW_UP_ID, nowIso) as { eventId: string; remindAt: string }[]
+  },
+
+  markFollowUpReminded(id: string): void {
+    getDb().prepare('UPDATE event_statuses SET remind_fired = 1 WHERE event_id = ?').run(id)
   },
 
   /** Drops statuses that were deleted in Settings, so those events go back to automatic. */

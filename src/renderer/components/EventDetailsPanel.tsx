@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import type { AttendeeStatus, CalendarEvent, EventAttendee } from '@shared/types'
-import { DEFAULT_EVENT_STATUSES, findStatus } from '@shared/eventStatus'
+import { DEFAULT_EVENT_STATUSES, findStatus, FOLLOW_UP_ID } from '@shared/eventStatus'
 import { htmlToPlainText } from '@shared/htmlText'
 import { describeRecurrence } from '@shared/recurrence'
 import { useAppStore } from '../stores/appStore'
 import { useEventDetails } from '../hooks/useEventDetails'
-import { formatEventWhen, formatReminder, toDateString } from '../utils/dates'
+import { formatEventWhen, formatReminder, fromLocalInputValue, toDateString, toLocalInputValue } from '../utils/dates'
 import { findFirstUrl, linkify } from '../utils/linkify'
 import { renderDescription } from '../utils/richText'
 import { BellIcon, ClockIcon, ExternalIcon, LockIcon, MapPinIcon, RepeatIcon, UsersIcon, XIcon } from './icons'
@@ -90,33 +90,148 @@ function StatusPicker({ event }: { event: CalendarEvent }) {
   const current = findStatus(statuses, event.status)?.id ?? null
 
   return (
-    <div className="flex flex-wrap gap-1.5 pl-6" role="radiogroup" aria-label="Status">
-      {statuses.map((o) => {
-        const selected = current === o.id
-        return (
-          <button
-            key={o.id}
-            role="radio"
-            aria-checked={selected}
-            title={selected ? 'Click again to clear the status' : undefined}
-            onClick={() => void setEventStatus(event.id, selected ? null : o.id)}
-            className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition ${
-              selected ? 'font-medium text-white' : 'border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200'
-            }`}
-            style={selected ? { borderColor: o.color, backgroundColor: `${o.color}26` } : undefined}
-          >
-            <span className="size-2 rounded-full" style={{ backgroundColor: o.color }} />
-            {o.label}
-          </button>
-        )
-      })}
-      <button
-        className="px-1 text-xs text-slate-500 hover:text-slate-300 hover:underline"
-        onClick={() => setView('settings')}
-        title="Add, rename or recolor statuses"
-      >
-        {statuses.length ? 'Edit…' : 'Add statuses in Settings…'}
-      </button>
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-1.5 pl-6" role="radiogroup" aria-label="Status">
+        {statuses.map((o) => {
+          const selected = current === o.id
+          return (
+            <button
+              key={o.id}
+              role="radio"
+              aria-checked={selected}
+              title={selected ? 'Click again to clear the status' : undefined}
+              onClick={() => void setEventStatus(event.id, selected ? null : o.id)}
+              className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition ${
+                selected ? 'font-medium text-white' : 'border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+              }`}
+              style={selected ? { borderColor: o.color, backgroundColor: `${o.color}26` } : undefined}
+            >
+              <span className="size-2 rounded-full" style={{ backgroundColor: o.color }} />
+              {o.label}
+            </button>
+          )
+        })}
+        <button
+          className="px-1 text-xs text-slate-500 hover:text-slate-300 hover:underline"
+          onClick={() => setView('settings')}
+          title="Add, rename or recolor statuses"
+        >
+          {statuses.length ? 'Edit…' : 'Add statuses in Settings…'}
+        </button>
+      </div>
+      {current === FOLLOW_UP_ID && <FollowUpReminder key={event.id} event={event} />}
+    </div>
+  )
+}
+
+/** Quick choices for a follow-up reminder; all at 09:00 local time. */
+const FOLLOW_UP_CHOICES = [
+  { label: 'Tomorrow', days: 1 },
+  { label: 'In 3 days', days: 3 },
+  { label: 'Next week', days: 7 }
+]
+
+function daysFromNowAtNine(days: number): Date {
+  const d = new Date()
+  d.setDate(d.getDate() + days)
+  d.setHours(9, 0, 0, 0)
+  return d
+}
+
+const reminderFmt = new Intl.DateTimeFormat(undefined, {
+  weekday: 'short',
+  month: 'short',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit'
+})
+const chipClass =
+  'rounded-full border border-slate-700 px-2.5 py-0.5 text-xs text-slate-300 hover:border-slate-500 hover:text-white'
+const linkClass = 'text-xs text-slate-400 hover:text-slate-200 hover:underline'
+
+/** "Remind me" for an event marked Follow-Up: shows the reminder, or offers quick choices. */
+function FollowUpReminder({ event }: { event: CalendarEvent }) {
+  const setReminder = useAppStore((s) => s.setFollowUpReminder)
+  const notificationsOn = useAppStore((s) => s.settings?.notificationsEnabled ?? true)
+  const [editing, setEditing] = useState(false)
+  const [custom, setCustom] = useState<string | null>(null) // datetime-local value while picking a time
+  const [error, setError] = useState<string | null>(null)
+  const at = event.followUpAt
+
+  const save = (date: Date | null): void => {
+    if (date && date.getTime() <= Date.now()) return setError('Pick a time in the future')
+    setError(null)
+    setEditing(false)
+    setCustom(null)
+    void setReminder(event.id, date ? date.toISOString() : null)
+  }
+
+  if (at && !editing) {
+    return (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-6 text-xs">
+        <span className={`flex items-center gap-1.5 ${event.followUpReminded ? 'text-slate-500' : 'text-amber-300'}`}>
+          <BellIcon size={13} />
+          {event.followUpReminded ? 'Reminded' : 'Remind me'} {reminderFmt.format(new Date(at))}
+        </span>
+        <button className={linkClass} onClick={() => setEditing(true)}>
+          {event.followUpReminded ? 'Remind again' : 'Change'}
+        </button>
+        <button className={linkClass} onClick={() => save(null)}>
+          Remove
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2 pl-6">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="flex items-center gap-1 text-xs text-slate-400">
+          <BellIcon size={13} /> Remind me:
+        </span>
+        {custom === null ? (
+          <>
+            {FOLLOW_UP_CHOICES.map((c) => (
+              <button
+                key={c.days}
+                className={chipClass}
+                title={reminderFmt.format(daysFromNowAtNine(c.days))}
+                onClick={() => save(daysFromNowAtNine(c.days))}
+              >
+                {c.label}
+              </button>
+            ))}
+            <button className={chipClass} onClick={() => setCustom(toLocalInputValue(at ? new Date(at) : daysFromNowAtNine(1)))}>
+              Pick time…
+            </button>
+            {editing && (
+              <button className={linkClass} onClick={() => setEditing(false)}>
+                Cancel
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <input
+              type="datetime-local"
+              className="rounded-md border border-slate-700 bg-slate-950 px-2 py-0.5 text-xs text-slate-200"
+              value={custom}
+              min={toLocalInputValue(new Date())}
+              onChange={(e) => setCustom(e.target.value)}
+            />
+            <Button className="px-2! py-0.5! text-xs!" disabled={!custom} onClick={() => save(new Date(fromLocalInputValue(custom)))}>
+              Set
+            </Button>
+            <button className={linkClass} onClick={() => setCustom(null)}>
+              Cancel
+            </button>
+          </>
+        )}
+      </div>
+      {error && <p className="text-xs text-red-400">{error}</p>}
+      {!notificationsOn && (
+        <p className="text-xs text-amber-400">Notifications are off in Settings, so this reminder won't show until you turn them on.</p>
+      )}
     </div>
   )
 }

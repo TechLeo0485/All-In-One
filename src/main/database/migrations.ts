@@ -153,6 +153,12 @@ export const migrations: Migration[] = [
     addColumn(db, 'events', 'series_id', 'TEXT')
     addColumn(db, 'events', 'is_exception', 'INTEGER NOT NULL DEFAULT 0')
     db.exec('CREATE INDEX IF NOT EXISTS idx_events_series ON events (series_id) WHERE series_id IS NOT NULL')
+  },
+  // v10: follow-up reminders. remind_at = when to notify (ISO UTC), only used while
+  // the status is Follow-Up; remind_fired = the notification was shown.
+  (db) => {
+    addColumn(db, 'event_statuses', 'remind_at', 'TEXT')
+    addColumn(db, 'event_statuses', 'remind_fired', 'INTEGER NOT NULL DEFAULT 0')
   }
 ]
 

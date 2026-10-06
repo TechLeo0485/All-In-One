@@ -13,16 +13,22 @@ export const STATUS_ID_RE = /^[a-z0-9-]{1,40}$/
 /** Ids of the automatic statuses of an earlier version; dropped from saved lists. */
 const RETIRED_IDS = ['scheduled', 'ended']
 
+/** Built-in status that can't be deleted; events with it can get a follow-up reminder. */
+export const FOLLOW_UP_ID = 'follow-up'
+
 export const DEFAULT_EVENT_STATUSES: EventStatusDef[] = [
   { id: 'follow-up', label: 'Follow-Up', color: '#f59e0b' },
   { id: 'passed', label: 'Passed', color: '#22c55e' },
   { id: 'failed', label: 'Failed', color: '#ef4444' }
 ]
 
-/** Drops malformed entries, duplicate ids and the retired automatic statuses. */
+/**
+ * Drops malformed entries, duplicate ids and the retired automatic statuses, and
+ * makes sure the fixed Follow-Up status is present (first, if it was missing).
+ */
 export function normalizeStatuses(statuses: EventStatusDef[]): EventStatusDef[] {
   const seen = new Set<string>()
-  return statuses.filter(
+  const list = statuses.filter(
     (s) =>
       typeof s?.id === 'string' &&
       typeof s.label === 'string' &&
@@ -31,6 +37,7 @@ export function normalizeStatuses(statuses: EventStatusDef[]): EventStatusDef[] 
       !seen.has(s.id) &&
       seen.add(s.id)
   )
+  return seen.has(FOLLOW_UP_ID) ? list : [DEFAULT_EVENT_STATUSES[0], ...list]
 }
 
 /** A new, unused id for a status added in Settings. */

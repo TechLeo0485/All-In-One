@@ -22,7 +22,8 @@ const api: CalendarApi = {
     createLocal: (input) => ipcRenderer.invoke(IPC.eventsCreateLocal, input),
     updateLocal: (id, input, scope) => ipcRenderer.invoke(IPC.eventsUpdateLocal, id, input, scope),
     removeLocal: (id, scope) => ipcRenderer.invoke(IPC.eventsRemoveLocal, id, scope),
-    setStatus: (id, status) => ipcRenderer.invoke(IPC.eventsSetStatus, id, status)
+    setStatus: (id, status) => ipcRenderer.invoke(IPC.eventsSetStatus, id, status),
+    setFollowUpReminder: (id, remindAt) => ipcRenderer.invoke(IPC.eventsSetFollowUpReminder, id, remindAt)
   },
   notes: {
     get: (eventId) => ipcRenderer.invoke(IPC.notesGet, eventId),

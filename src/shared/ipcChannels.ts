@@ -16,6 +16,7 @@ export const IPC = {
   eventsUpdateLocal: 'events:updateLocal',
   eventsRemoveLocal: 'events:removeLocal',
   eventsSetStatus: 'events:setStatus',
+  eventsSetFollowUpReminder: 'events:setFollowUpReminder',
 
   notesGet: 'notes:get',
   notesSave: 'notes:save',

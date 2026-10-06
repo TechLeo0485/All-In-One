@@ -120,6 +120,8 @@ class ReminderService {
         })
       }
 
+      this.fireFollowUps(settings, now)
+
       for (const [key, dueAt] of this.fired) {
         if (now - dueAt > FIRED_RETENTION_MS) {
           this.fired.delete(key)
@@ -130,6 +132,27 @@ class ReminderService {
     } catch (err) {
       // Never let a bad row or a closing database kill the timer.
       console.error('[reminders] check failed:', err)
+    }
+  }
+
+  /**
+   * Follow-up reminders set on events marked Follow-Up. Unlike event reminders they
+   * have no lateness limit: one that fell due while the app was closed (or paused)
+   * is shown as soon as possible. Each is shown once (remind_fired in the database).
+   */
+  private fireFollowUps(settings: AppSettings, now: number): void {
+    for (const { eventId } of eventRepository.listDueFollowUps(new Date(now).toISOString())) {
+      eventRepository.markFollowUpReminded(eventId)
+      const event = eventRepository.get(eventId)
+      if (!event) continue // the event left its calendar; nothing to point at
+      const start = new Date(parseStart(event))
+      const when = event.allDay
+        ? start.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+        : start.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+      this.show(`Follow up: ${event.title}`, `Marked Follow-Up · event on ${when}`, settings.notificationSound, {
+        eventId: event.id,
+        startTime: event.startTime
+      })
     }
   }
 

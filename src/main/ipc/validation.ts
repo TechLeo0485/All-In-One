@@ -209,6 +209,12 @@ export function settingsPatch(value: unknown): Partial<AppSettings> {
 }
 
 /** A status id picked on an event, or null to go back to automatic. */
+/** ISO date/time (normalized to UTC), or null. */
+export function optionalTime(value: unknown, field: string): string | null {
+  if (value === null || value === undefined) return null
+  return timeValue(value, false, field)
+}
+
 export function eventStatusId(value: unknown): string | null {
   if (value === null) return null
   const sid = id(value, 'Status')

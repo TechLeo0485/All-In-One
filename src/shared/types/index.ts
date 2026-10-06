@@ -78,6 +78,10 @@ export interface CalendarEvent {
   attendees: EventAttendee[]
   /** Id of the status picked by the user (see AppSettings.eventStatuses); null = none. */
   status: string | null
+  /** Follow-up reminder time (ISO UTC) while the status is Follow-Up; null = none */
+  followUpAt: string | null
+  /** The follow-up reminder has been shown */
+  followUpReminded: boolean
   /** Local events only: the repeating series this date belongs to (null = single event) */
   seriesId: string | null
   /** Repeat rule of the series (local events only) */
@@ -282,6 +286,8 @@ export interface CalendarApi {
     removeLocal(id: string, scope?: RecurrenceScope): Promise<void>
     /** null = no status. */
     setStatus(id: string, statusId: string | null): Promise<void>
+    /** Reminder for an event marked Follow-Up (ISO time), or null to remove it. */
+    setFollowUpReminder(id: string, remindAt: string | null): Promise<void>
   }
   notes: {
     get(eventId: string): Promise<Note | null>

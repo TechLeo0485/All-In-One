@@ -123,6 +123,8 @@ interface AppState {
   deleteLocalEvent(id: string, scope?: RecurrenceScope): Promise<void>
   /** A status id from Settings, or null to clear the status. */
   setEventStatus(id: string, statusId: string | null): Promise<void>
+  /** Follow-up reminder (ISO time) for an event marked Follow-Up; null removes it. */
+  setFollowUpReminder(id: string, remindAt: string | null): Promise<void>
 }
 
 let toastSeq = 0
@@ -341,6 +343,11 @@ export const useAppStore = create<AppState>((set, get) => {
 
     async setEventStatus(id, statusId) {
       const ok = await attempt(() => window.api.events.setStatus(id, statusId).then(() => true))
+      if (ok) get().refreshEvents()
+    },
+
+    async setFollowUpReminder(id, remindAt) {
+      const ok = await attempt(() => window.api.events.setFollowUpReminder(id, remindAt).then(() => true))
       if (ok) get().refreshEvents()
     }
   }

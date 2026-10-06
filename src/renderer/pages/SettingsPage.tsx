@@ -3,7 +3,7 @@ import { APP_NAME, APP_TAGLINE } from '@shared/brand'
 import type { AllDayReminder, AppInfo, UpdateStatus } from '@shared/types'
 import { AUTO_SYNC_OPTIONS } from '@shared/sources'
 import type { EventStatusDef } from '@shared/types'
-import { MAX_STATUS_LABEL, MAX_STATUSES, newStatusId } from '@shared/eventStatus'
+import { FOLLOW_UP_ID, MAX_STATUS_LABEL, MAX_STATUSES, newStatusId } from '@shared/eventStatus'
 import { nextUnusedColor } from '@shared/colors'
 import { DEFAULT_SHORTCUT, shortcutFromKeyEvent, shortcutKeys } from '@shared/shortcut'
 import { useAppStore } from '../stores/appStore'
@@ -299,9 +299,15 @@ function StatusRow({
         <Button variant="ghost" className="px-1.5!" title="Move down" onClick={() => onMove(1)}>
           ↓
         </Button>
-        <Button variant="ghost" className="text-red-400!" onClick={onDelete}>
-          Delete
-        </Button>
+        {status.id === FOLLOW_UP_ID ? (
+          <span className="w-[3.75rem] text-center text-xs text-slate-500" title="Built in: events marked Follow-Up can get a reminder">
+            Fixed
+          </span>
+        ) : (
+          <Button variant="ghost" className="text-red-400!" onClick={onDelete}>
+            Delete
+          </Button>
+        )}
       </div>
     </li>
   )
@@ -327,7 +333,7 @@ function StatusEditor() {
     <>
       <p className="pt-2 text-sm text-slate-400">
         Pick a status in an event's details; the event is then outlined in the status color. Events without a status
-        have no outline.
+        have no outline. Follow-Up is built in: events marked Follow-Up can get a reminder notification.
       </p>
       <ul className="divide-y divide-slate-800">
         {statuses.map((status) => (
