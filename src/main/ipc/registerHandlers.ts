@@ -4,6 +4,7 @@ import { IPC } from '@shared/ipcChannels'
 import type { AppSettings } from '@shared/types'
 import { calendarRepository } from '../database/calendarRepository'
 import { eventRepository } from '../database/eventRepository'
+import { localEventRepository } from '../database/localEventRepository'
 import { noteRepository } from '../database/noteRepository'
 import { settingsRepository } from '../database/settingsRepository'
 import { isFileSource } from '@shared/sources'
@@ -75,16 +76,21 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
   handle(IPC.calendarsPickIcsFile, (e) => fileSourceService.pickFile(BrowserWindow.fromWebContents(e.sender)))
 
   // Events
-  handle(IPC.eventsListInRange, (_e, start, end) =>
-    eventRepository.listInRange(v.rangeBound(start, 'start'), v.rangeBound(end, 'end'))
-  )
+  handle(IPC.eventsListInRange, (_e, start, end) => {
+    const to = v.rangeBound(end, 'end')
+    // Repeating local events are generated ahead lazily; make sure this range is covered.
+    localEventRepository.ensureGeneratedThrough(to.slice(0, 10))
+    return eventRepository.listInRange(v.rangeBound(start, 'start'), to)
+  })
   handle(IPC.eventsGet, (_e, id) => eventRepository.get(v.id(id)))
   handle(IPC.eventsSearch, (_e, query) => eventRepository.search(v.str(query, 'Search', { max: 200 })))
-  handle(IPC.eventsCreateLocal, (_e, input) => withEventsChanged(eventRepository.createLocal(v.localEventInput(input))))
-  handle(IPC.eventsUpdateLocal, (_e, id, input) =>
-    withEventsChanged(eventRepository.updateLocal(v.id(id), v.localEventInput(input)))
+  handle(IPC.eventsCreateLocal, (_e, input) => withEventsChanged(localEventRepository.create(v.localEventInput(input))))
+  handle(IPC.eventsUpdateLocal, (_e, id, input, scope) =>
+    withEventsChanged(localEventRepository.update(v.id(id), v.localEventInput(input), v.recurrenceScope(scope)))
   )
-  handle(IPC.eventsRemoveLocal, (_e, id) => withEventsChanged(eventRepository.removeLocal(v.id(id))))
+  handle(IPC.eventsRemoveLocal, (_e, id, scope) =>
+    withEventsChanged(localEventRepository.remove(v.id(id), v.recurrenceScope(scope)))
+  )
   handle(IPC.eventsSetStatus, (_e, id, status) => {
     const eid = v.id(id)
     if (!eventRepository.get(eid)) throw new Error('Event not found')

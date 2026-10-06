@@ -1,11 +1,4 @@
-import { randomUUID } from 'node:crypto'
-import type {
-  CalendarEvent,
-  EventAttendee,
-  EventSearchResult,
-  LocalEventInput,
-  SearchMatchField
-} from '@shared/types'
+import type { CalendarEvent, EventAttendee, EventSearchResult, RecurrenceRule, SearchMatchField } from '@shared/types'
 import { eventSearchText, findMatches, foldText, guestsText, searchTerms, snippetAround } from '@shared/search'
 import { getDb } from './connection'
 
@@ -24,12 +17,17 @@ interface EventRow {
   reminder_minutes: number | null
   attendees: string
   created_at: string
+  series_id?: string | null
   /** From event_statuses, when the query joins it */
   status?: string | null
+  /** From local_series, when the query joins it */
+  series_rule?: string | null
 }
 
-/** Events plus the status the user picked (if any). */
-const SELECT_EVENTS = 'SELECT e.*, s.status FROM events e LEFT JOIN event_statuses s ON s.event_id = e.id'
+/** Events plus the status the user picked (if any) and the repeat rule of local series. */
+const SELECT_EVENTS = `SELECT e.*, s.status, ls.rule AS series_rule FROM events e
+  LEFT JOIN event_statuses s ON s.event_id = e.id
+  LEFT JOIN local_series ls ON ls.id = e.series_id`
 
 /** Event shape produced by the ICS parser, before it is stored. */
 export interface SyncedEventData {
@@ -53,6 +51,15 @@ function parseAttendees(json: string): EventAttendee[] {
   }
 }
 
+function parseRule(json: string | null | undefined): RecurrenceRule | null {
+  if (!json) return null
+  try {
+    return JSON.parse(json) as RecurrenceRule
+  } catch {
+    return null
+  }
+}
+
 function toEvent(row: EventRow): CalendarEvent {
   return {
     id: row.id,
@@ -69,6 +76,8 @@ function toEvent(row: EventRow): CalendarEvent {
     reminderMinutes: row.reminder_minutes,
     attendees: parseAttendees(row.attendees),
     status: row.status ?? null,
+    seriesId: row.series_id ?? null,
+    recurrence: parseRule(row.series_rule),
     createdAt: row.created_at
   }
 }
@@ -139,10 +148,11 @@ export const eventRepository = {
 
     const rows = db
       .prepare(
-        `SELECT e.*, n.content AS note, c.name AS calendar_name, s.status
+        `SELECT e.*, n.content AS note, c.name AS calendar_name, s.status, ls.rule AS series_rule
          FROM events e
          LEFT JOIN notes n ON n.event_id = e.id
          LEFT JOIN event_statuses s ON s.event_id = e.id
+         LEFT JOIN local_series ls ON ls.id = e.series_id
          LEFT JOIN calendars c ON c.id = e.calendar_id
          WHERE (e.is_local_event = 1 OR c.enabled = 1) AND ${clauses.join(' AND ')}
          ORDER BY e.start_time
@@ -204,68 +214,19 @@ export const eventRepository = {
     return row ? toEvent(row) : null
   },
 
-  listLocalWithReminders(): CalendarEvent[] {
+  /**
+   * Local events with a reminder starting in [from, to). Bounded, because repeating
+   * events store a row per date. Bounds are ISO strings; all-day starts
+   * (YYYY-MM-DD) compare correctly against them as text.
+   */
+  listLocalWithReminders(from: string, to: string): CalendarEvent[] {
     const rows = getDb()
-      .prepare('SELECT * FROM events WHERE is_local_event = 1 AND reminder_minutes IS NOT NULL')
-      .all() as EventRow[]
+      .prepare(
+        `SELECT * FROM events
+         WHERE is_local_event = 1 AND reminder_minutes IS NOT NULL AND start_time >= ? AND start_time < ?`
+      )
+      .all(from, to) as EventRow[]
     return rows.map(toEvent)
-  },
-
-  createLocal(input: LocalEventInput): CalendarEvent {
-    const id = randomUUID()
-    getDb()
-      .prepare(
-        `INSERT INTO events (id, calendar_id, external_id, title, description, start_time, end_time,
-                             all_day, location, is_local_event, color, reminder_minutes, search_text, created_at)
-         VALUES (?, NULL, NULL, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`
-      )
-      .run(
-        id,
-        input.title,
-        input.description,
-        input.startTime,
-        input.endTime,
-        input.allDay ? 1 : 0,
-        input.location,
-        input.color,
-        input.reminderMinutes,
-        eventSearchText({ ...input, attendees: [] }),
-        new Date().toISOString()
-      )
-    return this.get(id)!
-  },
-
-  updateLocal(id: string, input: LocalEventInput): CalendarEvent {
-    const result = getDb()
-      .prepare(
-        `UPDATE events SET title = ?, description = ?, start_time = ?, end_time = ?, all_day = ?,
-                           location = ?, color = ?, reminder_minutes = ?, search_text = ?
-         WHERE id = ? AND is_local_event = 1`
-      )
-      .run(
-        input.title,
-        input.description,
-        input.startTime,
-        input.endTime,
-        input.allDay ? 1 : 0,
-        input.location,
-        input.color,
-        input.reminderMinutes,
-        eventSearchText({ ...input, attendees: [] }),
-        id
-      )
-    if (result.changes === 0) throw new Error('Local event not found')
-    return this.get(id)!
-  },
-
-  removeLocal(id: string): void {
-    const db = getDb()
-    db.transaction(() => {
-      const result = db.prepare('DELETE FROM events WHERE id = ? AND is_local_event = 1').run(id)
-      if (result.changes === 0) throw new Error('Local event not found')
-      db.prepare('DELETE FROM notes WHERE event_id = ?').run(id)
-      db.prepare('DELETE FROM event_statuses WHERE event_id = ?').run(id)
-    })()
   },
 
   /** Works for synced (read-only) events too: the status is the app's own data. */

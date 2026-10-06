@@ -20,8 +20,8 @@ const api: CalendarApi = {
     get: (id) => ipcRenderer.invoke(IPC.eventsGet, id),
     search: (query) => ipcRenderer.invoke(IPC.eventsSearch, query),
     createLocal: (input) => ipcRenderer.invoke(IPC.eventsCreateLocal, input),
-    updateLocal: (id, input) => ipcRenderer.invoke(IPC.eventsUpdateLocal, id, input),
-    removeLocal: (id) => ipcRenderer.invoke(IPC.eventsRemoveLocal, id),
+    updateLocal: (id, input, scope) => ipcRenderer.invoke(IPC.eventsUpdateLocal, id, input, scope),
+    removeLocal: (id, scope) => ipcRenderer.invoke(IPC.eventsRemoveLocal, id, scope),
     setStatus: (id, status) => ipcRenderer.invoke(IPC.eventsSetStatus, id, status)
   },
   notes: {

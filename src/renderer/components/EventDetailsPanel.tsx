@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import type { AttendeeStatus, CalendarEvent, EventAttendee } from '@shared/types'
 import { DEFAULT_EVENT_STATUSES, findStatus } from '@shared/eventStatus'
+import { describeRecurrence } from '@shared/recurrence'
 import { useAppStore } from '../stores/appStore'
 import { useEventDetails } from '../hooks/useEventDetails'
-import { formatEventWhen, formatReminder } from '../utils/dates'
+import { formatEventWhen, formatReminder, toDateString } from '../utils/dates'
 import { findFirstUrl, linkify } from '../utils/linkify'
-import { BellIcon, ClockIcon, ExternalIcon, LockIcon, MapPinIcon, UsersIcon, XIcon } from './icons'
+import { BellIcon, ClockIcon, ExternalIcon, LockIcon, MapPinIcon, RepeatIcon, UsersIcon, XIcon } from './icons'
 import { NotesEditor } from './NotesEditor'
 import { Button, ColorDot, Spinner } from './ui'
 
@@ -127,6 +128,7 @@ export function EventDetailsPanel() {
   const openEventEditor = useAppStore((s) => s.openEventEditor)
   const deleteLocalEvent = useAppStore((s) => s.deleteLocalEvent)
   const askConfirm = useAppStore((s) => s.askConfirm)
+  const askRecurrenceScope = useAppStore((s) => s.askRecurrenceScope)
   const protonAccounts = useAppStore((s) => s.protonAccounts)
   const settings = useAppStore((s) => s.settings)
   const { event, loading, error } = useEventDetails(selectedEventId)
@@ -185,6 +187,15 @@ export function EventDetailsPanel() {
                   <ClockIcon className="mt-0.5 shrink-0 text-slate-500" />
                   <span className="selectable">{formatEventWhen(event)}</span>
                 </p>
+                {event.recurrence && (
+                  <p className="flex items-start gap-2">
+                    <RepeatIcon className="mt-0.5 shrink-0 text-slate-500" />
+                    {describeRecurrence(
+                      event.recurrence,
+                      event.allDay ? event.startTime : toDateString(new Date(event.startTime))
+                    )}
+                  </p>
+                )}
                 {event.location && (
                   <p className="flex items-start gap-2">
                     <MapPinIcon className="mt-0.5 shrink-0 text-slate-500" />
@@ -245,6 +256,13 @@ export function EventDetailsPanel() {
                     <Button
                       variant="danger"
                       onClick={() => {
+                        if (event.seriesId) {
+                          // Repeating: the scope dialog doubles as the confirmation.
+                          void askRecurrenceScope('delete').then((scope) => {
+                            if (scope) void deleteLocalEvent(event.id, scope)
+                          })
+                          return
+                        }
                         void askConfirm({
                           title: 'Delete event?',
                           message: `"${event.title}" and its meeting notes will be permanently deleted.`,

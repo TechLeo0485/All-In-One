@@ -7,6 +7,7 @@ import type {
   LocalEventInput,
   OpenEventRequest,
   ProtonAccount,
+  RecurrenceScope,
   SyncStatus
 } from '@shared/types'
 import { errorMessage } from '../utils/errors'
@@ -33,6 +34,18 @@ export interface ConfirmOptions {
 
 export interface ConfirmRequest extends ConfirmOptions {
   resolve: (confirmed: boolean) => void
+}
+
+/** In-app dialog with a list of options (radio buttons), e.g. "This event / All events". */
+export interface ChoiceOptions {
+  title: string
+  choices: { value: string; label: string }[]
+  confirmLabel?: string
+  danger?: boolean
+}
+
+export interface ChoiceRequest extends ChoiceOptions {
+  resolve: (value: string | null) => void
 }
 
 export interface Toast {
@@ -72,6 +85,15 @@ interface AppState {
   /** Shows the in-app confirmation dialog; resolves true if the user confirms. */
   askConfirm(options: ConfirmOptions): Promise<boolean>
   resolveConfirm(confirmed: boolean): void
+  choiceRequest: ChoiceRequest | null
+  /** Shows the in-app choice dialog; resolves the picked value, or null if cancelled. */
+  askChoice(options: ChoiceOptions): Promise<string | null>
+  resolveChoice(value: string | null): void
+  /**
+   * For a date of a repeating event: asks which dates an edit/delete applies to.
+   * `allowThis` = false when the change can't apply to one date (a new repeat rule).
+   */
+  askRecurrenceScope(action: 'edit' | 'delete', allowThis?: boolean): Promise<RecurrenceScope | null>
   dismissToast(id: number): void
 
   loadCalendars(): Promise<void>
@@ -96,8 +118,9 @@ interface AppState {
 
   openEventEditor(state: Exclude<EventEditorState, null>): void
   closeEventEditor(): void
-  saveLocalEvent(input: LocalEventInput): Promise<boolean>
-  deleteLocalEvent(id: string): Promise<void>
+  /** `scope`: which dates of a repeating event the edit applies to. */
+  saveLocalEvent(input: LocalEventInput, scope?: RecurrenceScope): Promise<boolean>
+  deleteLocalEvent(id: string, scope?: RecurrenceScope): Promise<void>
   /** A status id from Settings, or null to clear the status. */
   setEventStatus(id: string, statusId: string | null): Promise<void>
 }
@@ -165,6 +188,31 @@ export const useAppStore = create<AppState>((set, get) => {
       const request = get().confirmRequest
       set({ confirmRequest: null })
       request?.resolve(confirmed)
+    },
+
+    choiceRequest: null,
+    askChoice(options) {
+      get().choiceRequest?.resolve(null)
+      return new Promise<string | null>((resolve) => set({ choiceRequest: { ...options, resolve } }))
+    },
+    resolveChoice(value) {
+      const request = get().choiceRequest
+      set({ choiceRequest: null })
+      request?.resolve(value)
+    },
+    async askRecurrenceScope(action, allowThis = true) {
+      const choices = [
+        ...(allowThis ? [{ value: 'this', label: 'This event' }] : []),
+        { value: 'following', label: 'This and following events' },
+        { value: 'all', label: 'All events' }
+      ]
+      const value = await get().askChoice({
+        title: action === 'edit' ? 'Edit recurring event' : 'Delete recurring event',
+        choices,
+        confirmLabel: action === 'edit' ? 'Save' : 'Delete',
+        danger: action === 'delete'
+      })
+      return value as RecurrenceScope | null
     },
 
     async loadCalendars() {
@@ -270,11 +318,11 @@ export const useAppStore = create<AppState>((set, get) => {
     openEventEditor: (state) => set({ eventEditor: state }),
     closeEventEditor: () => set({ eventEditor: null }),
 
-    async saveLocalEvent(input) {
+    async saveLocalEvent(input, scope) {
       const editor = get().eventEditor
       const saved = await attempt(() =>
         editor?.mode === 'edit'
-          ? window.api.events.updateLocal(editor.event.id, input)
+          ? window.api.events.updateLocal(editor.event.id, input, scope)
           : window.api.events.createLocal(input)
       )
       if (!saved) return false
@@ -283,9 +331,10 @@ export const useAppStore = create<AppState>((set, get) => {
       return true
     },
 
-    async deleteLocalEvent(id) {
-      const ok = await attempt(() => window.api.events.removeLocal(id).then(() => true))
+    async deleteLocalEvent(id, scope) {
+      const ok = await attempt(() => window.api.events.removeLocal(id, scope).then(() => true))
       if (!ok) return
+      // Deleting a date of a series removes other dates too; the selection only matters for this one.
       set((s) => ({ selectedEventId: s.selectedEventId === id ? null : s.selectedEventId }))
       get().refreshEvents()
     },

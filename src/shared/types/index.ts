@@ -78,8 +78,36 @@ export interface CalendarEvent {
   attendees: EventAttendee[]
   /** Id of the status picked by the user (see AppSettings.eventStatuses); null = none. */
   status: string | null
+  /** Local events only: the repeating series this date belongs to (null = single event) */
+  seriesId: string | null
+  /** Repeat rule of the series (local events only) */
+  recurrence: RecurrenceRule | null
   createdAt: string
 }
+
+/**
+ * Repeat rule of a local event, like Google Calendar's "Custom recurrence".
+ * Dates are generated in local time from the series' first start.
+ */
+export interface RecurrenceRule {
+  freq: 'daily' | 'weekly' | 'monthly' | 'yearly'
+  /** Every N days/weeks/months/years (1 = every) */
+  interval: number
+  /** Weekly only: days of the week, 0 = Sunday … 6 = Saturday */
+  weekdays: number[]
+  /**
+   * Monthly only: 'day' = same day of the month (e.g. the 15th), 'weekday' = same
+   * nth weekday (e.g. third Tuesday), 'lastWeekday' = last such weekday of the month.
+   */
+  monthlyBy: 'day' | 'weekday' | 'lastWeekday'
+  end: RecurrenceEnd
+}
+
+/** 'until' date is inclusive (YYYY-MM-DD); 'count' includes the first date. */
+export type RecurrenceEnd = { type: 'never' } | { type: 'until'; date: string } | { type: 'count'; count: number }
+
+/** Which dates of a repeating event an edit or delete applies to. */
+export type RecurrenceScope = 'this' | 'following' | 'all'
 
 /**
  * A status from Settings, picked per event. Events with a status are outlined in its color.
@@ -127,6 +155,8 @@ export interface LocalEventInput {
   /** null = follow the default local event color from Settings */
   color: string | null
   reminderMinutes: number | null
+  /** null = does not repeat */
+  recurrence: RecurrenceRule | null
 }
 
 export interface Note {
@@ -245,8 +275,9 @@ export interface CalendarApi {
     /** Searches title, description, location, guests, notes and calendar name together. */
     search(query: string): Promise<EventSearchResult[]>
     createLocal(input: LocalEventInput): Promise<CalendarEvent>
-    updateLocal(id: string, input: LocalEventInput): Promise<CalendarEvent>
-    removeLocal(id: string): Promise<void>
+    /** `scope` only matters for dates of a repeating event (default 'this'). */
+    updateLocal(id: string, input: LocalEventInput, scope?: RecurrenceScope): Promise<CalendarEvent>
+    removeLocal(id: string, scope?: RecurrenceScope): Promise<void>
     /** null = no status. */
     setStatus(id: string, statusId: string | null): Promise<void>
   }

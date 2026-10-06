@@ -37,6 +37,7 @@ export function CalendarPage() {
   const selectedEventId = useAppStore((s) => s.selectedEventId)
   const selectEvent = useAppStore((s) => s.selectEvent)
   const openEventEditor = useAppStore((s) => s.openEventEditor)
+  const askRecurrenceScope = useAppStore((s) => s.askRecurrenceScope)
   const notify = useAppStore((s) => s.notify)
   const refreshEvents = useAppStore((s) => s.refreshEvents)
   // Re-renders every minute so events darken as soon as they end.
@@ -157,6 +158,7 @@ export function CalendarPage() {
         location: existing.location,
         color: existing.color, // keep "default" as default, so it still follows Settings
         reminderMinutes: existing.reminderMinutes,
+        recurrence: existing.recurrence,
         allDay: event.allDay,
         startTime: event.allDay ? toDateString(start) : start.toISOString(),
         // FullCalendar drops `end` when it equals the default duration.
@@ -164,7 +166,10 @@ export function CalendarPage() {
           ? toDateString(event.end ?? new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1))
           : (event.end ?? new Date(start.getTime() + 60 * 60_000)).toISOString()
       }
-      await window.api.events.updateLocal(event.id, input)
+      // A date of a repeating event: move just it, it and later ones, or the whole series.
+      const scope = existing.seriesId ? await askRecurrenceScope('edit') : undefined
+      if (scope === null) return arg.revert()
+      await window.api.events.updateLocal(event.id, input, scope)
       refreshEvents()
     } catch (err) {
       arg.revert()

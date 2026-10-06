@@ -126,7 +126,34 @@ export const migrations: Migration[] = [
     status     TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
-  `
+  `,
+  // v9: repeating local events. A series holds the rule and the event details; its
+  // dates are stored as ordinary local event rows (series_id set) so range queries,
+  // reminders, notes and statuses work per date. Rows have the ID
+  // "<series>_<original date>" so they stay stable when the series is regenerated.
+  // is_exception = a single date edited on its own ("This event").
+  (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS local_series (
+        id               TEXT PRIMARY KEY,
+        title            TEXT NOT NULL,
+        description      TEXT NOT NULL DEFAULT '',
+        location         TEXT NOT NULL DEFAULT '',
+        color            TEXT,
+        reminder_minutes INTEGER,
+        all_day          INTEGER NOT NULL DEFAULT 0,
+        start_time       TEXT NOT NULL,
+        end_time         TEXT NOT NULL,
+        rule             TEXT NOT NULL,
+        exdates          TEXT NOT NULL DEFAULT '[]',
+        generated_until  TEXT NOT NULL DEFAULT '',
+        created_at       TEXT NOT NULL
+      );
+    `)
+    addColumn(db, 'events', 'series_id', 'TEXT')
+    addColumn(db, 'events', 'is_exception', 'INTEGER NOT NULL DEFAULT 0')
+    db.exec('CREATE INDEX IF NOT EXISTS idx_events_series ON events (series_id) WHERE series_id IS NOT NULL')
+  }
 ]
 
 /** SQL text, or a function for changes that need checks or data conversion. */

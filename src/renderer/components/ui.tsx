@@ -1,4 +1,4 @@
-import { useEffect, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react'
+import { useEffect, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react'
 import { XIcon } from './icons'
 
 /* Small set of reusable primitives so pages share consistent styling. */
@@ -77,6 +77,9 @@ export function ColorDot({ color, size = 10 }: { color: string; size?: number })
   return <span className="inline-block shrink-0 rounded-full" style={{ backgroundColor: color, width: size, height: size }} />
 }
 
+/** Open modals, newest last: Escape only closes the topmost one (e.g. a confirm over an editor). */
+const modalStack: symbol[] = []
+
 export function Modal({
   title,
   onClose,
@@ -90,13 +93,20 @@ export function Modal({
   footer?: ReactNode
   width?: string
 }) {
+  const [token] = useState(() => Symbol('modal'))
+  useEffect(() => {
+    modalStack.push(token)
+    return () => {
+      modalStack.splice(modalStack.indexOf(token), 1)
+    }
+  }, [token])
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape' && modalStack[modalStack.length - 1] === token) onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose, token])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onMouseDown={onClose}>

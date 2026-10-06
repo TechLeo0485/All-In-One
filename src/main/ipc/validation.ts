@@ -1,4 +1,4 @@
-import type { AppSettings, CalendarSourceInput, LocalEventInput } from '@shared/types'
+import type { AppSettings, CalendarSourceInput, LocalEventInput, RecurrenceRule, RecurrenceScope } from '@shared/types'
 import { AUTO_SYNC_OPTIONS } from '@shared/sources'
 import { MAX_STATUS_LABEL, MAX_STATUSES, normalizeStatuses, STATUS_ID_RE } from '@shared/eventStatus'
 
@@ -106,8 +106,50 @@ export function localEventInput(value: unknown): LocalEventInput {
     startTime,
     endTime,
     allDay,
-    reminderMinutes
+    reminderMinutes,
+    recurrence: recurrenceRule(v.recurrence, allDay ? startTime : null)
   }
+}
+
+/** null/undefined = does not repeat. `startDate` (all-day events) checks the end date. */
+function recurrenceRule(value: unknown, startDate: string | null): RecurrenceRule | null {
+  if (value === null || value === undefined) return null
+  const v = value as Record<string, unknown>
+  if (!['daily', 'weekly', 'monthly', 'yearly'].includes(String(v.freq))) fail('Invalid repeat frequency')
+  const interval = Number(v.interval ?? 1)
+  if (!Number.isInteger(interval) || interval < 1 || interval > 999) fail('Repeat interval must be between 1 and 999')
+  const weekdays = Array.isArray(v.weekdays) ? [...new Set(v.weekdays.map(Number))] : []
+  if (weekdays.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) fail('Invalid repeat weekdays')
+  const monthlyBy = v.monthlyBy ?? 'day'
+  if (!['day', 'weekday', 'lastWeekday'].includes(String(monthlyBy))) fail('Invalid monthly repeat')
+
+  const end = (v.end ?? { type: 'never' }) as Record<string, unknown>
+  let parsedEnd: RecurrenceRule['end']
+  if (end.type === 'never') parsedEnd = { type: 'never' }
+  else if (end.type === 'until') {
+    const date = str(end.date, 'Repeat end date', { required: true, max: 10 })
+    if (!DATE_RE.test(date)) fail('Repeat end date must be a date')
+    if (startDate && date < startDate) fail('Repeat end date must be on or after the start')
+    parsedEnd = { type: 'until', date }
+  } else if (end.type === 'count') {
+    const count = Number(end.count)
+    if (!Number.isInteger(count) || count < 1 || count > 5000) fail('Number of repeats must be between 1 and 5000')
+    parsedEnd = { type: 'count', count }
+  } else fail('Invalid repeat end')
+
+  return {
+    freq: v.freq as RecurrenceRule['freq'],
+    interval,
+    weekdays: v.freq === 'weekly' ? weekdays : [],
+    monthlyBy: v.freq === 'monthly' ? (monthlyBy as RecurrenceRule['monthlyBy']) : 'day',
+    end: parsedEnd
+  }
+}
+
+export function recurrenceScope(value: unknown): RecurrenceScope {
+  if (value === undefined || value === null) return 'this'
+  if (value !== 'this' && value !== 'following' && value !== 'all') fail('Invalid scope')
+  return value
 }
 
 export function settingsPatch(value: unknown): Partial<AppSettings> {

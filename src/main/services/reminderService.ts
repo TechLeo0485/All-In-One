@@ -137,7 +137,10 @@ class ReminderService {
     const out: DueReminder[] = []
 
     // Local events: their own reminder (independent of the default).
-    for (const event of eventRepository.listLocalWithReminders()) {
+    // Reminders are at most 4 weeks ahead; pad a day for all-day dates (stored as YYYY-MM-DD).
+    const localFrom = new Date(now - LATE_GRACE_MS - 2 * 86_400_000).toISOString()
+    const localTo = new Date(now + 30 * 86_400_000).toISOString()
+    for (const event of eventRepository.listLocalWithReminders(localFrom, localTo)) {
       const minutes = event.reminderMinutes ?? 0
       const start = parseStart(event)
       out.push({ event, start, dueAt: start - minutes * 60_000, minutesBefore: event.allDay ? null : minutes })
