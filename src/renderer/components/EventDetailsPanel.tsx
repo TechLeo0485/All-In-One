@@ -270,7 +270,7 @@ export function EventDetailsPanel() {
       }
     }
   }
-  const hasMoreDetails = Boolean(event && (meetingUrl || event.description || event.attendees.length || event.isLocalEvent))
+  const hasMoreDetails = Boolean(event && (meetingUrl || event.description || event.isLocalEvent))
   const color = event?.isLocalEvent ? (event.color ?? localColor) : (calendar?.color ?? '#64748b')
 
   return (
@@ -336,10 +336,12 @@ export function EventDetailsPanel() {
                   )}
                 </p>
               </div>
+              {/* Guests and their replies sit with the summary, above the status. */}
+              {event.attendees.length > 0 && <GuestList key={event.id} attendees={event.attendees} />}
               <StatusPicker event={event} />
             </section>
 
-            {/* Notes sit right under the event summary so they're visible without scrolling past long descriptions or guest lists. */}
+            {/* Notes sit right under the event summary so they're visible without scrolling past long descriptions. */}
             <hr className="border-slate-800" />
             <NotesEditor eventId={event.id} />
 
@@ -364,8 +366,6 @@ export function EventDetailsPanel() {
                     {renderDescription(event.description)}
                   </div>
                 )}
-
-                {event.attendees.length > 0 && <GuestList key={event.id} attendees={event.attendees} />}
 
                 {event.isLocalEvent && (
                   <div className="flex gap-2 pl-6">
