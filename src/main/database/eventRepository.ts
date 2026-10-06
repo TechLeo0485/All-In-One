@@ -1,5 +1,6 @@
 import type { CalendarEvent, EventAttendee, EventSearchResult, RecurrenceRule, SearchMatchField } from '@shared/types'
 import { eventSearchText, findMatches, foldText, guestsText, searchTerms, snippetAround } from '@shared/search'
+import { htmlToPlainText } from '@shared/htmlText'
 import { getDb } from './connection'
 
 interface EventRow {
@@ -100,7 +101,7 @@ function describeMatch(row: SearchRow, terms: string[]): { matchedIn: SearchMatc
     ['title', row.title],
     ['location', row.location],
     ['guests', guestsText(parseAttendees(row.attendees))],
-    ['description', row.description],
+    ['description', htmlToPlainText(row.description)],
     ['notes', row.note],
     ['calendar', row.calendar_name]
   ]

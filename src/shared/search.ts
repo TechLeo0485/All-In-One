@@ -4,6 +4,8 @@
  * "cafe" finds "Café" and "MEETING" finds "meeting".
  */
 
+import { htmlToPlainText } from './htmlText'
+
 /** Longer queries are cut to this many words. */
 const MAX_TERMS = 8
 
@@ -28,7 +30,8 @@ export function eventSearchText(event: {
   location: string
   attendees: { name: string; email: string }[]
 }): string {
-  return foldText([event.title, event.description, event.location, guestsText(event.attendees)].join('\n'))
+  const description = htmlToPlainText(event.description) // don't match HTML tag names
+  return foldText([event.title, description, event.location, guestsText(event.attendees)].join('\n'))
 }
 
 /** The words of a query, folded; every word must match somewhere in the event. */

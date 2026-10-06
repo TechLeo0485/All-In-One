@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import type { AttendeeStatus, CalendarEvent, EventAttendee } from '@shared/types'
 import { DEFAULT_EVENT_STATUSES, findStatus } from '@shared/eventStatus'
+import { htmlToPlainText } from '@shared/htmlText'
 import { describeRecurrence } from '@shared/recurrence'
 import { useAppStore } from '../stores/appStore'
 import { useEventDetails } from '../hooks/useEventDetails'
 import { formatEventWhen, formatReminder, toDateString } from '../utils/dates'
 import { findFirstUrl, linkify } from '../utils/linkify'
+import { renderDescription } from '../utils/richText'
 import { BellIcon, ClockIcon, ExternalIcon, LockIcon, MapPinIcon, RepeatIcon, UsersIcon, XIcon } from './icons'
 import { NotesEditor } from './NotesEditor'
 import { Button, ColorDot, Spinner } from './ui'
@@ -138,7 +140,7 @@ export function EventDetailsPanel() {
 
   const calendar = event?.calendarId ? calendars.find((c) => c.id === event.calendarId) : undefined
   const accountLabel = protonAccounts.find((a) => a.id === calendar?.accountId)?.label
-  const meetingUrl = event ? findFirstUrl(event.location, event.description) : null
+  const meetingUrl = event ? findFirstUrl(event.location, htmlToPlainText(event.description)) : null
 
   // Which reminder applies: local events have their own; calendar events use the default.
   let reminderText: string | null = null
@@ -243,9 +245,9 @@ export function EventDetailsPanel() {
                 )}
 
                 {event.description && (
-                  <p className="selectable pl-6 text-sm break-words whitespace-pre-wrap text-slate-200">
-                    {linkify(event.description)}
-                  </p>
+                  <div className="selectable pl-6 text-sm break-words text-slate-200">
+                    {renderDescription(event.description)}
+                  </div>
                 )}
 
                 {event.attendees.length > 0 && <GuestList key={event.id} attendees={event.attendees} />}
