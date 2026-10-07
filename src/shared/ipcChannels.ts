@@ -36,6 +36,8 @@ export const IPC = {
 
   updatesStatus: 'updates:status',
   updatesCheck: 'updates:check',
+  updatesDownload: 'updates:download',
+  updatesSkip: 'updates:skip',
   updatesInstall: 'updates:install',
   /** main -> renderer push */
   updatesStatusChanged: 'updates:statusChanged',

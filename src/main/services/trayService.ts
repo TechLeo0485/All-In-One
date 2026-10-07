@@ -12,8 +12,8 @@ export interface TrayActions {
   openEvent(request: OpenEventRequest): void
   /** User-initiated refresh of all calendars (the app never syncs on its own). */
   refresh(): void
-  /** Restart and install a downloaded update. */
-  installUpdate(): void
+  /** Open the window, where the update popup offers to download and install. */
+  showUpdate(): void
   quit(): void
 }
 
@@ -73,7 +73,7 @@ class TrayService {
         : null
 
     const update = updateService.getStatus()
-    const updateVersion = update.state === 'ready' ? update.version : null
+    const updateVersion = update.state === 'available' && !update.skipped ? update.version : null
 
     // Called every 15 s: skip the native tooltip/menu rebuild when nothing changed.
     const menuKey = JSON.stringify([nextLabel, next?.event.id, notifState, settings.notificationsEnabled, paused, updateVersion])
@@ -124,7 +124,7 @@ class TrayService {
             },
         { type: 'separator' },
         ...(updateVersion
-          ? [{ label: `Restart to update (version ${updateVersion})`, click: () => actions.installUpdate() }]
+          ? [{ label: `Update available (version ${updateVersion})…`, click: () => actions.showUpdate() }]
           : []),
         { label: 'Quit', click: () => actions.quit() }
       ])

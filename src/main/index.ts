@@ -242,23 +242,29 @@ if (!app.requestSingleInstanceLock()) {
         void syncService.syncAll()
         void protonAccountService.syncAll()
       },
-      installUpdate: () => updateService.install(),
+      // The window shows the update popup.
+      showUpdate: () => showWindow(),
       quit: quitApp
     })
     // Reminders run in the main process, so they also fire while the window is hidden.
     reminderService.start(openEvent, () => trayService.update())
     autoSyncService.start()
 
-    // Updates download in the background; once ready, tell the user once per version
-    // (also when the app started hidden in the tray at login).
+    // Updates are only downloaded when the user agrees (popup in the window). When one
+    // is found, tell the user once per version, also when the app is hidden in the tray.
     updateService.onStatusChange((status) => {
       sendToRenderer(IPC.updatesStatusChanged, status)
       trayService.update()
-      if (status.state === 'ready' && status.version !== updateNotifiedVersion && Notification.isSupported()) {
+      if (
+        status.state === 'available' &&
+        !status.skipped &&
+        status.version !== updateNotifiedVersion &&
+        Notification.isSupported()
+      ) {
         updateNotifiedVersion = status.version
         const notification = createNotification({
-          title: `${APP_NAME} ${status.version} is ready`,
-          body: 'Click to open, then choose Restart now. Otherwise it installs the next time you quit.'
+          title: `${APP_NAME} ${status.version} is available`,
+          body: 'Click to open, then choose Download and install, or Skip.'
         })
         notification.on('click', () => showWindow())
         notification.show()

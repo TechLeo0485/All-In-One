@@ -190,16 +190,20 @@ function updateText(status: UpdateStatus): string {
       return 'Automatic updates work in the installed app (not in development).'
     case 'checking':
       return 'Checking for updates…'
+    case 'available':
+      return status.skipped
+        ? `Version ${status.version} is available (skipped).`
+        : `Version ${status.version} is available.`
     case 'downloading':
-      return `Downloading version ${status.version}… ${status.percent ?? 0}%`
+      return `Downloading version ${status.version}… ${status.percent ?? 0}%. The app restarts when it’s done.`
     case 'ready':
-      return `Version ${status.version} is ready. Restart to install it.`
+      return `Installing version ${status.version}…`
     case 'up-to-date':
       return 'You have the latest version.'
     case 'error':
       return `Could not check for updates: ${status.error}`
     default:
-      return 'Updates are checked automatically when the app starts and every few hours.'
+      return 'The app checks for updates when it starts and every few hours, and asks before downloading.'
   }
 }
 
@@ -213,6 +217,10 @@ function UpdateRow() {
       {status.state === 'ready' ? (
         <Button variant="primary" onClick={() => void window.api.updates.install()}>
           Restart now
+        </Button>
+      ) : status.state === 'available' ? (
+        <Button variant="primary" onClick={() => void window.api.updates.download()}>
+          Download and install
         </Button>
       ) : (
         status.state !== 'unsupported' && (

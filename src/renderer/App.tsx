@@ -8,7 +8,7 @@ import { ConfirmDialog } from './components/ConfirmDialog'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Toasts } from './components/Toasts'
 import { TitleBar } from './components/TitleBar'
-import { UpdateBanner } from './components/UpdateBanner'
+import { UpdateDialog } from './components/UpdateDialog'
 import { Spinner } from './components/ui'
 import { CalendarPage } from './pages/CalendarPage'
 import { CalendarsPage } from './pages/CalendarsPage'
@@ -43,7 +43,6 @@ export default function App() {
   return (
     <div className="flex h-full flex-col">
       <TitleBar />
-      <UpdateBanner />
       <div className="flex min-h-0 flex-1">
         <Sidebar />
         <main className="min-w-0 flex-1">
@@ -67,6 +66,7 @@ export default function App() {
         )}
       </div>
       <ConfirmDialog />
+      <UpdateDialog />
       <Toasts />
     </div>
   )

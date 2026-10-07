@@ -51,6 +51,8 @@ const api: CalendarApi = {
   updates: {
     status: () => ipcRenderer.invoke(IPC.updatesStatus),
     check: () => ipcRenderer.invoke(IPC.updatesCheck),
+    download: () => ipcRenderer.invoke(IPC.updatesDownload),
+    skip: () => ipcRenderer.invoke(IPC.updatesSkip),
     install: () => ipcRenderer.invoke(IPC.updatesInstall),
     onStatusChange: (callback) => {
       const listener = (_event: IpcRendererEvent, status: UpdateStatus): void => callback(status)

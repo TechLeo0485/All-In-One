@@ -254,17 +254,20 @@ export interface AppInfo {
 /**
  * Auto-update state (installed app only; updates come from GitHub Releases).
  * 'unsupported' – development build, updates are disabled
- * 'ready'       – downloaded; installs on restart (or whenever the app quits)
+ * 'available'   – a new version exists; nothing is downloaded until the user asks
+ * 'ready'       – downloaded; the app restarts into it right away
  */
-export type UpdateState = 'unsupported' | 'idle' | 'checking' | 'downloading' | 'ready' | 'up-to-date' | 'error'
+export type UpdateState = 'unsupported' | 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'up-to-date' | 'error'
 
 export interface UpdateStatus {
   state: UpdateState
-  /** The new version, while downloading or ready */
+  /** The new version, once one is found */
   version: string | null
   /** Download progress 0–100 */
   percent: number | null
   error: string | null
+  /** The user skipped this version: no popup until a manual check */
+  skipped: boolean
 }
 
 /** Sent to the renderer when the user clicks a reminder (or the tray's next event). */
@@ -327,8 +330,12 @@ export interface CalendarApi {
   }
   updates: {
     status(): Promise<UpdateStatus>
-    /** Checks GitHub now (an available update downloads automatically). */
+    /** Checks GitHub now (nothing is downloaded; a skipped version is offered again). */
     check(): Promise<UpdateStatus>
+    /** Downloads the available update, then restarts into it. */
+    download(): Promise<void>
+    /** Don't offer the available version again (until a manual check). */
+    skip(): Promise<void>
     /** Restarts the app and installs the downloaded update. */
     install(): Promise<void>
     onStatusChange(callback: (status: UpdateStatus) => void): () => void

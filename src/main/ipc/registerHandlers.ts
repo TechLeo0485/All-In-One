@@ -144,7 +144,9 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
 
   // Updates
   handle(IPC.updatesStatus, () => updateService.getStatus())
-  handle(IPC.updatesCheck, () => updateService.check())
+  handle(IPC.updatesCheck, () => updateService.check(true))
+  handle(IPC.updatesDownload, () => updateService.download())
+  handle(IPC.updatesSkip, () => updateService.skip())
   handle(IPC.updatesInstall, () => updateService.install())
 
   // Notifications
