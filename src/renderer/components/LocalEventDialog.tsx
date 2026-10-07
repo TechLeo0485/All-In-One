@@ -18,7 +18,7 @@ import {
   fromLocalInputValue,
   parseDateString,
   REMINDER_MINUTES,
-  toDateString,
+  todayString,
   toLocalInputValue
 } from '../utils/dates'
 import { ColorPicker } from './ColorPicker'
@@ -99,7 +99,7 @@ function initialState(input: Partial<LocalEventInput>): FormState {
   let start: string
   let end: string
   if (allDay) {
-    start = input.startTime ?? toDateString(new Date())
+    start = input.startTime ?? todayString()
     end = input.endTime ? addDays(input.endTime, -1) : start
   } else {
     const s = input.startTime ? new Date(input.startTime) : nextHalfHour()

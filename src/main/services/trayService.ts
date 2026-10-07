@@ -2,6 +2,7 @@ import { app, Menu, nativeImage, Tray, type NativeImage } from 'electron'
 import { join } from 'node:path'
 import { APP_NAME } from '@shared/brand'
 import type { OpenEventRequest } from '@shared/types'
+import { timeZoneOption } from '@shared/timezone'
 import { settingsRepository } from '../database/settingsRepository'
 import { reminderService } from './reminderService'
 import { updateService } from './updateService'
@@ -60,8 +61,10 @@ class TrayService {
     const pausedUntil = settings.notificationsPausedUntil ? new Date(settings.notificationsPausedUntil) : null
     const paused = pausedUntil !== null && pausedUntil.getTime() > Date.now()
 
+    // Times follow the primary time zone setting, like the calendar does.
+    const zone = timeZoneOption(settings.primaryTimeZone)
     const nextLabel = next
-      ? `${new Date(next.start).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}  ${truncate(next.event.title, 40)}`
+      ? `${new Date(next.start).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', ...(next.event.allDay ? {} : zone) })}  ${truncate(next.event.title, 40)}`
       : 'No more events in the next 24 hours'
     const notifState = !settings.notificationsEnabled
       ? 'Notifications off'

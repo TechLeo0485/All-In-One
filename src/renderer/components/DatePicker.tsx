@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { toDateString } from '../utils/dates'
+import { todayString, toDateString } from '../utils/dates'
 
 /** Same as FullCalendar's default (weeks start on Sunday). */
 const FIRST_DAY = 0
@@ -69,7 +69,7 @@ export function DatePicker({
       return { year: d.getFullYear(), month: d.getMonth() }
     })
 
-  const today = toDateString(new Date())
+  const today = todayString()
   const startKey = toDateString(rangeStart)
   const endKey = toDateString(rangeEnd)
   const navButton = 'rounded-md px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-slate-100'

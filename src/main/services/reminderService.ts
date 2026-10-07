@@ -4,6 +4,7 @@ import { calendarRepository } from '../database/calendarRepository'
 import { eventRepository } from '../database/eventRepository'
 import { settingsRepository } from '../database/settingsRepository'
 import { createNotification } from './windowsIdentity'
+import { timeZoneOption } from '@shared/timezone'
 
 const CHECK_INTERVAL_MS = 15_000 // reminders are at most ~15 s late
 /** Reminders that became due while the app was closed are still shown if they are this recent. */
@@ -148,7 +149,14 @@ class ReminderService {
       const start = new Date(parseStart(event))
       const when = event.allDay
         ? start.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
-        : start.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+        : start.toLocaleString(undefined, {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+            ...timeZoneOption(settings.primaryTimeZone)
+          })
       this.show(`Follow up: ${event.title}`, `Marked Follow-Up · event on ${when}`, settings.notificationSound, {
         eventId: event.id,
         startTime: event.startTime
@@ -221,8 +229,9 @@ function describe(due: DueReminder): string {
   if (event.allDay) {
     parts.push(`All day · ${date.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}`)
   } else {
-    const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-    const end = new Date(event.endTime).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+    const format = { hour: 'numeric', minute: '2-digit', ...timeZoneOption(settingsRepository.get().primaryTimeZone) } as const
+    const time = date.toLocaleTimeString(undefined, format)
+    const end = new Date(event.endTime).toLocaleTimeString(undefined, format)
     const lead = minutesBefore === null || minutesBefore === 0 ? 'Starting now' : `In ${formatDuration(minutesBefore)}`
     parts.push(`${lead} · ${time} – ${end}`)
   }

@@ -10,7 +10,8 @@ import type {
   EventContentArg,
   EventDropArg,
   EventInput,
-  EventSourceFuncArg
+  EventSourceFuncArg,
+  SlotLabelContentArg
 } from '@fullcalendar/core'
 import type { EventResizeDoneArg } from '@fullcalendar/interaction'
 import type { CalendarEvent, LocalEventInput } from '@shared/types'
@@ -18,7 +19,9 @@ import { DEFAULT_EVENT_STATUSES, findStatus } from '@shared/eventStatus'
 import { useAppStore } from '../stores/appStore'
 import { useNow } from '../hooks/useNow'
 import { DatePicker } from '../components/DatePicker'
-import { toDateString } from '../utils/dates'
+import { gmtOffsetLabel, isValidTimeZone, systemTimeZone, wallFields, zonedWallTimeToUtc, zoneFormatter } from '@shared/timezone'
+import { addDays, parseDateString, toDateString, zonedDateString } from '../utils/dates'
+import { intlTimeZonePlugin } from '../utils/intlTimeZonePlugin'
 import { errorMessage } from '../utils/errors'
 
 /**
@@ -49,7 +52,8 @@ export function CalendarPage() {
   const closePicker = useCallback(() => setPickerOpen(false), [])
   const onDatesSet = (arg: DatesSetArg): void => {
     localStorage.setItem(VIEW_STORAGE_KEY, arg.view.type)
-    setRange({ start: arg.view.currentStart, end: arg.view.currentEnd })
+    // FullCalendar gives instants (midnight in the primary zone); the picker wants calendar days.
+    setRange({ start: parseDateString(zonedDateString(arg.view.currentStart)), end: parseDateString(zonedDateString(arg.view.currentEnd)) })
     // FullCalendar renders the title; make it reachable by keyboard and explain it.
     const title = document.querySelector<HTMLElement>(TITLE_SELECTOR)
     if (title) {
@@ -80,6 +84,20 @@ export function CalendarPage() {
   const statusCss = useMemo(
     () => statuses.map((s) => `.fc .fc-event.status-${s.id} { --event-status-color: ${s.color}; }`).join('\n'),
     [statuses]
+  )
+
+  // Primary zone drives the whole grid ('local' = the computer's zone); the secondary
+  // one only adds a second time column in Week/Day views.
+  const timeZone = fullCalendarZone(settings?.primaryTimeZone)
+  const secondaryZone =
+    settings?.showSecondaryTimeZone && settings.secondaryTimeZone && isValidTimeZone(settings.secondaryTimeZone)
+      ? settings.secondaryTimeZone
+      : ''
+  const primaryLabel = settings?.primaryTimeZoneLabel ?? ''
+  const secondaryLabel = settings?.secondaryTimeZoneLabel ?? ''
+  const views = useMemo(
+    () => buildViewOptions(timeZone, primaryLabel, secondaryZone, secondaryLabel),
+    [timeZone, primaryLabel, secondaryZone, secondaryLabel]
   )
 
   const showLocal = settings?.showLocalEvents ?? true
@@ -135,7 +153,7 @@ export function CalendarPage() {
     openEventEditor({
       mode: 'create',
       defaults: arg.allDay
-        ? { allDay: true, startTime: toDateString(arg.start), endTime: toDateString(arg.end) }
+        ? { allDay: true, startTime: zonedDateString(arg.start), endTime: zonedDateString(arg.end) }
         : { allDay: false, startTime: arg.start.toISOString(), endTime: arg.end.toISOString() }
     })
   }
@@ -160,10 +178,12 @@ export function CalendarPage() {
         reminderMinutes: existing.reminderMinutes,
         recurrence: existing.recurrence,
         allDay: event.allDay,
-        startTime: event.allDay ? toDateString(start) : start.toISOString(),
+        startTime: event.allDay ? zonedDateString(start) : start.toISOString(),
         // FullCalendar drops `end` when it equals the default duration.
         endTime: event.allDay
-          ? toDateString(event.end ?? new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1))
+          ? event.end
+            ? zonedDateString(event.end)
+            : addDays(zonedDateString(start), 1)
           : (event.end ?? new Date(start.getTime() + 60 * 60_000)).toISOString()
       }
       // A date of a repeating event: move just it, it and later ones, or the whole series.
@@ -193,7 +213,8 @@ export function CalendarPage() {
               toggleSelector={TITLE_SELECTOR}
               onClose={closePicker}
               onPick={(date) => {
-                calendarRef.current?.getApi().gotoDate(date)
+                // As YYYY-MM-DD: a Date would be read as an instant in the primary zone.
+                calendarRef.current?.getApi().gotoDate(toDateString(date))
                 setPickerOpen(false)
               }}
             />
@@ -202,6 +223,7 @@ export function CalendarPage() {
         <FullCalendar
           ref={calendarRef}
           plugins={PLUGINS}
+          timeZone={timeZone}
           initialView={initialView()}
           datesSet={onDatesSet}
           eventDrop={(arg) => void onEventChange(arg)}
@@ -219,7 +241,7 @@ export function CalendarPage() {
           scrollTime="08:00:00"
           eventTimeFormat={TIME_FORMAT}
           slotLabelFormat={TIME_FORMAT}
-          views={VIEW_OPTIONS}
+          views={views}
           eventContent={renderEventContent}
           eventClassNames={(arg) => [
             ...timeGridSizeClasses(arg),
@@ -236,30 +258,81 @@ export function CalendarPage() {
 }
 
 // Kept outside the component: FullCalendar re-applies options whose identity changes.
-const PLUGINS = [dayGridPlugin, timeGridPlugin, interactionPlugin]
+const PLUGINS = [dayGridPlugin, timeGridPlugin, interactionPlugin, intlTimeZonePlugin]
 const HEADER_TOOLBAR = { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' }
 const BUTTON_TEXT = { today: 'Today', month: 'Month', week: 'Week', day: 'Day' }
 const TIME_FORMAT = { hour: 'numeric', minute: '2-digit', meridiem: 'short' } as const
 
+/** FullCalendar's `timeZone` for the primary zone setting: 'local' unless another valid zone is picked. */
+function fullCalendarZone(primary: string | undefined): string {
+  return primary && primary !== systemTimeZone() && isValidTimeZone(primary) ? primary : 'local'
+}
+
 /**
- * Week/Day views: the top-left corner of the time axis shows the timezone ("GMT-04").
- * FullCalendar only puts content there for week numbers, so we render the zone instead.
+ * Week/Day views: the top-left corner of the time axis shows the timezone (its label,
+ * or "GMT-04"). FullCalendar only puts content there for week numbers, so we render
+ * the zone instead. With a secondary zone, Google Calendar style: its times form a
+ * second column left of the primary one, and the corner names both.
  */
-const VIEW_OPTIONS = {
-  timeGrid: {
-    weekNumbers: true,
-    weekNumberContent: (arg: { date: Date }) => (
-      <span title={Intl.DateTimeFormat().resolvedOptions().timeZone}>{gmtOffsetLabel(arg.date)}</span>
-    )
+function buildViewOptions(timeZone: string, primaryLabel: string, secondaryZone: string, secondaryLabel: string) {
+  const primaryZone = timeZone === 'local' ? undefined : timeZone
+  const zoneLabel = (date: Date, zone: string | undefined, label: string, className = ''): ReactElement => (
+    <span className={`tz-col truncate ${className}`} title={zone ?? systemTimeZone()}>
+      {label || gmtOffsetLabel(date, zone)}
+    </span>
+  )
+  if (!secondaryZone) {
+    return {
+      timeGrid: {
+        weekNumbers: true,
+        weekNumberContent: (arg: { date: Date }) => zoneLabel(arg.date, primaryZone, primaryLabel)
+      }
+    }
+  }
+  const secondaryTime = timeFormatter(secondaryZone)
+  return {
+    timeGrid: {
+      weekNumbers: true,
+      weekNumberContent: (arg: { date: Date }) => (
+        <span className="tz-cols">
+          {zoneLabel(arg.date, secondaryZone, secondaryLabel, 'tz-secondary')}
+          {zoneLabel(arg.date, primaryZone, primaryLabel)}
+        </span>
+      ),
+      slotLabelContent: (arg: SlotLabelContentArg) => (
+        <span className="tz-cols">
+          <span className="tz-col tz-secondary">{secondaryTime(slotInstant(arg, primaryZone))}</span>
+          <span className="tz-col">{arg.text}</span>
+        </span>
+      )
+    }
   }
 }
 
-/** "GMT-04", "GMT+05:30" — the local offset on `date` (it changes with DST). */
-function gmtOffsetLabel(date: Date): string {
-  const offset = -date.getTimezoneOffset()
-  const abs = Math.abs(offset)
-  const minutes = abs % 60
-  return `GMT${offset < 0 ? '-' : '+'}${String(Math.floor(abs / 60)).padStart(2, '0')}${minutes ? `:${String(minutes).padStart(2, '0')}` : ''}`
+/**
+ * The moment an hour label stands for, taken on today's date in the primary zone.
+ * (FullCalendar's own `arg.date` is on 1970-01-01, where DST differs from today,
+ * which put the secondary times an hour off for half the year.)
+ */
+function slotInstant(arg: SlotLabelContentArg, primaryZone: string | undefined): Date {
+  const ms = arg.time.milliseconds + arg.time.days * 86_400_000
+  const hour = Math.floor(ms / 3_600_000)
+  const minute = Math.floor((ms % 3_600_000) / 60_000)
+  const fmt = primaryZone ? zoneFormatter(primaryZone) : null
+  const now = new Date()
+  if (!fmt) return new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute)
+  const [y, mo, d] = wallFields(now.getTime(), fmt)
+  return new Date(zonedWallTimeToUtc(fmt, y, mo, d, hour, minute))
+}
+
+/** Times in `zone` styled like FullCalendar's TIME_FORMAT labels ("9:00am", or "09:00" in 24h locales). */
+function timeFormatter(zone: string): (date: Date) => string {
+  const fmt = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', timeZone: zone })
+  return (date) =>
+    fmt
+      .format(date)
+      .replace(/‎/g, '')
+      .replace(/\s*([ap])\.?m\.?/i, (_, a: string) => `${a.toLowerCase()}m`)
 }
 
 /** Week/Day events at 60px per hour: under 45 minutes there is room for one line only. */

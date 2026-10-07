@@ -6,6 +6,7 @@ import type { EventStatusDef } from '@shared/types'
 import { FOLLOW_UP_ID, MAX_STATUS_LABEL, MAX_STATUSES, newStatusId } from '@shared/eventStatus'
 import { nextUnusedColor } from '@shared/colors'
 import { DEFAULT_SHORTCUT, shortcutFromKeyEvent, shortcutKeys } from '@shared/shortcut'
+import { MAX_TIME_ZONE_LABEL, systemTimeZone, tzOffsetMs, zoneFormatter } from '@shared/timezone'
 import { useAppStore } from '../stores/appStore'
 import { AppLogo } from '../components/AppLogo'
 import { ColorPicker } from '../components/ColorPicker'
@@ -372,6 +373,152 @@ function StatusEditor() {
   )
 }
 
+/** Zone choices for the dropdowns, built once on first use (a few hundred zones). */
+let zoneOptionCache: Map<string, ZoneOption> | null = null
+type ZoneOption = { value: string; label: string; offset: number }
+
+function zoneOption(zone: string, now: Date): ZoneOption | null {
+  const fmt = zoneFormatter(zone)
+  if (!fmt) return null
+  const offset = Math.round(tzOffsetMs(now.getTime(), fmt) / 60_000)
+  const abs = Math.abs(offset)
+  const gmt = `GMT${offset < 0 ? '-' : '+'}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`
+  const city = zone.split('/').pop()!.replace(/_/g, ' ')
+  const name = new Intl.DateTimeFormat(undefined, { timeZone: zone, timeZoneName: 'longGeneric' })
+    .formatToParts(now)
+    .find((p) => p.type === 'timeZoneName')?.value
+  // Zones without a proper name come back as "GMT+03:00"; then the city is enough.
+  const label = name && !name.startsWith('GMT') ? `(${gmt}) ${name} - ${city}` : `(${gmt}) ${city}`
+  return { value: zone, label, offset }
+}
+
+/** Google Calendar style: sorted by the current UTC offset, then by name. `extra` adds zones the list lacks (old aliases). */
+function timeZoneOptions(extra: string[]): ZoneOption[] {
+  const now = new Date()
+  if (!zoneOptionCache) {
+    zoneOptionCache = new Map()
+    for (const zone of ['UTC', ...Intl.supportedValuesOf('timeZone')]) {
+      const option = zoneOption(zone, now)
+      if (option) zoneOptionCache.set(zone, option)
+    }
+  }
+  const options = new Map(zoneOptionCache)
+  for (const zone of extra) {
+    const option = zone && !options.has(zone) ? zoneOption(zone, now) : null
+    if (option) options.set(zone, option)
+  }
+  return [...options.values()].sort((a, b) => a.offset - b.offset || a.label.localeCompare(b.label))
+}
+
+/** Short name for a time column ("Home"); saved on Enter / leaving the field. */
+function ZoneLabelInput({ value, onSave, ariaLabel }: { value: string; onSave: (label: string) => void; ariaLabel: string }) {
+  const [label, setLabel] = useState(value)
+  useEffect(() => setLabel(value), [value])
+  const commit = (): void => {
+    const trimmed = label.trim()
+    if (trimmed !== value) onSave(trimmed)
+    setLabel(trimmed)
+  }
+  return (
+    <input
+      className={`${inputClass} w-28!`}
+      value={label}
+      maxLength={MAX_TIME_ZONE_LABEL}
+      placeholder="Label"
+      aria-label={ariaLabel}
+      onChange={(e) => setLabel(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur()
+        if (e.key === 'Escape') setLabel(value)
+      }}
+    />
+  )
+}
+
+/** Primary zone (whole calendar) and an optional secondary zone (extra time column in Week/Day). */
+function TimeZoneSection() {
+  const settings = useAppStore((s) => s.settings)!
+  const updateSettings = useAppStore((s) => s.updateSettings)
+  const system = systemTimeZone()
+  const { primaryTimeZone, secondaryTimeZone, showSecondaryTimeZone } = settings
+  const options = useMemo(
+    () => timeZoneOptions([system, primaryTimeZone, secondaryTimeZone]),
+    [system, primaryTimeZone, secondaryTimeZone]
+  )
+  const zoneSelect = (value: string, onChange: (zone: string) => void, first: ReactNode, ariaLabel: string) => (
+    <select className={`${inputClass} w-72!`} value={value} aria-label={ariaLabel} onChange={(e) => onChange(e.target.value)}>
+      {first}
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  )
+  const swap = (): void =>
+    void updateSettings({
+      primaryTimeZone: secondaryTimeZone,
+      secondaryTimeZone: primaryTimeZone || system,
+      primaryTimeZoneLabel: settings.secondaryTimeZoneLabel,
+      secondaryTimeZoneLabel: settings.primaryTimeZoneLabel
+    })
+
+  return (
+    <Section title="Time zone">
+      <Row
+        title="Primary time zone"
+        description="The calendar, event times and the event editor use this zone. Reminders still come at the right moment."
+      >
+        <div className="flex items-center gap-2">
+          <ZoneLabelInput
+            value={settings.primaryTimeZoneLabel}
+            ariaLabel="Primary time zone label"
+            onSave={(primaryTimeZoneLabel) => void updateSettings({ primaryTimeZoneLabel })}
+          />
+          {zoneSelect(
+            primaryTimeZone,
+            (primaryTimeZone) => void updateSettings({ primaryTimeZone }),
+            <option value="">Computer’s time zone ({system.split('/').pop()!.replace(/_/g, ' ')})</option>,
+            'Primary time zone'
+          )}
+        </div>
+      </Row>
+      <Row title="Display secondary time zone" description="Adds a second column of times in Week and Day views.">
+        <Toggle
+          checked={showSecondaryTimeZone}
+          label="Display secondary time zone"
+          onChange={(show) => void updateSettings({ showSecondaryTimeZone: show })}
+        />
+      </Row>
+      {showSecondaryTimeZone && (
+        <Row title="Secondary time zone">
+          <div className="flex items-center gap-2">
+            <ZoneLabelInput
+              value={settings.secondaryTimeZoneLabel}
+              ariaLabel="Secondary time zone label"
+              onSave={(secondaryTimeZoneLabel) => void updateSettings({ secondaryTimeZoneLabel })}
+            />
+            {zoneSelect(
+              secondaryTimeZone,
+              (zone) => void updateSettings({ secondaryTimeZone: zone }),
+              <option value="" disabled>
+                Choose a time zone
+              </option>,
+              'Secondary time zone'
+            )}
+          </div>
+        </Row>
+      )}
+      {showSecondaryTimeZone && secondaryTimeZone && (
+        <div className="flex justify-end py-3">
+          <Button onClick={swap}>Swap time zones</Button>
+        </div>
+      )}
+    </Section>
+  )
+}
+
 export function SettingsPage() {
   useNow() // keeps the "paused until" state current
   const settings = useAppStore((s) => s.settings)
@@ -486,6 +633,8 @@ export function SettingsPage() {
             />
           </Row>
         </Section>
+
+        <TimeZoneSection />
 
         <Section title="Sync">
           <Row

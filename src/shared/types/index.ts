@@ -224,6 +224,17 @@ export interface AppSettings {
   /* ----- event status ----- */
   /** Event statuses, in the order they are offered */
   eventStatuses: EventStatusDef[]
+
+  /* ----- time zone ----- */
+  /** IANA zone the calendar and event times are shown in; '' = the computer's zone */
+  primaryTimeZone: string
+  /** Short name shown above the primary time column ("Home"); '' = the GMT offset */
+  primaryTimeZoneLabel: string
+  /** Week/Day views show a second time column for `secondaryTimeZone` */
+  showSecondaryTimeZone: boolean
+  /** IANA zone of the second column; '' = not picked yet */
+  secondaryTimeZone: string
+  secondaryTimeZoneLabel: string
 }
 
 /** 'same-day' = 09:00 on the day, 'day-before' = 18:00 the evening before */

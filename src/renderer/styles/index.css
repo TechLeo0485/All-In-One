@@ -155,6 +155,26 @@ textarea,
 .fc .fc-col-header .fc-timegrid-axis-cushion {
   @apply text-[0.65rem] font-medium text-slate-500;
 }
+/*
+ * With a secondary timezone the axis holds two columns (secondary, then primary).
+ * Fixed widths keep the corner labels lined up with the hour labels below them.
+ */
+.fc .tz-cols {
+  display: flex;
+  gap: 0.25rem;
+}
+/* FullCalendar caps the corner at 60px, which cuts two labels down to "G…". */
+.fc .fc-timegrid-axis-cushion:has(.tz-cols) {
+  max-width: none;
+}
+.fc .tz-cols .tz-col {
+  display: inline-block;
+  width: 3.5rem;
+  text-align: right;
+}
+.fc .tz-cols .tz-secondary {
+  @apply text-slate-600;
+}
 .fc .fc-daygrid-dot-event:hover,
 .fc .fc-daygrid-dot-event.fc-event-mirror {
   background: var(--color-slate-800);

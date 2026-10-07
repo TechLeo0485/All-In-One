@@ -1,6 +1,7 @@
 import ICAL from 'ical.js'
 import { createHash } from 'node:crypto'
 import type { AttendeeStatus, EventAttendee } from '@shared/types'
+import { zoneFormatter, zonedWallTimeToUtc } from '@shared/timezone'
 import type { SyncedEventData } from '../database/eventRepository'
 
 /**
@@ -306,47 +307,10 @@ function toStoredTime(time: ICAL.Time, prop: ICAL.Property | null): string {
   const zoneId = time.zone?.tzid
   const isFloating = !zoneId || zoneId === 'floating'
   const fmt = typeof tzid === 'string' && isFloating ? zoneFormatter(tzid) : null
-  if (fmt) return zonedWallTimeToUtc(time, fmt).toISOString()
+  if (fmt) {
+    const ms = zonedWallTimeToUtc(fmt, time.year, time.month - 1, time.day, time.hour, time.minute, time.second)
+    return new Date(ms).toISOString()
+  }
   return time.toJSDate().toISOString()
 }
 
-/** One formatter per IANA zone (construction is expensive); null = invalid zone. */
-const zoneFormatters = new Map<string, Intl.DateTimeFormat | null>()
-function zoneFormatter(tz: string): Intl.DateTimeFormat | null {
-  if (!zoneFormatters.has(tz)) {
-    try {
-      zoneFormatters.set(
-        tz,
-        new Intl.DateTimeFormat('en-US', {
-          timeZone: tz,
-          hourCycle: 'h23',
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit'
-        })
-      )
-    } catch {
-      zoneFormatters.set(tz, null)
-    }
-  }
-  return zoneFormatters.get(tz)!
-}
-
-/** Interprets the wall-clock fields of `time` in the formatter's IANA zone. */
-function zonedWallTimeToUtc(time: ICAL.Time, fmt: Intl.DateTimeFormat): Date {
-  const asUtc = Date.UTC(time.year, time.month - 1, time.day, time.hour, time.minute, time.second)
-  // Two passes handle DST transitions correctly in nearly all real cases.
-  let guess = asUtc - tzOffsetMs(asUtc, fmt)
-  guess = asUtc - tzOffsetMs(guess, fmt)
-  return new Date(guess)
-}
-
-function tzOffsetMs(utcMs: number, fmt: Intl.DateTimeFormat): number {
-  const parts = fmt.formatToParts(new Date(utcMs))
-  const get = (type: string): number => Number(parts.find((p) => p.type === type)?.value)
-  const wall = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'))
-  return wall - (utcMs - (utcMs % 1000))
-}

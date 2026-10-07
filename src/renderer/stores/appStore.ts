@@ -10,6 +10,7 @@ import type {
   RecurrenceScope,
   SyncStatus
 } from '@shared/types'
+import { setDisplayTimeZone } from '../utils/dates'
 import { errorMessage } from '../utils/errors'
 
 export type View = 'calendar' | 'calendars' | 'settings'
@@ -160,6 +161,7 @@ export const useAppStore = create<AppState>((set, get) => {
         window.api.sync.status(),
         window.api.proton.listAccounts()
       ])
+      setDisplayTimeZone(settings.primaryTimeZone)
       set({ calendars, settings, syncStatus, protonAccounts, ready: true })
     },
 
@@ -314,7 +316,10 @@ export const useAppStore = create<AppState>((set, get) => {
     async updateSettings(patch) {
       // CalendarPage refetches by itself when visibility / local event options change.
       const settings = await attempt(() => window.api.settings.update(patch))
-      if (settings) set({ settings })
+      if (!settings) return
+      // Before set(): components re-render with the new zone already in place.
+      setDisplayTimeZone(settings.primaryTimeZone)
+      set({ settings })
     },
 
     openEventEditor: (state) => set({ eventEditor: state }),

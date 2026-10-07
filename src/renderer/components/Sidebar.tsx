@@ -13,20 +13,28 @@ function CalendarRow({
   color,
   visible,
   error,
-  onToggle
+  onToggle,
+  onSync,
+  syncing = false,
+  syncTitle
 }: {
   name: string
   color: string
   visible: boolean
   error?: string | null
   onToggle: () => void
+  /** Omitted for rows that can't be synced (local events). */
+  onSync?: () => void
+  syncing?: boolean
+  syncTitle?: string
 }) {
+  const iconButton = 'shrink-0 rounded p-1 text-slate-500 hover:bg-slate-700 hover:text-slate-200 disabled:hover:bg-transparent'
   return (
-    <li>
+    <li className="group flex items-center rounded-md pr-1 hover:bg-slate-800">
       <button
         onClick={onToggle}
         title={visible ? `Hide ${name}` : `Show ${name}`}
-        className="group flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm hover:bg-slate-800"
+        className="flex min-w-0 flex-1 items-center gap-2.5 py-1.5 pl-2 text-left text-sm"
       >
         <span
           className="flex h-4 w-4 shrink-0 items-center justify-center rounded border-2"
@@ -38,10 +46,25 @@ function CalendarRow({
             <AlertIcon size={14} />
           </span>
         )}
-        <span className="text-slate-500 opacity-0 group-hover:opacity-100">
-          {visible ? <EyeIcon size={14} /> : <EyeOffIcon size={14} />}
-        </span>
       </button>
+      <button
+        onClick={onToggle}
+        title={visible ? `Hide ${name}` : `Show ${name}`}
+        className={`${iconButton} opacity-0 group-hover:opacity-100 focus-visible:opacity-100`}
+      >
+        {visible ? <EyeIcon size={14} /> : <EyeOffIcon size={14} />}
+      </button>
+      {onSync && (
+        <button
+          onClick={onSync}
+          disabled={syncing}
+          title={syncTitle ?? `Sync ${name}`}
+          // Stays visible while syncing so the spinner shows progress.
+          className={`${iconButton} ${syncing ? '' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
+        >
+          {syncing ? <Spinner /> : <RefreshIcon size={14} />}
+        </button>
+      )}
     </li>
   )
 }
@@ -74,6 +97,8 @@ export function Sidebar() {
   const setView = useAppStore((s) => s.setView)
   const accounts = useAppStore((s) => s.protonAccounts)
   const syncAllProtonAccounts = useAppStore((s) => s.syncAllProtonAccounts)
+  const syncOne = useAppStore((s) => s.syncOne)
+  const protonAction = useAppStore((s) => s.protonAction)
 
   const hidden = settings?.hiddenCalendarIds ?? []
   const enabled = useMemo(() => calendars.filter((c) => c.enabled), [calendars])
@@ -123,7 +148,15 @@ export function Sidebar() {
 
       <div className="mt-5 flex-1 overflow-y-auto px-3">
         <div className="mb-1 flex items-center justify-between px-2">
-          <h3 className="text-xs font-semibold tracking-wide text-slate-500 uppercase">Calendars</h3>
+          <h3>
+            <button
+              onClick={() => setView('calendar')}
+              title="Show the calendar"
+              className="-mx-1 rounded px-1 text-xs font-semibold tracking-wide text-slate-500 uppercase hover:text-slate-200"
+            >
+              Calendars
+            </button>
+          </h3>
           <button
             onClick={refreshEverything}
             disabled={busy}
@@ -159,6 +192,12 @@ export function Sidebar() {
                   visible={!hidden.includes(c.id)}
                   error={c.lastSyncError}
                   onToggle={() => void toggleVisibility(c.id)}
+                  // Proton downloads a whole account in one export, so its calendars sync per account.
+                  onSync={() => void (c.accountId ? protonAction('syncAccount', c.accountId) : syncOne(c.id))}
+                  syncing={
+                    syncStatus.syncingIds.includes(c.id) || accounts.some((a) => a.id === c.accountId && a.status === 'syncing')
+                  }
+                  syncTitle={c.accountId ? `Sync ${group.title ?? 'this Proton account'}` : `Sync ${c.name}`}
                 />
               ))}
             </ul>

@@ -2,6 +2,7 @@ import type { AppSettings, CalendarSourceInput, LocalEventInput, RecurrenceRule,
 import { AUTO_SYNC_OPTIONS } from '@shared/sources'
 import { isValidShortcut } from '@shared/shortcut'
 import { MAX_STATUS_LABEL, MAX_STATUSES, normalizeStatuses, STATUS_ID_RE } from '@shared/eventStatus'
+import { isValidTimeZone, MAX_TIME_ZONE_LABEL } from '@shared/timezone'
 
 /**
  * The renderer is treated as untrusted: every IPC payload is validated here before
@@ -205,6 +206,16 @@ export function settingsPatch(value: unknown): Partial<AppSettings> {
       })
     )
   }
+  for (const key of ['primaryTimeZone', 'secondaryTimeZone'] as const) {
+    if (v[key] === undefined) continue
+    const tz = str(v[key], 'Time zone', { max: 64 })
+    if (tz && !isValidTimeZone(tz)) fail('Unknown time zone')
+    out[key] = tz
+  }
+  for (const key of ['primaryTimeZoneLabel', 'secondaryTimeZoneLabel'] as const) {
+    if (v[key] !== undefined) out[key] = str(v[key], 'Time zone label', { max: MAX_TIME_ZONE_LABEL })
+  }
+  if (v.showSecondaryTimeZone !== undefined) out.showSecondaryTimeZone = Boolean(v.showSecondaryTimeZone)
   return out
 }
 

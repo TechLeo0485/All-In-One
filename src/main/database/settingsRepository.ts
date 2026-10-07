@@ -16,7 +16,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   launchAtStartup: false,
   globalShortcut: DEFAULT_SHORTCUT,
   autoSyncMinutes: 30,
-  eventStatuses: DEFAULT_EVENT_STATUSES
+  eventStatuses: DEFAULT_EVENT_STATUSES,
+  primaryTimeZone: '',
+  primaryTimeZoneLabel: '',
+  showSecondaryTimeZone: false,
+  secondaryTimeZone: '',
+  secondaryTimeZoneLabel: ''
 }
 
 /** Keys for internal app state kept in the same table (never exposed as settings). */

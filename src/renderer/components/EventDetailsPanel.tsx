@@ -5,7 +5,16 @@ import { htmlToPlainText } from '@shared/htmlText'
 import { describeRecurrence } from '@shared/recurrence'
 import { useAppStore } from '../stores/appStore'
 import { useEventDetails } from '../hooks/useEventDetails'
-import { formatEventWhen, formatReminder, fromLocalInputValue, toDateString, toLocalInputValue } from '../utils/dates'
+import {
+  addDays,
+  formatEventWhen,
+  formatInDisplayZone,
+  formatReminder,
+  fromLocalInputValue,
+  todayString,
+  toLocalInputValue,
+  zonedDateString
+} from '../utils/dates'
 import { findFirstUrl, linkify } from '../utils/linkify'
 import { renderDescription } from '../utils/richText'
 import { BellIcon, ClockIcon, ExternalIcon, LockIcon, MapPinIcon, RepeatIcon, UsersIcon, XIcon } from './icons'
@@ -124,7 +133,7 @@ function StatusPicker({ event }: { event: CalendarEvent }) {
   )
 }
 
-/** Quick choices for a follow-up reminder; all at 09:00 local time. */
+/** Quick choices for a follow-up reminder; all at 09:00 in the display timezone. */
 const FOLLOW_UP_CHOICES = [
   { label: 'Tomorrow', days: 1 },
   { label: 'In 3 days', days: 3 },
@@ -132,19 +141,11 @@ const FOLLOW_UP_CHOICES = [
 ]
 
 function daysFromNowAtNine(days: number): Date {
-  const d = new Date()
-  d.setDate(d.getDate() + days)
-  d.setHours(9, 0, 0, 0)
-  return d
+  return new Date(fromLocalInputValue(`${addDays(todayString(), days)}T09:00`))
 }
 
-const reminderFmt = new Intl.DateTimeFormat(undefined, {
-  weekday: 'short',
-  month: 'short',
-  day: 'numeric',
-  hour: 'numeric',
-  minute: '2-digit'
-})
+const REMINDER_FORMAT = { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' } as const
+const reminderFmt = { format: (date: Date): string => formatInDisplayZone(date, REMINDER_FORMAT) }
 const chipClass =
   'rounded-full border border-slate-700 px-2.5 py-0.5 text-xs text-slate-300 hover:border-slate-500 hover:text-white'
 const linkClass = 'text-xs text-slate-400 hover:text-slate-200 hover:underline'
@@ -309,7 +310,7 @@ export function EventDetailsPanel() {
                     <RepeatIcon className="mt-0.5 shrink-0 text-slate-500" />
                     {describeRecurrence(
                       event.recurrence,
-                      event.allDay ? event.startTime : toDateString(new Date(event.startTime))
+                      event.allDay ? event.startTime : zonedDateString(new Date(event.startTime))
                     )}
                   </p>
                 )}
