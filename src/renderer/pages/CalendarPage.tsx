@@ -1,4 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement, type SyntheticEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type ReactElement,
+  type RefObject,
+  type SyntheticEvent
+} from 'react'
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
@@ -16,6 +28,7 @@ import type {
 import type { EventResizeDoneArg } from '@fullcalendar/interaction'
 import type { CalendarEvent, LocalEventInput } from '@shared/types'
 import { DEFAULT_EVENT_STATUSES, findStatus } from '@shared/eventStatus'
+import { clampHourHeight, DEFAULT_HOUR_HEIGHT, HOUR_HEIGHT_STEP } from '@shared/hourHeight'
 import { useAppStore } from '../stores/appStore'
 import { useNow } from '../hooks/useNow'
 import { DatePicker } from '../components/DatePicker'
@@ -104,6 +117,8 @@ export function CalendarPage() {
   const localColor = settings?.localEventColor ?? '#10b981'
 
   const calendarRef = useRef<FullCalendar>(null)
+  const { hourHeight, wrapperRef } = useHourHeight(settings?.hourHeight ?? DEFAULT_HOUR_HEIGHT, calendarRef)
+  const eventContent = useMemo(() => eventContentRenderer(hourHeight), [hourHeight])
   const filtersRef = useRef({ visibleCalendars, showLocal, localColor })
   const mounted = useRef(false)
 
@@ -200,7 +215,9 @@ export function CalendarPage() {
   return (
     <div className="h-full p-4">
       <div
+        ref={wrapperRef}
         className="relative h-full rounded-xl border border-slate-800 bg-slate-900 p-4 shadow-sm"
+        style={{ '--hour-height': `${hourHeight}px` } as CSSProperties}
         onClick={onTitleActivate}
         onKeyDown={onTitleActivate}
       >
@@ -242,9 +259,9 @@ export function CalendarPage() {
           eventTimeFormat={TIME_FORMAT}
           slotLabelFormat={TIME_FORMAT}
           views={views}
-          eventContent={renderEventContent}
+          eventContent={eventContent}
           eventClassNames={(arg) => [
-            ...timeGridSizeClasses(arg),
+            ...timeGridSizeClasses(arg, hourHeight),
             ...(arg.event.id === selectedEventId ? ['ring-2', 'ring-white', 'ring-offset-1', 'ring-offset-slate-900'] : []),
             // Not FullCalendar's own isPast: that is only recomputed occasionally, not every minute.
             ...(isEnded(arg.event.end ?? arg.event.start, now) ? ['event-ended'] : []),
@@ -335,10 +352,84 @@ function timeFormatter(zone: string): (date: Date) => string {
       .replace(/\s*([ap])\.?m\.?/i, (_, a: string) => `${a.toLowerCase()}m`)
 }
 
-/** Week/Day events at 60px per hour: under 45 minutes there is room for one line only. */
-const SINGLE_LINE_MINUTES = 45
-/** Under 30 minutes (< 30px tall) the padding and font shrink too. */
-const TINY_MINUTES = 30
+/** Week/Day events under 45px tall have room for one line only. */
+const SINGLE_LINE_PX = 45
+/** Under 30px the padding and font shrink too. */
+const TINY_PX = 30
+/** From 75px the title may take two lines. */
+const TWO_LINE_TITLE_PX = 75
+
+/**
+ * Hour height of Week/Day views: the saved setting, changed live by Ctrl + mouse wheel
+ * over the calendar (saved once the wheel stops). Zooming keeps the time under the
+ * pointer in place.
+ */
+function useHourHeight(saved: number, calendarRef: RefObject<FullCalendar | null>) {
+  const updateSettings = useAppStore((s) => s.updateSettings)
+  const [hourHeight, setHourHeight] = useState(saved)
+  const wrapperRef = useRef<HTMLDivElement>(null)
+  const current = useRef(hourHeight)
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** Scroll position to restore after a zoom step: [scroller, time-under-pointer anchor]. */
+  const pendingScroll = useRef<{ scroller: HTMLElement; offsetY: number; ratio: number } | null>(null)
+
+  // Follow the setting (Settings slider), except while a wheel zoom is still unsaved.
+  useEffect(() => {
+    if (!saveTimer.current) setHourHeight(saved)
+  }, [saved])
+
+  // The slot height comes from CSS, so FullCalendar must re-measure to place events.
+  useLayoutEffect(() => {
+    current.current = hourHeight
+    calendarRef.current?.getApi().updateSize()
+    const pending = pendingScroll.current
+    if (pending) {
+      const { scroller, offsetY, ratio } = pending
+      scroller.scrollTop = (scroller.scrollTop + offsetY) * ratio - offsetY
+      pendingScroll.current = null
+    }
+  }, [hourHeight, calendarRef])
+
+  useEffect(() => {
+    const wrapper = wrapperRef.current
+    if (!wrapper) return
+    const onWheel = (e: WheelEvent): void => {
+      if (!e.ctrlKey || e.deltaY === 0) return
+      const body = (e.target as Element).closest('.fc-timegrid-body')
+      const scroller = body?.closest<HTMLElement>('.fc-scroller')
+      if (!scroller) return
+      e.preventDefault() // no page zoom
+      const prev = current.current
+      const next = clampHourHeight(prev + (e.deltaY < 0 ? HOUR_HEIGHT_STEP : -HOUR_HEIGHT_STEP))
+      if (next === prev) return
+      const offsetY = e.clientY - scroller.getBoundingClientRect().top
+      // Several wheel steps can arrive before React renders: combine their zoom ratios.
+      const ratio = (pendingScroll.current?.ratio ?? 1) * (next / prev)
+      pendingScroll.current = { scroller, offsetY, ratio }
+      current.current = next
+      setHourHeight(next)
+      if (saveTimer.current) clearTimeout(saveTimer.current)
+      saveTimer.current = setTimeout(() => {
+        saveTimer.current = null
+        void updateSettings({ hourHeight: current.current })
+      }, 500)
+    }
+    wrapper.addEventListener('wheel', onWheel, { passive: false })
+    return () => wrapper.removeEventListener('wheel', onWheel)
+  }, [updateSettings])
+
+  // Leaving the page mid-zoom still saves it.
+  useEffect(
+    () => () => {
+      if (!saveTimer.current) return
+      clearTimeout(saveTimer.current)
+      void updateSettings({ hourHeight: current.current })
+    },
+    [updateSettings]
+  )
+
+  return { hourHeight, wrapperRef }
+}
 
 function durationMinutes(arg: { event: EventContentArg['event'] }): number {
   const { start, end } = arg.event
@@ -350,11 +441,16 @@ function isTimedTimeGridEvent(arg: { event: EventContentArg['event']; view: Even
   return arg.view.type.startsWith('timeGrid') && !arg.event.allDay
 }
 
-function timeGridSizeClasses(arg: { event: EventContentArg['event']; view: EventContentArg['view'] }): string[] {
+/** Height in px of a Week/Day event at the given hour height. */
+function eventHeightPx(arg: { event: EventContentArg['event'] }, hourHeight: number): number {
+  return (durationMinutes(arg) * hourHeight) / 60
+}
+
+function timeGridSizeClasses(arg: { event: EventContentArg['event']; view: EventContentArg['view'] }, hourHeight: number): string[] {
   if (!isTimedTimeGridEvent(arg)) return []
-  const minutes = durationMinutes(arg)
-  if (minutes < TINY_MINUTES) return ['event-tiny']
-  if (minutes < SINGLE_LINE_MINUTES) return ['event-single-line']
+  const px = eventHeightPx(arg, hourHeight)
+  if (px < TINY_PX) return ['event-tiny']
+  if (px < SINGLE_LINE_PX) return ['event-single-line']
   return []
 }
 
@@ -363,11 +459,15 @@ function timeGridSizeClasses(arg: { event: EventContentArg['event']; view: Event
  * get one line ("Interview, 9:00am"), longer ones the full range on a second line.
  * Month view keeps FullCalendar's default rendering.
  */
-function renderEventContent(arg: EventContentArg): ReactElement | true {
+function eventContentRenderer(hourHeight: number) {
+  return (arg: EventContentArg): ReactElement | true => renderEventContent(arg, hourHeight)
+}
+
+function renderEventContent(arg: EventContentArg, hourHeight: number): ReactElement | true {
   if (!isTimedTimeGridEvent(arg)) return true
   const { title, start } = arg.event
-  const minutes = durationMinutes(arg)
-  if (minutes < SINGLE_LINE_MINUTES) {
+  const px = eventHeightPx(arg, hourHeight)
+  if (px < SINGLE_LINE_PX) {
     const startText = start ? arg.view.calendar.formatDate(start, TIME_FORMAT) : ''
     return (
       <div className="truncate">
@@ -379,7 +479,7 @@ function renderEventContent(arg: EventContentArg): ReactElement | true {
   }
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {title && <div className={`font-medium ${minutes >= 75 ? 'line-clamp-2' : 'truncate'}`}>{title}</div>}
+      {title && <div className={`font-medium ${px >= TWO_LINE_TITLE_PX ? 'line-clamp-2' : 'truncate'}`}>{title}</div>}
       <div className="truncate opacity-85">{arg.timeText}</div>
     </div>
   )

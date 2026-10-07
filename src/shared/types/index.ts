@@ -225,6 +225,10 @@ export interface AppSettings {
   /** Event statuses, in the order they are offered */
   eventStatuses: EventStatusDef[]
 
+  /* ----- calendar view ----- */
+  /** Height of one hour in Week/Day views, px (MIN_HOUR_HEIGHT..MAX_HOUR_HEIGHT) */
+  hourHeight: number
+
   /* ----- time zone ----- */
   /** IANA zone the calendar and event times are shown in; '' = the computer's zone */
   primaryTimeZone: string

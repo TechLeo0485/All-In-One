@@ -6,6 +6,7 @@ import type { EventStatusDef } from '@shared/types'
 import { FOLLOW_UP_ID, MAX_STATUS_LABEL, MAX_STATUSES, newStatusId } from '@shared/eventStatus'
 import { nextUnusedColor } from '@shared/colors'
 import { DEFAULT_SHORTCUT, shortcutFromKeyEvent, shortcutKeys } from '@shared/shortcut'
+import { DEFAULT_HOUR_HEIGHT, HOUR_HEIGHT_STEP, MAX_HOUR_HEIGHT, MIN_HOUR_HEIGHT } from '@shared/hourHeight'
 import { MAX_TIME_ZONE_LABEL, systemTimeZone, tzOffsetMs, zoneFormatter } from '@shared/timezone'
 import { useAppStore } from '../stores/appStore'
 import { AppLogo } from '../components/AppLogo'
@@ -436,6 +437,43 @@ function ZoneLabelInput({ value, onSave, ariaLabel }: { value: string; onSave: (
   )
 }
 
+/** Week/Day hour height; saved shortly after the slider stops moving. */
+function HourHeightRow() {
+  const saved = useAppStore((s) => s.settings!.hourHeight)
+  const updateSettings = useAppStore((s) => s.updateSettings)
+  const [value, setValue] = useState(saved)
+  useEffect(() => setValue(saved), [saved])
+  useEffect(() => {
+    if (value === saved) return
+    const timer = setTimeout(() => void updateSettings({ hourHeight: value }), 300)
+    return () => clearTimeout(timer)
+  }, [value, saved, updateSettings])
+
+  return (
+    <Row
+      title="Hour height"
+      description="How tall one hour is in Week and Day views. You can also hold Ctrl and scroll over the calendar."
+    >
+      <div className="flex items-center gap-3">
+        <input
+          type="range"
+          min={MIN_HOUR_HEIGHT}
+          max={MAX_HOUR_HEIGHT}
+          step={HOUR_HEIGHT_STEP}
+          value={value}
+          aria-label="Hour height"
+          className="w-40 accent-blue-500"
+          onChange={(e) => setValue(Number(e.target.value))}
+        />
+        <span className="w-12 text-right text-sm text-slate-300 tabular-nums">{value}px</span>
+        <Button variant="ghost" disabled={value === DEFAULT_HOUR_HEIGHT} onClick={() => setValue(DEFAULT_HOUR_HEIGHT)}>
+          Reset
+        </Button>
+      </div>
+    </Row>
+  )
+}
+
 /** Primary zone (whole calendar) and an optional secondary zone (extra time column in Week/Day). */
 function TimeZoneSection() {
   const settings = useAppStore((s) => s.settings)!
@@ -632,6 +670,10 @@ export function SettingsPage() {
               onChange={(launchAtStartup) => void updateSettings({ launchAtStartup })}
             />
           </Row>
+        </Section>
+
+        <Section title="Calendar">
+          <HourHeightRow />
         </Section>
 
         <TimeZoneSection />

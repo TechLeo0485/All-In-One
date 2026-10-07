@@ -3,6 +3,7 @@ import { AUTO_SYNC_OPTIONS } from '@shared/sources'
 import { isValidShortcut } from '@shared/shortcut'
 import { MAX_STATUS_LABEL, MAX_STATUSES, normalizeStatuses, STATUS_ID_RE } from '@shared/eventStatus'
 import { isValidTimeZone, MAX_TIME_ZONE_LABEL } from '@shared/timezone'
+import { clampHourHeight, MAX_HOUR_HEIGHT, MIN_HOUR_HEIGHT } from '@shared/hourHeight'
 
 /**
  * The renderer is treated as untrusted: every IPC payload is validated here before
@@ -214,6 +215,11 @@ export function settingsPatch(value: unknown): Partial<AppSettings> {
   }
   for (const key of ['primaryTimeZoneLabel', 'secondaryTimeZoneLabel'] as const) {
     if (v[key] !== undefined) out[key] = str(v[key], 'Time zone label', { max: MAX_TIME_ZONE_LABEL })
+  }
+  if (v.hourHeight !== undefined) {
+    const n = Number(v.hourHeight)
+    if (!Number.isFinite(n) || n < MIN_HOUR_HEIGHT || n > MAX_HOUR_HEIGHT) fail('Invalid hour height')
+    out.hourHeight = clampHourHeight(n)
   }
   if (v.showSecondaryTimeZone !== undefined) out.showSecondaryTimeZone = Boolean(v.showSecondaryTimeZone)
   return out

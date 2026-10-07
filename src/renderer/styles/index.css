@@ -120,11 +120,12 @@ textarea,
   border-top-color: color-mix(in srgb, var(--color-slate-700) 30%, transparent);
 }
 /*
- * Week/Day views: fixed 60px per hour (two 30px half-hour slots), whatever the
- * window size; a taller window shows more hours, the rest scrolls.
+ * Week/Day views: a fixed height per hour (two half-hour slots), whatever the
+ * window size; a taller window shows more hours, the rest scrolls. The height is
+ * a setting: CalendarPage sets --hour-height (Settings slider, Ctrl + mouse wheel).
  */
 .fc .fc-timegrid-slot {
-  height: 30px;
+  height: calc(var(--hour-height, 60px) / 2);
 }
 .fc .fc-event {
   cursor: pointer;
