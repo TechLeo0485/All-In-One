@@ -39,8 +39,9 @@ function createWindow(showOnReady: boolean): BrowserWindow {
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
-    minWidth: 960,
-    minHeight: 600,
+    // The layout adapts down to this (sidebar rail, details panel over the calendar).
+    minWidth: 720,
+    minHeight: 520,
     show: false,
     title: APP_NAME,
     icon: appIconFile(),

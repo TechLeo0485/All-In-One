@@ -124,3 +124,9 @@ export const RepeatIcon = (p: IconProps) => (
     <path d="M21 13v1a4 4 0 0 1-4 4H3" />
   </Icon>
 )
+export const PanelLeftIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <path d="M9 3v18" />
+  </Icon>
+)

@@ -29,11 +29,13 @@ import type { EventResizeDoneArg } from '@fullcalendar/interaction'
 import type { CalendarEvent, LocalEventInput } from '@shared/types'
 import { DEFAULT_EVENT_STATUSES, findStatus } from '@shared/eventStatus'
 import { clampHourHeight, DEFAULT_HOUR_HEIGHT, HOUR_HEIGHT_STEP } from '@shared/hourHeight'
-import { useAppStore } from '../stores/appStore'
+import { LOCAL_EVENTS_KEY, useAppStore, type EventCounts } from '../stores/appStore'
 import { useNow } from '../hooks/useNow'
+import { useMediaQuery } from '../hooks/useMediaQuery'
+import { DETAILS_MODAL_QUERY } from '../components/EventDetailsPanel'
 import { DatePicker } from '../components/DatePicker'
 import { gmtOffsetLabel, isValidTimeZone, systemTimeZone, wallFields, zonedWallTimeToUtc, zoneFormatter } from '@shared/timezone'
-import { addDays, parseDateString, toDateString, zonedDateString } from '../utils/dates'
+import { addDays, parseDateString, toDateString, todayString, zonedDateString } from '../utils/dates'
 import { intlTimeZonePlugin } from '../utils/intlTimeZonePlugin'
 import { errorMessage } from '../utils/errors'
 
@@ -62,11 +64,18 @@ export function CalendarPage() {
   // Clicking the title ("Sep 27 – Oct 3, 2026") opens a date picker to jump anywhere.
   const [range, setRange] = useState<{ start: Date; end: Date } | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
+  // The period itself (not the extra days a month grid shows), for the sidebar's event counts.
+  const [period, setPeriod] = useState<Period | null>(null)
   const closePicker = useCallback(() => setPickerOpen(false), [])
   const onDatesSet = (arg: DatesSetArg): void => {
     localStorage.setItem(VIEW_STORAGE_KEY, arg.view.type)
     // FullCalendar gives instants (midnight in the primary zone); the picker wants calendar days.
     setRange({ start: parseDateString(zonedDateString(arg.view.currentStart)), end: parseDateString(zonedDateString(arg.view.currentEnd)) })
+    setPeriod({
+      start: arg.view.currentStart.toISOString(),
+      end: arg.view.currentEnd.toISOString(),
+      label: `${PERIOD_NAMES[arg.view.type] ?? 'Period'} · ${arg.view.title}`
+    })
     // FullCalendar renders the title; make it reachable by keyboard and explain it.
     const title = document.querySelector<HTMLElement>(TITLE_SELECTOR)
     if (title) {
@@ -116,6 +125,8 @@ export function CalendarPage() {
   const showLocal = settings?.showLocalEvents ?? true
   const localColor = settings?.localEventColor ?? '#10b981'
 
+  usePeriodStats(period, eventsVersion, now)
+
   const calendarRef = useRef<FullCalendar>(null)
   const { hourHeight, wrapperRef } = useHourHeight(settings?.hourHeight ?? DEFAULT_HOUR_HEIGHT, calendarRef)
   const eventContent = useMemo(() => eventContentRenderer(hourHeight), [hourHeight])
@@ -129,14 +140,61 @@ export function CalendarPage() {
     mounted.current = true
   }, [eventsVersion, visibleCalendars, showLocal, localColor])
 
-  // Opened from a reminder / the tray: jump to the event's date once, then clear it so
-  // coming back to this page later doesn't jump again.
+  // The highlighted event: the one whose details are open. On small windows the details
+  // modal covers the calendar, so once it closes the event keeps its ring just long
+  // enough to pulse (see below).
+  const [closingId, setClosingId] = useState<string | null>(null)
+  const highlightedId = selectedEventId ?? closingId
+
+  /** Scrolls the highlighted event into view and makes it pulse; false if it isn't rendered (yet). */
+  const revealHighlighted = useCallback((): boolean => {
+    const elements = wrapperRef.current?.querySelectorAll<HTMLElement>(`.fc-event.${HIGHLIGHT_CLASS}`)
+    if (!elements?.length) return false
+    elements[0].scrollIntoView({ block: 'center', behavior: 'smooth' })
+    for (const el of elements) {
+      el.classList.remove(FLASH_CLASS)
+      void el.offsetWidth // restart the animation
+      el.classList.add(FLASH_CLASS)
+      el.addEventListener('animationend', () => el.classList.remove(FLASH_CLASS), { once: true })
+    }
+    return true
+  }, [wrapperRef])
+
+  // After a jump (search result, reminder) the event appears once its range is fetched:
+  // until then each eventsSet tries again, for a few seconds at most.
+  const revealUntil = useRef(0)
+  const tryReveal = useCallback(() => {
+    requestAnimationFrame(() => {
+      if (Date.now() < revealUntil.current && revealHighlighted()) revealUntil.current = 0
+    })
+  }, [revealHighlighted])
+
+  // Opened from search / a reminder / the tray: jump to the event's date once, then clear it
+  // so coming back to this page later doesn't jump again.
   const focusDate = useAppStore((s) => s.focusDate)
   useEffect(() => {
     if (!focusDate) return
     calendarRef.current?.getApi().gotoDate(focusDate.date)
     useAppStore.setState({ focusDate: null })
-  }, [focusDate])
+    revealUntil.current = Date.now() + REVEAL_TIMEOUT_MS
+    tryReveal()
+  }, [focusDate, tryReveal])
+
+  // Small windows: the details modal hid the calendar, so closing it points at the event.
+  const detailsAsModal = useMediaQuery(DETAILS_MODAL_QUERY)
+  const prevSelectedId = useRef(selectedEventId)
+  useEffect(() => {
+    const closedId = selectedEventId === null ? prevSelectedId.current : null
+    prevSelectedId.current = selectedEventId
+    if (closedId && detailsAsModal) setClosingId(closedId)
+    else if (selectedEventId) setClosingId(null)
+  }, [selectedEventId, detailsAsModal])
+  useEffect(() => {
+    if (!closingId) return
+    requestAnimationFrame(() => revealHighlighted())
+    const timer = window.setTimeout(() => setClosingId(null), CLOSE_PULSE_MS)
+    return () => window.clearTimeout(timer)
+  }, [closingId, revealHighlighted])
 
   const fetchEvents = useCallback(
     (info: EventSourceFuncArg, success: (events: EventInput[]) => void, failure: (error: Error) => void) => {
@@ -213,17 +271,19 @@ export function CalendarPage() {
   }
 
   return (
-    <div className="h-full p-4">
+    <div className="h-full p-2 lg:p-4">
       <div
         ref={wrapperRef}
-        className="relative h-full rounded-xl border border-slate-800 bg-slate-900 p-4 shadow-sm"
+        // A size container: the toolbar and date picker adapt to the calendar's own width (index.css).
+        // has-selection: the other events dim while an event's details are open (index.css).
+        className={`@container relative h-full rounded-xl border border-slate-800 bg-slate-900 p-3 shadow-sm lg:p-4 ${selectedEventId ? 'has-selection' : ''}`}
         style={{ '--hour-height': `${hourHeight}px` } as CSSProperties}
         onClick={onTitleActivate}
         onKeyDown={onTitleActivate}
       >
         <style>{statusCss}</style>
         {pickerOpen && range && (
-          <div className="absolute top-14 left-1/2 z-30 -translate-x-1/2">
+          <div className="absolute top-14 left-1/2 z-30 -translate-x-1/2 @max-2xl:top-24">
             <DatePicker
               rangeStart={range.start}
               rangeEnd={range.end}
@@ -249,6 +309,7 @@ export function CalendarPage() {
           buttonText={BUTTON_TEXT}
           height="100%"
           events={fetchEvents}
+          eventsSet={tryReveal}
           eventClick={onEventClick}
           selectable
           selectMirror
@@ -262,7 +323,7 @@ export function CalendarPage() {
           eventContent={eventContent}
           eventClassNames={(arg) => [
             ...timeGridSizeClasses(arg, hourHeight),
-            ...(arg.event.id === selectedEventId ? ['ring-2', 'ring-white', 'ring-offset-1', 'ring-offset-slate-900'] : []),
+            ...(arg.event.id === highlightedId ? [HIGHLIGHT_CLASS] : []),
             // Not FullCalendar's own isPast: that is only recomputed occasionally, not every minute.
             ...(isEnded(arg.event.end ?? arg.event.start, now) ? ['event-ended'] : []),
             // Only events with a picked status get an outline.
@@ -303,7 +364,9 @@ function buildViewOptions(timeZone: string, primaryLabel: string, secondaryZone:
       timeGrid: {
         weekNumbers: true,
         weekNumberContent: (arg: { date: Date }) => zoneLabel(arg.date, primaryZone, primaryLabel)
-      }
+      },
+      timeGridWeek: WEEK_VIEW,
+      dayGridMonth: MONTH_VIEW
     }
   }
   const secondaryTime = timeFormatter(secondaryZone)
@@ -322,9 +385,26 @@ function buildViewOptions(timeZone: string, primaryLabel: string, secondaryZone:
           <span className="tz-col">{arg.text}</span>
         </span>
       )
-    }
+    },
+    timeGridWeek: WEEK_VIEW,
+    dayGridMonth: MONTH_VIEW
   }
 }
+
+/**
+ * Week columns are headed "Sun 4" (the month is in the title), Google Calendar style:
+ * on a narrow window it wraps to two lines instead of "10/4" spilling into the next day.
+ */
+const WEEK_VIEW = { dayHeaderFormat: { weekday: 'short', day: 'numeric', omitCommas: true } } as const
+
+/**
+ * Month: only the weeks the month touches (no empty sixth row), and short times
+ * ("9a", "12:30p") so titles get the room in the narrow day cells.
+ */
+const MONTH_VIEW = {
+  fixedWeekCount: false,
+  eventTimeFormat: { hour: 'numeric', minute: '2-digit', omitZeroMinute: true, meridiem: 'narrow' }
+} as const
 
 /**
  * The moment an hour label stands for, taken on today's date in the primary zone.
@@ -350,6 +430,58 @@ function timeFormatter(zone: string): (date: Date) => string {
       .format(date)
       .replace(/‎/g, '')
       .replace(/\s*([ap])\.?m\.?/i, (_, a: string) => `${a.toLowerCase()}m`)
+}
+
+interface Period {
+  start: string
+  end: string
+  label: string
+}
+
+const PERIOD_NAMES: Record<string, string> = { dayGridMonth: 'Month', timeGridWeek: 'Week', timeGridDay: 'Day' }
+
+/**
+ * Publishes per-calendar event counts of the shown period to the store (the sidebar
+ * shows them). All enabled calendars count, hidden ones too: the sidebar decides what
+ * goes into its totals. Refetched when events change; done/scheduled follow `now`.
+ */
+function usePeriodStats(period: Period | null, eventsVersion: number, now: number): void {
+  const [loaded, setLoaded] = useState<{ period: Period; events: CalendarEvent[] } | null>(null)
+
+  useEffect(() => {
+    if (!period) return
+    let current = true
+    // A failure is already reported by the calendar's own fetch of the same range.
+    window.api.events.listInRange(period.start, period.end).then(
+      (events) => current && setLoaded({ period, events }),
+      () => undefined
+    )
+    return () => {
+      current = false
+    }
+  }, [period, eventsVersion])
+
+  useEffect(() => {
+    if (!loaded || loaded.period !== period) return
+    useAppStore.setState({ periodStats: { label: period.label, counts: countEvents(loaded.events, now) } })
+  }, [loaded, period, now])
+
+  useEffect(() => () => useAppStore.setState({ periodStats: null }), [])
+}
+
+function countEvents(events: CalendarEvent[], now: number): Record<string, EventCounts> {
+  const nowIso = new Date(now).toISOString()
+  const today = todayString()
+  const counts: Record<string, EventCounts> = {}
+  for (const e of events) {
+    const key = e.isLocalEvent ? LOCAL_EVENTS_KEY : (e.calendarId ?? '')
+    const c = (counts[key] ??= { total: 0, done: 0, scheduled: 0 })
+    c.total++
+    // All-day ends are exclusive dates: ended once that date has begun.
+    if (e.allDay ? e.endTime <= today : e.endTime <= nowIso) c.done++
+    else c.scheduled++
+  }
+  return counts
 }
 
 /** Week/Day events under 45px tall have room for one line only. */
@@ -484,6 +616,14 @@ function renderEventContent(arg: EventContentArg, hourHeight: number): ReactElem
     </div>
   )
 }
+
+/** Ring on the selected event; FLASH_CLASS pulses it when the calendar points at it (index.css). */
+const HIGHLIGHT_CLASS = 'event-highlighted'
+const FLASH_CLASS = 'event-flash'
+/** How long after a jump to keep waiting for the event to be fetched and drawn. */
+const REVEAL_TIMEOUT_MS = 5000
+/** The ring stays this long after the details modal closes: the pulse (3 × 0.55s in index.css). */
+const CLOSE_PULSE_MS = 1700
 
 const VIEW_STORAGE_KEY = 'calendar.view'
 const TITLE_SELECTOR = '.fc-toolbar-title'

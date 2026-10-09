@@ -49,6 +49,25 @@ export interface ChoiceRequest extends ChoiceOptions {
   resolve: (value: string | null) => void
 }
 
+/** Events of one calendar in the period the calendar shows. */
+export interface EventCounts {
+  total: number
+  /** Already ended */
+  done: number
+  /** Still to come (or in progress) */
+  scheduled: number
+}
+
+/** Key of local events in PeriodStats.counts (the others are calendar ids). */
+export const LOCAL_EVENTS_KEY = 'local'
+
+/** Counts for the week/month/day the calendar shows, per calendar. */
+export interface PeriodStats {
+  /** e.g. "Week · Oct 4 – 10, 2026" */
+  label: string
+  counts: Record<string, EventCounts>
+}
+
 export interface Toast {
   id: number
   kind: 'error' | 'info'
@@ -72,6 +91,8 @@ interface AppState {
   /** Date the calendar should navigate to (set when opening an event from a reminder) */
   focusDate: { date: string; seq: number } | null
   eventsVersion: number
+  /** Set by the calendar page for the sidebar; null while another page is open. */
+  periodStats: PeriodStats | null
   eventEditor: EventEditorState
   toasts: Toast[]
 
@@ -151,6 +172,7 @@ export const useAppStore = create<AppState>((set, get) => {
     selectedEventId: null,
     focusDate: null,
     eventsVersion: 0,
+    periodStats: null,
     eventEditor: null,
     toasts: [],
 

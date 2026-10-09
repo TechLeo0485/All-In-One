@@ -82,6 +82,38 @@ textarea,
   @apply text-lg font-semibold text-slate-100;
   /* Clickable: opens the date picker (CalendarPage). */
   @apply cursor-pointer rounded-md px-2 py-0.5 transition-colors hover:bg-slate-800;
+  white-space: nowrap;
+}
+/*
+ * Narrow calendar (small window, details panel open): the title gets its own row
+ * under the buttons instead of wrapping into three lines between them. The wrapper
+ * in CalendarPage is the size container (same 42rem as its @max-2xl date picker offset).
+ */
+@container (width < 42rem) {
+  .fc .fc-header-toolbar {
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
+  }
+  .fc .fc-header-toolbar .fc-toolbar-chunk:nth-child(2) {
+    order: 3;
+    flex-basis: 100%;
+    text-align: center;
+  }
+  .fc .fc-toolbar-title {
+    @apply text-base;
+  }
+  .fc .fc-button {
+    @apply px-2.5;
+  }
+}
+/* Very narrow: compact buttons so prev/next/today and Month/Week/Day stay on one row. */
+@container (width < 30rem) {
+  .fc .fc-button {
+    @apply px-2 py-1 text-xs;
+  }
+  .fc .fc-col-header-cell-cushion {
+    @apply px-0.5;
+  }
 }
 .fc .fc-toolbar-title::after {
   content: '▾';
@@ -176,13 +208,57 @@ textarea,
 .fc .tz-cols .tz-secondary {
   @apply text-slate-600;
 }
+/* ---------- Month view ---------- */
+.fc .fc-dayGridMonth-view .fc-col-header-cell-cushion {
+  @apply text-[0.7rem] font-semibold tracking-wider text-slate-500 uppercase;
+}
+/* Days of the previous/next month: a darker cell, so the month itself stands out. */
+.fc .fc-daygrid-day.fc-day-other {
+  background: color-mix(in srgb, var(--color-slate-950) 40%, transparent);
+}
+/* Day number top-left (FullCalendar puts it on the right). */
+.fc .fc-daygrid-day-top {
+  flex-direction: row;
+}
+.fc .fc-daygrid-day-number {
+  @apply px-2 pt-1.5 pb-0.5 text-xs;
+}
+.fc .fc-daygrid-day.fc-day-today .fc-daygrid-day-number {
+  @apply mx-1 mt-1 mb-0.5 font-semibold;
+}
+/* Timed events: dot, muted time, title. */
+.fc .fc-daygrid-dot-event {
+  @apply mx-1 rounded px-1 py-px;
+}
 .fc .fc-daygrid-dot-event:hover,
 .fc .fc-daygrid-dot-event.fc-event-mirror {
   background: var(--color-slate-800);
 }
-.fc .fc-daygrid-dot-event .fc-event-title,
+.fc .fc-daygrid-event-dot {
+  @apply mx-0 mr-1.5;
+  border-width: 4px;
+}
 .fc .fc-daygrid-dot-event .fc-event-time {
-  @apply text-slate-200;
+  @apply mr-1 shrink-0 font-normal text-slate-400 tabular-nums;
+}
+.fc .fc-daygrid-dot-event .fc-event-title {
+  @apply min-w-0 truncate font-medium text-slate-200;
+}
+/* All-day and multi-day bars. */
+.fc .fc-daygrid-block-event {
+  @apply mx-1;
+}
+.fc .fc-daygrid-block-event .fc-event-main {
+  @apply px-1.5 py-px font-medium;
+}
+.fc .fc-daygrid-block-event .fc-event-time {
+  @apply font-normal;
+}
+/* Narrow calendar: the title matters more than the time. */
+@container (width < 42rem) {
+  .fc .fc-daygrid-dot-event .fc-event-time {
+    display: none;
+  }
 }
 /*
  * Status outline (only events with a status picked). CalendarPage sets
@@ -196,14 +272,50 @@ textarea,
 .fc .fc-event.event-ended {
   filter: brightness(0.7);
 }
+/*
+ * Selected event (CalendarPage): a white ring, drawn above overlapping events. While its
+ * details are open the others dim, so it stands out; it pulses when the calendar jumps
+ * to it (search result) or the details modal closes (then the ring goes with the pulse).
+ */
+.has-selection .fc .fc-event:not(.event-highlighted) {
+  filter: brightness(0.4) saturate(0.6);
+}
+.fc .fc-event.event-highlighted {
+  filter: none;
+  box-shadow:
+    0 0 0 2px white,
+    0 0 14px 2px color-mix(in srgb, white 35%, transparent);
+}
+.fc .fc-daygrid-dot-event.event-highlighted {
+  background: var(--color-slate-800);
+}
+.fc .fc-timegrid-event-harness:has(.event-highlighted) {
+  z-index: 5 !important;
+}
+.fc .fc-event.event-flash {
+  animation: event-flash 0.55s ease-in-out 3;
+}
+@keyframes event-flash {
+  50% {
+    box-shadow:
+      0 0 0 4px white,
+      0 0 28px 8px color-mix(in srgb, white 55%, transparent);
+  }
+}
 .fc .fc-daygrid-more-link {
-  @apply text-slate-400;
+  @apply mx-1 rounded px-1 py-px text-xs font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-200;
+}
+.fc .fc-daygrid-more-link:hover {
+  text-decoration: none;
 }
 .fc .fc-popover {
   @apply overflow-hidden rounded-lg border-slate-700 bg-slate-900 shadow-2xl;
 }
 .fc .fc-popover-header {
-  @apply bg-slate-800 text-slate-200;
+  @apply bg-slate-800 px-3 py-2 text-sm font-medium text-slate-200;
+}
+.fc .fc-popover-body {
+  @apply py-1.5;
 }
 
 /* ---------- Rendered markdown (notes) ---------- */

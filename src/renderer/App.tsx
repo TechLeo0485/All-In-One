@@ -43,7 +43,8 @@ export default function App() {
   return (
     <div className="flex h-full flex-col">
       <TitleBar />
-      <div className="flex min-h-0 flex-1">
+      {/* Relative: on narrow windows the sidebar drawer overlays the calendar. */}
+      <div className="relative flex min-h-0 flex-1">
         <Sidebar />
         <main className="min-w-0 flex-1">
           <ErrorBoundary area={view === 'calendar' ? 'calendar view' : `${view} page`} key={view}>

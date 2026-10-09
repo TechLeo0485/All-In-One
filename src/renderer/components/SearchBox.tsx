@@ -44,8 +44,9 @@ function Highlight({ text, terms }: { text: string; terms: string[] }): ReactNod
  * One search box for all event fields (title, description, location, guests, notes,
  * calendar). Results open in a panel next to the sidebar; picking one jumps to the
  * event in the calendar and opens its details. Ctrl+F focuses the box.
+ * `autoFocus`: focus it when it appears (the collapsed sidebar opened for a search).
  */
-export function SearchBox() {
+export function SearchBox({ autoFocus = false }: { autoFocus?: boolean }) {
   const calendars = useAppStore((s) => s.calendars)
   const settings = useAppStore((s) => s.settings)
   const openEvent = useAppStore((s) => s.openEvent)
@@ -94,6 +95,10 @@ export function SearchBox() {
       window.clearTimeout(timer)
     }
   }, [termsKey])
+
+  useEffect(() => {
+    if (autoFocus) inputRef.current?.focus()
+  }, [autoFocus])
 
   // Ctrl+F (or Ctrl+K) from anywhere in the app focuses the search box.
   useEffect(() => {
@@ -197,7 +202,7 @@ export function SearchBox() {
       </div>
 
       {showPanel && (
-        <div className="absolute top-0 left-full z-40 ml-3 flex max-h-[75vh] w-[30rem] flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl">
+        <div className="absolute top-0 left-full z-40 ml-3 flex max-h-[75vh] w-[30rem] max-w-[calc(100vw-18rem)] flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-2xl">
           <div className="flex items-center gap-2 border-b border-slate-800 px-4 py-2 text-xs text-slate-400">
             {loading && <Spinner />}
             {error
