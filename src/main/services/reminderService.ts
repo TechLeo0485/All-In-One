@@ -13,6 +13,15 @@ const LATE_GRACE_MS = 10 * 60_000
 const FIRED_RETENTION_MS = 3 * 86_400_000
 const FIRED_STATE_KEY = 'reminders.fired'
 
+/** "How did it go?" is asked this long after an event without a status ends. */
+const STATUS_PROMPT_DELAY_MS = 5 * 60_000
+/** A prompt that fell due while the app was closed is still shown this long after. */
+const STATUS_PROMPT_GRACE_MS = 60 * 60_000
+/** At most this many prompts at once (e.g. after starting the app); the details panel still asks for the rest. */
+const MAX_PROMPTS_PER_CHECK = 3
+/** Windows shows up to five buttons; the first statuses from Settings get one. */
+const MAX_PROMPT_BUTTONS = 3
+
 /** All-day reminders fire relative to local midnight of the event's first day. */
 const ALL_DAY_OFFSET_MS: Record<Exclude<AppSettings['allDayReminder'], 'off'>, number> = {
   'same-day': 9 * 3_600_000, // 09:00 on the day
@@ -50,6 +59,12 @@ class ReminderService {
   private fired = new Map<string, number>() // key -> dueAt
   private onOpen: ((request: OpenEventRequest) => void) | null = null
   private onTick: (() => void) | null = null
+  private onStatusPicked: ((eventId: string, statusId: string) => void) | null = null
+
+  /** A status button was pressed on a "How did it go?" notification. */
+  setStatusPickedHandler(handler: (eventId: string, statusId: string) => void): void {
+    this.onStatusPicked = handler
+  }
 
   start(onOpen: (request: OpenEventRequest) => void, onTick?: () => void): void {
     this.onOpen = onOpen
@@ -122,6 +137,7 @@ class ReminderService {
       }
 
       this.fireFollowUps(settings, now)
+      if (this.fireStatusPrompts(settings, now)) changed = true
 
       for (const [key, dueAt] of this.fired) {
         if (now - dueAt > FIRED_RETENTION_MS) {
@@ -162,6 +178,71 @@ class ReminderService {
         startTime: event.startTime
       })
     }
+  }
+
+  /**
+   * Events that ended between `since` and `until` and have no status yet, that the
+   * "Ask how it went" setting covers: timed events (not all-day) of calendars with
+   * notifications on, or local events; with 'guests' only those with a guest list.
+   */
+  private listNeedingStatus(settings: AppSettings, since: number, until: number): CalendarEvent[] {
+    const notifyCalendars = new Set(
+      calendarRepository
+        .list()
+        .filter((c) => c.enabled && c.notify)
+        .map((c) => c.id)
+    )
+    const untilIso = new Date(until).toISOString()
+    const sinceIso = new Date(since).toISOString()
+    return eventRepository
+      .listInRange(sinceIso, untilIso)
+      .filter(
+        (e) =>
+          !e.allDay &&
+          e.status === null &&
+          e.endTime >= sinceIso &&
+          e.endTime <= untilIso &&
+          (e.isLocalEvent || notifyCalendars.has(e.calendarId ?? '')) &&
+          (settings.statusPrompt === 'all' || e.attendees.length > 0)
+      )
+  }
+
+  /** "How did it go?" 5 minutes after an event without a status ends. True if any was shown. */
+  private fireStatusPrompts(settings: AppSettings, now: number): boolean {
+    if (settings.statusPrompt === 'off' || settings.eventStatuses.length === 0) return false
+    const due = this.listNeedingStatus(settings, now - STATUS_PROMPT_DELAY_MS - STATUS_PROMPT_GRACE_MS, now - STATUS_PROMPT_DELAY_MS)
+    let shown = 0
+    for (const event of due) {
+      const dueAt = new Date(event.endTime).getTime() + STATUS_PROMPT_DELAY_MS
+      const key = `status|${event.id}|${event.endTime}`
+      if (this.fired.has(key)) continue
+      // Remembered even when over the limit, so they don't pop up one by one later.
+      this.fired.set(key, dueAt)
+      if (shown++ < MAX_PROMPTS_PER_CHECK) this.showStatusPrompt(event, settings)
+    }
+    return shown > 0
+  }
+
+  private showStatusPrompt(event: CalendarEvent, settings: AppSettings): void {
+    const choices = settings.eventStatuses.slice(0, MAX_PROMPT_BUTTONS)
+    const ended = new Date(event.endTime).toLocaleTimeString(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+      ...timeZoneOption(settings.primaryTimeZone)
+    })
+    const notification = createNotification({
+      title: `How did "${event.title}" go?`,
+      body: `Ended at ${ended}. Pick a status, or click to open the event.`,
+      silent: !settings.notificationSound,
+      actions: choices.map((s) => ({ type: 'button' as const, text: s.label }))
+    })
+    const open: OpenEventRequest = { eventId: event.id, startTime: event.startTime }
+    notification.on('click', () => this.onOpen?.(open))
+    notification.on('action', (details, legacyIndex) => {
+      const status = choices[details?.actionIndex ?? legacyIndex]
+      if (status) this.onStatusPicked?.(event.id, status.id)
+    })
+    notification.show()
   }
 
   private collectDue(settings: AppSettings, now: number): DueReminder[] {

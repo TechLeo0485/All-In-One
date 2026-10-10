@@ -23,12 +23,19 @@ const api: CalendarApi = {
     updateLocal: (id, input, scope) => ipcRenderer.invoke(IPC.eventsUpdateLocal, id, input, scope),
     removeLocal: (id, scope) => ipcRenderer.invoke(IPC.eventsRemoveLocal, id, scope),
     setStatus: (id, status) => ipcRenderer.invoke(IPC.eventsSetStatus, id, status),
-    setFollowUpReminder: (id, remindAt) => ipcRenderer.invoke(IPC.eventsSetFollowUpReminder, id, remindAt)
+    setFollowUpReminder: (id, remindAt) => ipcRenderer.invoke(IPC.eventsSetFollowUpReminder, id, remindAt),
+    listWithStatus: () => ipcRenderer.invoke(IPC.eventsListWithStatus),
+    onChanged: (callback) => {
+      const listener = (): void => callback()
+      ipcRenderer.on(IPC.eventsChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.eventsChanged, listener)
+    }
   },
   notes: {
     get: (eventId) => ipcRenderer.invoke(IPC.notesGet, eventId),
     save: (eventId, content) => ipcRenderer.invoke(IPC.notesSave, eventId, content),
-    remove: (eventId) => ipcRenderer.invoke(IPC.notesRemove, eventId)
+    remove: (eventId) => ipcRenderer.invoke(IPC.notesRemove, eventId),
+    previews: (eventIds) => ipcRenderer.invoke(IPC.notesPreviews, eventIds)
   },
   sync: {
     runAll: () => ipcRenderer.invoke(IPC.syncRunAll),

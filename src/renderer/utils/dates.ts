@@ -119,6 +119,14 @@ export function formatEventWhen(event: CalendarEvent): string {
   return `${dateFmt.format(start)} ${timeFmt.format(start)} – ${dateFmt.format(end)} ${timeFmt.format(end)}`
 }
 
+/** "just now", "5 min ago", "3 h ago", "2 days ago": for ages that may run to days. */
+export function formatAge(iso: string, now = Date.now()): string {
+  const diff = now - new Date(iso).getTime()
+  if (diff < 86_400_000) return formatRelative(iso)
+  const days = Math.floor(diff / 86_400_000)
+  return `${days} ${days === 1 ? 'day' : 'days'} ago`
+}
+
 export function formatRelative(iso: string | null): string {
   if (!iso) return 'never'
   const diff = Date.now() - new Date(iso).getTime()

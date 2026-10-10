@@ -185,6 +185,10 @@ export function settingsPatch(value: unknown): Partial<AppSettings> {
     if (s && Number.isNaN(new Date(s).getTime())) fail('Invalid pause time')
     out.notificationsPausedUntil = s
   }
+  if (v.statusPrompt !== undefined) {
+    if (!['guests', 'all', 'off'].includes(String(v.statusPrompt))) fail('Invalid status prompt setting')
+    out.statusPrompt = v.statusPrompt as AppSettings['statusPrompt']
+  }
   if (v.closeToTray !== undefined) out.closeToTray = Boolean(v.closeToTray)
   if (v.launchAtStartup !== undefined) out.launchAtStartup = Boolean(v.launchAtStartup)
   if (v.autoSyncMinutes !== undefined) {

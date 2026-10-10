@@ -12,6 +12,7 @@ import { UpdateDialog } from './components/UpdateDialog'
 import { Spinner } from './components/ui'
 import { CalendarPage } from './pages/CalendarPage'
 import { CalendarsPage } from './pages/CalendarsPage'
+import { PipelinePage } from './pages/PipelinePage'
 import { SettingsPage } from './pages/SettingsPage'
 
 /** Layout: sidebar | main view | event details panel (when an event is selected). */
@@ -49,11 +50,12 @@ export default function App() {
         <main className="min-w-0 flex-1">
           <ErrorBoundary area={view === 'calendar' ? 'calendar view' : `${view} page`} key={view}>
             {view === 'calendar' && <CalendarPage />}
+            {view === 'pipeline' && <PipelinePage />}
             {view === 'calendars' && <CalendarsPage />}
             {view === 'settings' && <SettingsPage />}
           </ErrorBoundary>
         </main>
-        {view === 'calendar' && (
+        {(view === 'calendar' || view === 'pipeline') && (
           // Keyed by event so selecting another event clears a previous error.
           <ErrorBoundary area="event details" key={selectedEventId ?? 'none'}>
             <EventDetailsPanel />

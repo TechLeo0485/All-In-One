@@ -13,7 +13,7 @@ import type {
 import { setDisplayTimeZone } from '../utils/dates'
 import { errorMessage } from '../utils/errors'
 
-export type View = 'calendar' | 'calendars' | 'settings'
+export type View = 'calendar' | 'pipeline' | 'calendars' | 'settings'
 
 /** What the local-event dialog is doing, if open. */
 export type EventEditorState =
@@ -56,6 +56,8 @@ export interface EventCounts {
   done: number
   /** Still to come (or in progress) */
   scheduled: number
+  /** Events per picked status id (Follow-Up, Passed, ...) */
+  statuses: Record<string, number>
 }
 
 /** Key of local events in PeriodStats.counts (the others are calendar ids). */

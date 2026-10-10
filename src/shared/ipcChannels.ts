@@ -17,10 +17,14 @@ export const IPC = {
   eventsRemoveLocal: 'events:removeLocal',
   eventsSetStatus: 'events:setStatus',
   eventsSetFollowUpReminder: 'events:setFollowUpReminder',
+  eventsListWithStatus: 'events:listWithStatus',
+  /** main -> renderer push */
+  eventsChanged: 'events:changed',
 
   notesGet: 'notes:get',
   notesSave: 'notes:save',
   notesRemove: 'notes:remove',
+  notesPreviews: 'notes:previews',
 
   syncRunAll: 'sync:runAll',
   syncRunOne: 'sync:runOne',

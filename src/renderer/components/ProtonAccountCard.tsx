@@ -1,7 +1,9 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import type { CalendarSource, ProtonAccount } from '@shared/types'
 import { useAppStore } from '../stores/appStore'
-import { formatRelative } from '../utils/dates'
+import { formatAge } from '../utils/dates'
+import { isProtonStale } from '../utils/proton'
+import { useNow } from '../hooks/useNow'
 import { CalendarCard } from './CalendarCard'
 import { AlertIcon, ExternalIcon, RefreshIcon } from './icons'
 import { Button, Field, Modal, Spinner, TextInput } from './ui'
@@ -67,6 +69,7 @@ export function ProtonAccountCard({
   account: ProtonAccount
   onEditCalendar: (calendar: CalendarSource) => void
 }) {
+  const now = useNow()
   const allCalendars = useAppStore((s) => s.calendars)
   const calendars = useMemo(() => allCalendars.filter((c) => c.accountId === account.id), [allCalendars, account.id])
   const removeProtonAccount = useAppStore((s) => s.removeProtonAccount)
@@ -85,7 +88,10 @@ export function ProtonAccountCard({
             <StatusBadge account={account} />
           </div>
           <p className="mt-1 text-xs text-slate-400">
-            Proton account · {account.lastExportAt ? `last synced ${formatRelative(account.lastExportAt)}` : 'never synced'}
+            Proton account ·{' '}
+            <span className={isProtonStale(account, now) ? 'text-amber-300/80' : undefined}>
+              {account.lastExportAt ? `last synced ${formatAge(account.lastExportAt, now)}` : 'never synced'}
+            </span>
             {calendars.length > 0 && ` · ${calendars.length} calendar${calendars.length === 1 ? '' : 's'}`}
           </p>
         </div>

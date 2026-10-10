@@ -98,9 +98,12 @@ function StatusPicker({ event }: { event: CalendarEvent }) {
   const setView = useAppStore((s) => s.setView)
   // A status deleted in Settings counts as none.
   const current = findStatus(statuses, event.status)?.id ?? null
+  // Ended without a status: ask, like the notification 5 minutes after the end does.
+  const ended = event.allDay ? event.endTime <= todayString() : new Date(event.endTime).getTime() <= Date.now()
 
   return (
     <div className="space-y-2">
+      {ended && current === null && statuses.length > 0 && <p className="pl-6 text-xs font-medium text-sky-300">How did it go?</p>}
       <div className="flex flex-wrap gap-1.5 pl-6" role="radiogroup" aria-label="Status">
         {statuses.map((o) => {
           const selected = current === o.id

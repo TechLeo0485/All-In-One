@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { APP_NAME, APP_TAGLINE } from '@shared/brand'
-import type { AllDayReminder, AppInfo, UpdateStatus } from '@shared/types'
+import type { AllDayReminder, AppInfo, StatusPromptMode, UpdateStatus } from '@shared/types'
 import { AUTO_SYNC_OPTIONS } from '@shared/sources'
 import type { EventStatusDef } from '@shared/types'
 import { FOLLOW_UP_ID, MAX_STATUS_LABEL, MAX_STATUSES, newStatusId } from '@shared/eventStatus'
@@ -35,6 +35,12 @@ const ALL_DAY_OPTIONS: { label: string; value: AllDayReminder }[] = [
   { label: 'No reminder', value: 'off' },
   { label: 'On the day at 9:00', value: 'same-day' },
   { label: 'The evening before at 18:00', value: 'day-before' }
+]
+
+const STATUS_PROMPT_OPTIONS: { label: string; value: StatusPromptMode }[] = [
+  { label: 'Meetings with guests', value: 'guests' },
+  { label: 'All events', value: 'all' },
+  { label: 'Off', value: 'off' }
 ]
 
 function Row({ title, description, children }: { title: string; description?: ReactNode; children: ReactNode }) {
@@ -633,6 +639,22 @@ export function SettingsPage() {
                 onChange={(e) => void updateSettings({ allDayReminder: e.target.value as AllDayReminder })}
               >
                 {ALL_DAY_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </Row>
+            <Row
+              title="Ask how it went"
+              description="5 minutes after an event ends without a status, a notification asks for one, with a button per status. Not for all-day events or calendars with notifications off."
+            >
+              <select
+                className={inputClass}
+                value={settings.statusPrompt}
+                onChange={(e) => void updateSettings({ statusPrompt: e.target.value as StatusPromptMode })}
+              >
+                {STATUS_PROMPT_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
                     {o.label}
                   </option>

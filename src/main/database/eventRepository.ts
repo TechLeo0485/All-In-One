@@ -235,6 +235,14 @@ export const eventRepository = {
     return rows.map(toEvent)
   },
 
+  /** Every event that has a status, newest first (Pipeline page). */
+  listWithStatus(): CalendarEvent[] {
+    const rows = getDb()
+      .prepare(`${SELECT_EVENTS} WHERE s.status IS NOT NULL ORDER BY e.start_time DESC`)
+      .all() as EventRow[]
+    return rows.map(toEvent)
+  },
+
   /** Works for synced (read-only) events too: the status is the app's own data. */
   setStatus(id: string, status: string | null): void {
     const db = getDb()

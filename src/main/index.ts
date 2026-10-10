@@ -1,10 +1,12 @@
 import { app, BrowserWindow, dialog, nativeTheme, Notification, shell } from 'electron'
 import { join } from 'node:path'
 import { APP_NAME } from '@shared/brand'
+import { findStatus, FOLLOW_UP_ID } from '@shared/eventStatus'
 import { IPC } from '@shared/ipcChannels'
 import type { AppSettings, OpenEventRequest } from '@shared/types'
 import { setUpDataFolder } from './dataFolder'
 import { calendarRepository } from './database/calendarRepository'
+import { eventRepository } from './database/eventRepository'
 import { closeDb, getDb } from './database/connection'
 import { DatabaseUpgradeError } from './database/migrations'
 import { settingsRepository } from './database/settingsRepository'
@@ -246,6 +248,16 @@ if (!app.requestSingleInstanceLock()) {
       // The window shows the update popup.
       showUpdate: () => showWindow(),
       quit: quitApp
+    })
+    // A status button on a "How did it go?" notification: save it like the details panel
+    // does. Follow-Up also opens the event, to pick when to be reminded.
+    reminderService.setStatusPickedHandler((eventId, statusId) => {
+      const event = eventRepository.get(eventId)
+      if (!event || !findStatus(settingsRepository.get().eventStatuses, statusId)) return
+      eventRepository.setStatus(eventId, statusId)
+      sendToRenderer(IPC.eventsChanged, null)
+      reminderService.refresh()
+      if (statusId === FOLLOW_UP_ID) openEvent({ eventId, startTime: event.startTime })
     })
     // Reminders run in the main process, so they also fire while the window is hidden.
     reminderService.start(openEvent, () => trayService.update())

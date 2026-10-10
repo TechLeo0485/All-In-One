@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { LOCAL_EVENTS_KEY, useAppStore, type EventCounts, type PeriodStats, type View } from '../stores/appStore'
-import { formatRelative } from '../utils/dates'
+import { formatAge, formatRelative } from '../utils/dates'
+import { isProtonStale } from '../utils/proton'
+import { DEFAULT_EVENT_STATUSES } from '@shared/eventStatus'
+import type { EventStatusDef, ProtonAccount } from '@shared/types'
 import { useNow } from '../hooks/useNow'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import {
   AlertIcon,
   CalendarIcon,
+  ClockIcon,
   EyeIcon,
   EyeOffIcon,
+  KanbanIcon,
   LayersIcon,
   PanelLeftIcon,
   PlusIcon,
@@ -83,7 +88,7 @@ function CalendarRow({
   )
 }
 
-const NO_EVENTS: EventCounts = { total: 0, done: 0, scheduled: 0 }
+const NO_EVENTS: EventCounts = { total: 0, done: 0, scheduled: 0, statuses: {} }
 
 /** Colors of the three counts, shared by the period summary and the rows. */
 const COUNT_STYLES = { total: 'text-slate-200', done: 'text-emerald-400', scheduled: 'text-sky-400' }
@@ -110,8 +115,10 @@ function RowCounts({ counts, dim }: { counts: EventCounts; dim: boolean }) {
 }
 
 /** Card above the calendar list: totals of the visible calendars and local events for the shown week/month/day. */
-function PeriodSummary({ stats, counts }: { stats: PeriodStats; counts: EventCounts }) {
+function PeriodSummary({ stats, counts, statusDefs }: { stats: PeriodStats; counts: EventCounts; statusDefs: EventStatusDef[] }) {
   const { total, done, scheduled } = counts
+  // Picked statuses (Follow-Up, Passed, ...) in the Settings order; only those in use.
+  const statusCounts = statusDefs.flatMap((s) => (counts.statuses[s.id] ? [{ ...s, count: counts.statuses[s.id] }] : []))
   const items = [
     { label: 'Total', value: total, style: COUNT_STYLES.total },
     { label: 'Done', value: done, style: COUNT_STYLES.done },
@@ -131,6 +138,17 @@ function PeriodSummary({ stats, counts }: { stats: PeriodStats; counts: EventCou
       <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-800">
         <div className="h-full rounded-full bg-emerald-500 transition-[width]" style={{ width: `${total ? (done / total) * 100 : 0}%` }} />
       </div>
+      {statusCounts.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 border-t border-slate-800 pt-2 text-[11px] text-slate-400">
+          {statusCounts.map((s) => (
+            <span key={s.id} className="flex items-center gap-1">
+              <ColorDot color={s.color} size={6} />
+              <span className="font-semibold text-slate-200 tabular-nums">{s.count}</span>
+              {s.label}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -310,6 +328,7 @@ function SidebarRail({ onExpand }: { onExpand: (focusSearch: boolean) => void })
 
       <nav className="mt-auto flex flex-col items-center gap-1 border-t border-slate-800 pt-3">
         <NavButton compact view="calendar" label="Calendar" icon={<CalendarIcon size={18} />} />
+        <NavButton compact view="pipeline" label="Pipeline" icon={<KanbanIcon size={18} />} />
         <NavButton compact view="calendars" label="Manage calendars" icon={<LayersIcon size={18} />} />
         <NavButton compact view="settings" label="Settings" icon={<SettingsIcon size={18} />} />
       </nav>
@@ -318,7 +337,7 @@ function SidebarRail({ onExpand }: { onExpand: (focusSearch: boolean) => void })
 }
 
 function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: boolean; toggleTitle: string; onToggle: () => void }) {
-  useNow() // keeps "Last sync … ago" current
+  const now = useNow() // keeps "Last sync … ago" and the stale-sync badges current
   const calendars = useAppStore((s) => s.calendars)
   const settings = useAppStore((s) => s.settings)
   const toggleVisibility = useAppStore((s) => s.toggleCalendarVisibility)
@@ -339,24 +358,25 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
     if (!periodStats) return null
     const keys = enabled.filter((c) => !hidden.includes(c.id)).map((c) => c.id)
     if (showLocal) keys.push(LOCAL_EVENTS_KEY)
-    const sum: EventCounts = { total: 0, done: 0, scheduled: 0 }
+    const sum: EventCounts = { total: 0, done: 0, scheduled: 0, statuses: {} }
     for (const key of keys) {
       const c = periodStats.counts[key]
       if (!c) continue
       sum.total += c.total
       sum.done += c.done
       sum.scheduled += c.scheduled
+      for (const [id, n] of Object.entries(c.statuses)) sum.statuses[id] = (sum.statuses[id] ?? 0) + n
     }
     return sum
   }, [periodStats, enabled, hidden, showLocal])
 
   // Group calendars under their Proton account (5+ accounts get crowded otherwise).
   const groups = useMemo(() => {
-    const result: { key: string; title: string | null; alert?: string; items: typeof enabled }[] = []
+    const result: { key: string; title: string | null; alert?: string; account?: ProtonAccount; items: typeof enabled }[] = []
     for (const a of accounts) {
       const items = enabled.filter((c) => c.accountId === a.id)
       const alert = a.status === 'login-required' ? 'Login needed' : a.status === 'error' ? 'Sync failed' : undefined
-      if (items.length || alert) result.push({ key: a.id, title: a.label, alert, items })
+      if (items.length || alert) result.push({ key: a.id, title: a.label, alert, account: a, items })
     }
     const other = enabled.filter((c) => !c.accountId || !accounts.some((a) => a.id === c.accountId))
     if (other.length) result.push({ key: 'other', title: result.length ? 'Other calendars' : null, items: other })
@@ -395,7 +415,7 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
       </div>
 
       <div className="mt-5 flex-1 overflow-y-auto px-3">
-        {periodStats && summary && <PeriodSummary stats={periodStats} counts={summary} />}
+        {periodStats && summary && <PeriodSummary stats={periodStats} counts={summary} statusDefs={settings?.eventStatuses ?? DEFAULT_EVENT_STATUSES} />}
         <div className="mb-1 flex items-center justify-between px-2">
           <h3>
             <button
@@ -419,18 +439,31 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
         {groups.map((group) => (
           <div key={group.key} className="mb-2">
             {group.title && (
-              <button
-                onClick={() => group.key !== 'other' && setView('calendars')}
-                className="flex w-full items-center gap-1.5 px-2 pt-1 pb-0.5 text-left text-[11px] font-medium text-slate-400"
-                title={group.key !== 'other' ? 'Manage this Proton account' : undefined}
-              >
-                <span className="truncate">{group.title}</span>
-                {group.alert && (
-                  <span className="flex shrink-0 items-center gap-0.5 text-amber-400">
-                    <AlertIcon size={11} /> {group.alert}
-                  </span>
+              <div className="flex items-center gap-1 px-2 pt-1 pb-0.5">
+                <button
+                  onClick={() => group.key !== 'other' && setView('calendars')}
+                  className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[11px] font-medium text-slate-400"
+                  title={group.key !== 'other' ? 'Manage this Proton account' : undefined}
+                >
+                  <span className="truncate">{group.title}</span>
+                  {group.alert && (
+                    <span className="flex shrink-0 items-center gap-0.5 text-amber-400">
+                      <AlertIcon size={11} /> {group.alert}
+                    </span>
+                  )}
+                </button>
+                {group.account && isProtonStale(group.account, now) && (
+                  // Proton only syncs on request: a gentle nudge once the data gets old.
+                  <button
+                    onClick={() => void protonAction('syncAccount', group.key)}
+                    title={`${group.account.lastExportAt ? `Last synced ${formatAge(group.account.lastExportAt, now)}` : 'Never synced'}. Click to sync now.`}
+                    className="flex shrink-0 items-center gap-1 rounded px-1 text-[10px] text-amber-300/80 hover:bg-slate-800 hover:text-amber-200"
+                  >
+                    <ClockIcon size={10} />
+                    {group.account.lastExportAt ? formatAge(group.account.lastExportAt, now) : 'never synced'}
+                  </button>
                 )}
-              </button>
+              </div>
             )}
             <ul className="space-y-0.5">
               {group.items.map((c) => (
@@ -487,6 +520,7 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
 
       <nav className="space-y-0.5 border-t border-slate-800 p-3">
         <NavButton view="calendar" label="Calendar" icon={<CalendarIcon />} />
+        <NavButton view="pipeline" label="Pipeline" icon={<KanbanIcon />} />
         <NavButton view="calendars" label="Manage calendars" icon={<LayersIcon />} />
         <NavButton view="settings" label="Settings" icon={<SettingsIcon />} />
       </nav>

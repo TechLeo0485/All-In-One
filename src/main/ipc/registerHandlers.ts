@@ -104,6 +104,7 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
   handle(IPC.eventsSetFollowUpReminder, (_e, id, remindAt) => {
     withEventsChanged(eventRepository.setFollowUpReminder(v.id(id), v.optionalTime(remindAt, 'Reminder time')))
   })
+  handle(IPC.eventsListWithStatus, () => eventRepository.listWithStatus())
 
   // Notes
   handle(IPC.notesGet, (_e, eventId) => noteRepository.getForEvent(v.id(eventId, 'eventId')))
@@ -115,6 +116,10 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
     return noteRepository.save(eid, content)
   })
   handle(IPC.notesRemove, (_e, eventId) => noteRepository.remove(v.id(eventId, 'eventId')))
+  handle(IPC.notesPreviews, (_e, eventIds) => {
+    if (!Array.isArray(eventIds) || eventIds.length > 5000) throw new Error('Invalid event list')
+    return noteRepository.previews(eventIds.map((x) => v.id(x, 'eventId')))
+  })
 
   // Sync
   handle(IPC.syncRunAll, () => syncService.syncAll())

@@ -208,6 +208,8 @@ export interface AppSettings {
   notificationSound: boolean
   /** ISO time until which reminders are paused; '' = not paused */
   notificationsPausedUntil: string
+  /** After which events ending without a status the app asks how they went (5 min after the end) */
+  statusPrompt: StatusPromptMode
 
   /* ----- app behaviour ----- */
   /** Closing the window keeps the app running in the system tray */
@@ -240,6 +242,9 @@ export interface AppSettings {
   secondaryTimeZone: string
   secondaryTimeZoneLabel: string
 }
+
+/** 'guests' = only events with a guest list (meetings, interviews), 'all' = every timed event */
+export type StatusPromptMode = 'guests' | 'all' | 'off'
 
 /** 'same-day' = 09:00 on the day, 'day-before' = 18:00 the evening before */
 export type AllDayReminder = 'off' | 'same-day' | 'day-before'
@@ -306,11 +311,17 @@ export interface CalendarApi {
     setStatus(id: string, statusId: string | null): Promise<void>
     /** Reminder for an event marked Follow-Up (ISO time), or null to remove it. */
     setFollowUpReminder(id: string, remindAt: string | null): Promise<void>
+    /** Every event that has a status, any date (Pipeline page). */
+    listWithStatus(): Promise<CalendarEvent[]>
+    /** Events changed in the main process (e.g. a status picked in a notification). */
+    onChanged(callback: () => void): () => void
   }
   notes: {
     get(eventId: string): Promise<Note | null>
     save(eventId: string, content: string): Promise<Note>
     remove(eventId: string): Promise<void>
+    /** First lines of the notes of these events, by event id (events without notes are left out). */
+    previews(eventIds: string[]): Promise<Record<string, string>>
   }
   sync: {
     runAll(): Promise<SyncStatus>

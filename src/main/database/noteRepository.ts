@@ -30,6 +30,21 @@ export const noteRepository = {
     return this.getForEvent(eventId)!
   },
 
+  /** First text line of each event's note (a heading only if that's all there is), markdown markers stripped. */
+  previews(eventIds: string[]): Record<string, string> {
+    const rows = getDb()
+      .prepare(`SELECT event_id, content FROM notes WHERE event_id IN (SELECT value FROM json_each(?))`)
+      .all(JSON.stringify(eventIds)) as { event_id: string; content: string }[]
+    const out: Record<string, string> = {}
+    for (const row of rows) {
+      const lines = row.content.split('\n').filter((l) => l.trim() !== '')
+      const line = lines.find((l) => !/^\s*#/.test(l)) ?? lines[0]
+      const text = line?.replace(/^\s*(#+|[-*+]\s+\[[ xX]\]|[-*+>]|\d+\.)\s*/, '').trim()
+      if (text) out[row.event_id] = text.slice(0, 200)
+    }
+    return out
+  },
+
   remove(eventId: string): void {
     getDb().prepare('DELETE FROM notes WHERE event_id = ?').run(eventId)
   }

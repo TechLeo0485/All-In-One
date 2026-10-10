@@ -13,6 +13,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   allDayReminder: 'same-day',
   notificationSound: true,
   notificationsPausedUntil: '',
+  statusPrompt: 'guests',
   closeToTray: true,
   launchAtStartup: false,
   globalShortcut: DEFAULT_SHORTCUT,

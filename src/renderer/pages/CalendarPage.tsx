@@ -21,6 +21,7 @@ import type {
   EventClickArg,
   EventContentArg,
   EventDropArg,
+  EventHoveringArg,
   EventInput,
   EventSourceFuncArg,
   SlotLabelContentArg
@@ -34,6 +35,7 @@ import { useNow } from '../hooks/useNow'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { DETAILS_MODAL_QUERY } from '../components/EventDetailsPanel'
 import { DatePicker } from '../components/DatePicker'
+import { EventPreview, type EventPreviewData } from '../components/EventPreview'
 import { gmtOffsetLabel, isValidTimeZone, systemTimeZone, wallFields, zonedWallTimeToUtc, zoneFormatter } from '@shared/timezone'
 import { addDays, parseDateString, toDateString, todayString, zonedDateString } from '../utils/dates'
 import { intlTimeZonePlugin } from '../utils/intlTimeZonePlugin'
@@ -233,8 +235,55 @@ export function CalendarPage() {
 
   const onEventClick = (arg: EventClickArg): void => {
     arg.jsEvent.preventDefault()
+    hidePreview()
     selectEvent(arg.event.id)
   }
+
+  // Hover preview: the full title, time and calendar after a short pause (narrow
+  // cells cut titles to "L…"). Not for the event whose details are already open.
+  const protonAccounts = useAppStore((s) => s.protonAccounts)
+  const [preview, setPreview] = useState<EventPreviewData | null>(null)
+  const previewTimer = useRef<number | undefined>(undefined)
+  const hidePreview = useCallback((): void => {
+    window.clearTimeout(previewTimer.current)
+    setPreview(null)
+  }, [])
+  const onEventMouseEnter = (arg: EventHoveringArg): void => {
+    window.clearTimeout(previewTimer.current)
+    if (arg.event.id === selectedEventId || arg.el.classList.contains('fc-event-mirror')) return
+    const { event, el, view } = arg
+    previewTimer.current = window.setTimeout(() => {
+      const calendarId = event.extendedProps.calendarId as string | null
+      const calendar = calendars.find((c) => c.id === calendarId)
+      const account = protonAccounts.find((a) => a.id === calendar?.accountId)
+      setPreview({
+        anchor: el,
+        title: event.title,
+        color: event.backgroundColor,
+        when: describeWhen(event, view.calendar),
+        calendarName: calendar ? (account ? `${calendar.name} · ${account.label}` : calendar.name) : 'Local event',
+        location: (event.extendedProps.location as string) ?? '',
+        status: findStatus(statuses, event.extendedProps.status as string | null)
+      })
+    }, PREVIEW_DELAY_MS)
+  }
+  // Events are re-rendered on refetch, so the element under the pointer can vanish
+  // without a mouseleave: any pointer move away from it closes the card too.
+  useEffect(() => {
+    if (!preview) return
+    const onMove = (e: MouseEvent): void => {
+      if (!preview.anchor.isConnected || !preview.anchor.contains(e.target as Node)) hidePreview()
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mousedown', hidePreview)
+    document.addEventListener('wheel', hidePreview, { passive: true })
+    return () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mousedown', hidePreview)
+      document.removeEventListener('wheel', hidePreview)
+    }
+  }, [preview, hidePreview])
+  useEffect(() => () => window.clearTimeout(previewTimer.current), [])
 
   /** Drag or resize of a local event (synced events are not editable). */
   const onEventChange = async (arg: EventDropArg | EventResizeDoneArg): Promise<void> => {
@@ -282,6 +331,7 @@ export function CalendarPage() {
         onKeyDown={onTitleActivate}
       >
         <style>{statusCss}</style>
+        {preview && <EventPreview data={preview} />}
         {pickerOpen && range && (
           <div className="absolute top-14 left-1/2 z-30 -translate-x-1/2 @max-2xl:top-24">
             <DatePicker
@@ -311,6 +361,10 @@ export function CalendarPage() {
           events={fetchEvents}
           eventsSet={tryReveal}
           eventClick={onEventClick}
+          eventMouseEnter={onEventMouseEnter}
+          eventMouseLeave={hidePreview}
+          eventDragStart={hidePreview}
+          eventResizeStart={hidePreview}
           selectable
           selectMirror
           select={onSelect}
@@ -432,6 +486,24 @@ function timeFormatter(zone: string): (date: Date) => string {
       .replace(/\s*([ap])\.?m\.?/i, (_, a: string) => `${a.toLowerCase()}m`)
 }
 
+/** Hover time before the event preview shows. */
+const PREVIEW_DELAY_MS = 350
+
+/** "Wed, Oct 7 · 11:00am - 11:30am", "Mon, Oct 12 – Wed, Oct 14 · All day" (in the calendar's zone). */
+function describeWhen(event: EventHoveringArg['event'], calendar: EventHoveringArg['view']['calendar']): string {
+  const { start, end, allDay } = event
+  if (!start) return ''
+  const day = { weekday: 'short', month: 'short', day: 'numeric' } as const
+  if (allDay) {
+    // All-day ends are exclusive: the last day is the one before.
+    const last = end ? new Date(end.getTime() - 1) : start
+    return `${calendar.formatRange(start, last, day)} · All day`
+  }
+  const finish = end ?? start
+  if (zonedDateString(start) !== zonedDateString(finish)) return calendar.formatRange(start, finish, { ...day, ...TIME_FORMAT })
+  return `${calendar.formatDate(start, day)} · ${calendar.formatRange(start, finish, TIME_FORMAT)}`
+}
+
 interface Period {
   start: string
   end: string
@@ -475,11 +547,12 @@ function countEvents(events: CalendarEvent[], now: number): Record<string, Event
   const counts: Record<string, EventCounts> = {}
   for (const e of events) {
     const key = e.isLocalEvent ? LOCAL_EVENTS_KEY : (e.calendarId ?? '')
-    const c = (counts[key] ??= { total: 0, done: 0, scheduled: 0 })
+    const c = (counts[key] ??= { total: 0, done: 0, scheduled: 0, statuses: {} })
     c.total++
     // All-day ends are exclusive dates: ended once that date has begun.
     if (e.allDay ? e.endTime <= today : e.endTime <= nowIso) c.done++
     else c.scheduled++
+    if (e.status) c.statuses[e.status] = (c.statuses[e.status] ?? 0) + 1
   }
   return counts
 }
@@ -651,6 +724,6 @@ function toFullCalendarEvent(e: CalendarEvent, color: string): EventInput {
     editable: e.isLocalEvent,
     backgroundColor: color,
     borderColor: color,
-    extendedProps: { status: e.status }
+    extendedProps: { status: e.status, calendarId: e.calendarId, location: e.location }
   }
 }
