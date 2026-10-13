@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { AttendeeStatus, CalendarEvent, EventAttendee } from '@shared/types'
 import { DEFAULT_EVENT_STATUSES, findStatus, FOLLOW_UP_ID } from '@shared/eventStatus'
 import { htmlToPlainText } from '@shared/htmlText'
@@ -20,7 +20,7 @@ import { findFirstUrl, linkify } from '../utils/linkify'
 import { renderDescription } from '../utils/richText'
 import { BellIcon, ClockIcon, ExternalIcon, LockIcon, MapPinIcon, RepeatIcon, UsersIcon, XIcon } from './icons'
 import { NotesEditor } from './NotesEditor'
-import { Button, ColorDot, Modal, Spinner } from './ui'
+import { Button, ColorDot, isModalOpen, Modal, Spinner } from './ui'
 
 /** Long guest lists start collapsed to keep the notes editor in view. */
 const GUESTS_COLLAPSED = 8
@@ -258,6 +258,20 @@ export function EventDetailsPanel() {
   const settings = useAppStore((s) => s.settings)
   const { event, loading, error } = useEventDetails(selectedEventId)
   const narrow = useMediaQuery(DETAILS_MODAL_QUERY)
+
+  // Escape closes the side panel (the narrow-window Modal handles it itself). Not while
+  // typing (fields use Escape themselves) or while a dialog is open on top.
+  useEffect(() => {
+    if (!selectedEventId || narrow) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape' || e.defaultPrevented || isModalOpen()) return
+      const target = e.target as HTMLElement | null
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
+      selectEvent(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selectedEventId, narrow, selectEvent])
 
   // All hooks must run before this early return (React requires the same hook order every render).
   if (!selectedEventId) return null

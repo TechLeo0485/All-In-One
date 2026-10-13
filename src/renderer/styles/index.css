@@ -302,6 +302,17 @@ textarea,
       0 0 28px 8px color-mix(in srgb, white 55%, transparent);
   }
 }
+/* Sidebar row of the selected event's calendar: a few outline pulses in its color (Sidebar.tsx). */
+.calendar-row-flash {
+  animation: calendar-row-flash 0.55s ease-in-out 3;
+}
+@keyframes calendar-row-flash {
+  50% {
+    box-shadow:
+      0 0 0 2px var(--row-color),
+      0 0 12px 2px color-mix(in srgb, var(--row-color) 45%, transparent);
+  }
+}
 .fc .fc-daygrid-more-link {
   @apply mx-1 rounded px-1 py-px text-xs font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-200;
 }

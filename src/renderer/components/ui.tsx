@@ -80,6 +80,11 @@ export function ColorDot({ color, size = 10 }: { color: string; size?: number })
 /** Open modals, newest last: Escape only closes the topmost one (e.g. a confirm over an editor). */
 const modalStack: symbol[] = []
 
+/** Whether any Modal is open; page-level Escape handlers leave the key to it then. */
+export function isModalOpen(): boolean {
+  return modalStack.length > 0
+}
+
 export function Modal({
   title,
   onClose,

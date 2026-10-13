@@ -34,7 +34,8 @@ function CalendarRow({
   onSync,
   syncing = false,
   syncTitle,
-  counts
+  counts,
+  flashKey
 }: {
   name: string
   color: string
@@ -47,12 +48,30 @@ function CalendarRow({
   syncTitle?: string
   /** Events in the period the calendar shows; omitted while the calendar page isn't open. */
   counts?: EventCounts
+  /** Changes each time an event of this calendar is selected; the row then flashes. */
+  flashKey?: number | null
 }) {
+  const rowRef = useRef<HTMLLIElement>(null)
+  useEffect(() => {
+    const el = rowRef.current
+    if (!flashKey || !el) return
+    el.classList.remove(ROW_FLASH_CLASS)
+    void el.offsetWidth // restart the animation
+    el.classList.add(ROW_FLASH_CLASS)
+    el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    const done = (): void => el.classList.remove(ROW_FLASH_CLASS)
+    el.addEventListener('animationend', done, { once: true })
+    return () => el.removeEventListener('animationend', done)
+  }, [flashKey])
   const iconButton = 'shrink-0 rounded p-1 text-slate-500 hover:bg-slate-700 hover:text-slate-200 disabled:hover:bg-transparent'
   // The hover buttons take the place of the counts.
   const onHover = 'hidden group-focus-within:block group-hover:block'
   return (
-    <li className="group flex items-center rounded-md pr-1 hover:bg-slate-800">
+    <li
+      ref={rowRef}
+      className="group flex items-center rounded-md pr-1 hover:bg-slate-800"
+      style={{ '--row-color': color } as React.CSSProperties}
+    >
       <button
         onClick={onToggle}
         title={visible ? `Hide ${name}` : `Show ${name}`}
@@ -88,6 +107,34 @@ function CalendarRow({
   )
 }
 
+/** Outline pulse in the calendar's color (index.css). */
+const ROW_FLASH_CLASS = 'calendar-row-flash'
+
+/**
+ * Which sidebar row to flash for the selected event: its calendar, or local events.
+ * `token` grows with every selection so picking another event of the same calendar
+ * (or the same event again) flashes once more.
+ */
+function useSelectedEventFlash(): { key: string; token: number } | null {
+  const selectedEventId = useAppStore((s) => s.selectedEventId)
+  const [flash, setFlash] = useState<{ key: string; token: number } | null>(null)
+  useEffect(() => {
+    if (!selectedEventId) return
+    let cancelled = false
+    window.api.events
+      .get(selectedEventId)
+      .then((event) => {
+        if (cancelled || !event) return
+        setFlash((prev) => ({ key: event.calendarId ?? LOCAL_EVENTS_KEY, token: (prev?.token ?? 0) + 1 }))
+      })
+      .catch(() => undefined) // only a visual hint; the details panel reports errors
+    return () => {
+      cancelled = true
+    }
+  }, [selectedEventId])
+  return flash
+}
+
 const NO_EVENTS: EventCounts = { total: 0, done: 0, scheduled: 0, statuses: {} }
 
 /** Colors of the three counts, shared by the period summary and the rows. */
@@ -117,8 +164,8 @@ function RowCounts({ counts, dim }: { counts: EventCounts; dim: boolean }) {
 /** Card above the calendar list: totals of the visible calendars and local events for the shown week/month/day. */
 function PeriodSummary({ stats, counts, statusDefs }: { stats: PeriodStats; counts: EventCounts; statusDefs: EventStatusDef[] }) {
   const { total, done, scheduled } = counts
-  // Picked statuses (Follow-Up, Passed, ...) in the Settings order; only those in use.
-  const statusCounts = statusDefs.flatMap((s) => (counts.statuses[s.id] ? [{ ...s, count: counts.statuses[s.id] }] : []))
+  // Picked statuses (Follow-Up, Passed, ...) in the Settings order; unused ones show 0.
+  const statusCounts = statusDefs.map((s) => ({ ...s, count: counts.statuses[s.id] ?? 0 }))
   const items = [
     { label: 'Total', value: total, style: COUNT_STYLES.total },
     { label: 'Done', value: done, style: COUNT_STYLES.done },
@@ -143,7 +190,7 @@ function PeriodSummary({ stats, counts, statusDefs }: { stats: PeriodStats; coun
           {statusCounts.map((s) => (
             <span key={s.id} className="flex items-center gap-1">
               <ColorDot color={s.color} size={6} />
-              <span className="font-semibold text-slate-200 tabular-nums">{s.count}</span>
+              <span className={`font-semibold tabular-nums ${s.count ? 'text-slate-200' : 'text-slate-500'}`}>{s.count}</span>
               {s.label}
             </span>
           ))}
@@ -349,6 +396,8 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
   const { syncStatus, accounts, accountSyncing, busy, refreshEverything } = useRefreshAll()
 
   const periodStats = useAppStore((s) => s.periodStats)
+  const flash = useSelectedEventFlash()
+  const flashKeyFor = (key: string): number | null => (flash?.key === key ? flash.token : null)
   const hidden = settings?.hiddenCalendarIds ?? []
   const showLocal = settings?.showLocalEvents ?? true
   const enabled = useMemo(() => calendars.filter((c) => c.enabled), [calendars])
@@ -481,6 +530,7 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
                   }
                   syncTitle={c.accountId ? `Sync ${group.title ?? 'this Proton account'}` : `Sync ${c.name}`}
                   counts={periodStats ? (periodStats.counts[c.id] ?? NO_EVENTS) : undefined}
+                  flashKey={flashKeyFor(c.id)}
                 />
               ))}
             </ul>
@@ -492,6 +542,7 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
             <CalendarRow
               name="Local events"
               counts={periodStats ? (periodStats.counts[LOCAL_EVENTS_KEY] ?? NO_EVENTS) : undefined}
+              flashKey={flashKeyFor(LOCAL_EVENTS_KEY)}
               color={settings.localEventColor}
               visible={settings.showLocalEvents}
               onToggle={() => void updateSettings({ showLocalEvents: !settings.showLocalEvents })}
