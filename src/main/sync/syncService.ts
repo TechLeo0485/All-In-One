@@ -1,14 +1,31 @@
 import { readFile, stat } from 'node:fs/promises'
 import { basename } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
+import { app } from 'electron'
+import { APP_NAME } from '@shared/brand'
 import type { CalendarSource, CalendarSyncResult, SyncStatus } from '@shared/types'
-import { isAutoSyncSource, isFileSource, normalizeFeedUrl } from '@shared/sources'
+import { hostOf, isAutoSyncSource, isFileSource, isGoogleCalendarUrl, normalizeFeedUrl } from '@shared/sources'
 import { calendarRepository } from '../database/calendarRepository'
 import { eventRepository } from '../database/eventRepository'
 import { fileSourcePath } from '../services/fileSourceService'
+import { hostBackoff } from './hostBackoff'
 import { parseIcs } from './icsParser'
 
 const FETCH_TIMEOUT_MS = 30_000
 const MAX_FILE_BYTES = 50 * 1024 * 1024
+/**
+ * Pause between two requests to the same server. Several Google accounts still share
+ * one IP, and a burst of parallel requests is what triggers HTTP 429.
+ */
+const SAME_HOST_GAP_MS = 1_500
+/**
+ * Refresh-all and auto-sync skip web links fetched successfully this recently, so
+ * repeated clicks keep the cached result instead of sending more requests.
+ */
+const MIN_REFETCH_MS = 60_000
+/** Cap on a downloaded feed, so a broken or hostile link cannot exhaust memory. */
+const MAX_FEED_BYTES = 50 * 1024 * 1024
+const MAX_REDIRECTS = 5
 
 type StatusListener = (status: SyncStatus) => void
 
@@ -22,6 +39,9 @@ type StatusListener = (status: SyncStatus) => void
  * Error handling: each calendar syncs independently. If a fetch or parse fails,
  * the error is recorded on that calendar and its previously cached events are
  * left untouched, so the user still sees their last known schedule offline.
+ *
+ * Politeness: links on the same server are fetched one after another, and a server
+ * that answers "too many requests" is left alone for a while (see hostBackoff).
  */
 class SyncService {
   private status: SyncStatus = { running: false, syncingIds: [], lastRunAt: null, results: [] }
@@ -55,7 +75,7 @@ class SyncService {
     if (this.pendingFull) return this.pendingFull
     const full = this.enqueue(() => {
       this.pendingFull = null // from now on, new requests should queue a fresh run
-      return this.run(calendarRepository.list().filter((c) => c.enabled))
+      return this.run(calendarRepository.list().filter((c) => c.enabled), true)
     })
     this.pendingFull = full
     return full
@@ -69,11 +89,14 @@ class SyncService {
     if (this.pendingFull) return this.pendingFull
     return this.enqueue(() => {
       const calendars = calendarRepository.list().filter(isAutoSyncSource)
-      return calendars.length ? this.run(calendars) : Promise.resolve(this.status)
+      return calendars.length ? this.run(calendars, true) : Promise.resolve(this.status)
     })
   }
 
-  /** Syncs a single calendar (also allowed when it is disabled, e.g. to test a URL). */
+  /**
+   * Syncs a single calendar (also allowed when it is disabled, e.g. to test a URL).
+   * Always fetches, since the URL may just have been edited.
+   */
   syncOne(calendarId: string): Promise<SyncStatus> {
     return this.enqueue(() => {
       const calendar = calendarRepository.get(calendarId)
@@ -88,10 +111,16 @@ class SyncService {
     return result
   }
 
-  private async run(calendars: CalendarSource[]): Promise<SyncStatus> {
+  private async run(calendars: CalendarSource[], reuseRecent = false): Promise<SyncStatus> {
+    if (reuseRecent) {
+      const recent = calendars.map((c) => this.recentResult(c))
+      const reused = recent.filter((r) => r !== null)
+      calendars = calendars.filter((_, i) => !recent[i])
+      if (reused.length) console.log(`[sync] ${reused.length} calendar(s) synced under a minute ago, kept cached`)
+    }
     this.setStatus({ ...this.status, running: true, syncingIds: calendars.map((c) => c.id) })
     // syncCalendar never throws, so `running` is always reset.
-    const results = await Promise.all(calendars.map((c) => this.syncCalendar(c)))
+    const results = (await Promise.all(groupByHost(calendars).map((group) => this.syncGroup(group)))).flat()
 
     // Merge with previous results so a single-calendar sync keeps the others' state.
     const merged = new Map(this.status.results.map((r) => [r.calendarId, r]))
@@ -106,17 +135,42 @@ class SyncService {
     return this.status
   }
 
+  /** The last successful result of a web link fetched less than MIN_REFETCH_MS ago. */
+  private recentResult(calendar: CalendarSource): CalendarSyncResult | null {
+    if (!hostOf(calendar.sourceUrl) || !calendar.lastSyncedAt) return null
+    if (Date.now() - Date.parse(calendar.lastSyncedAt) >= MIN_REFETCH_MS) return null
+    return this.status.results.find((r) => r.calendarId === calendar.id && r.ok) ?? null
+  }
+
+  /** Syncs calendars of one server sequentially, pausing between actual requests. */
+  private async syncGroup(calendars: CalendarSource[]): Promise<CalendarSyncResult[]> {
+    const results: CalendarSyncResult[] = []
+    for (const [i, calendar] of calendars.entries()) {
+      const host = hostOf(calendar.sourceUrl)
+      if (i > 0 && host && !hostBackoff.blockedUntil(host)) await delay(SAME_HOST_GAP_MS)
+      results.push(await this.syncCalendar(calendar))
+    }
+    return results
+  }
+
   private async syncCalendar(calendar: CalendarSource): Promise<CalendarSyncResult> {
+    const host = hostOf(calendar.sourceUrl)
     try {
+      const blockedUntil = host ? hostBackoff.blockedUntil(host) : null
+      if (blockedUntil) throw new Error(rateLimitMessage(calendar.sourceUrl, blockedUntil))
       const { text, modifiedAt } = isFileSource(calendar.sourceUrl)
         ? await readIcsFile(calendar.sourceUrl)
         : { text: await fetchIcs(calendar.sourceUrl), modifiedAt: undefined }
       const events = parseIcs(calendar.id, text)
       eventRepository.replaceCalendarEvents(calendar.id, events)
       calendarRepository.setSyncSuccess(calendar.id, this.warnings.get(calendar.id) ?? null)
+      if (host) hostBackoff.recordSuccess(host)
       return { calendarId: calendar.id, ok: true, eventCount: events.length, sourceModifiedAt: modifiedAt }
     } catch (err) {
-      const message = describeError(err)
+      const message =
+        err instanceof RateLimitedError && host
+          ? rateLimitMessage(calendar.sourceUrl, hostBackoff.recordLimited(host, err.retryAfterMs))
+          : describeError(err)
       console.error(`[sync] ${calendar.name}: ${message}`)
       // The calendar may have been deleted while we were fetching.
       if (calendarRepository.get(calendar.id)) calendarRepository.setSyncError(calendar.id, message)
@@ -137,21 +191,119 @@ class SyncService {
   }
 }
 
+/**
+ * Same-server web links share one group (run sequentially); files and other servers
+ * get their own group, so they still sync in parallel.
+ */
+function groupByHost(calendars: CalendarSource[]): CalendarSource[][] {
+  const groups: CalendarSource[][] = []
+  const byHost = new Map<string, CalendarSource[]>()
+  for (const calendar of calendars) {
+    const host = hostOf(calendar.sourceUrl)
+    const group = host ? byHost.get(host) : undefined
+    if (group) {
+      group.push(calendar)
+      continue
+    }
+    const created = [calendar]
+    if (host) byHost.set(host, created)
+    groups.push(created)
+  }
+  return groups
+}
+
+/** HTTP 429 (or 503 with Retry-After): the server wants us to slow down. */
+class RateLimitedError extends Error {
+  constructor(readonly retryAfterMs: number | null) {
+    super('Rate limited')
+  }
+}
+
+/** Retry-After is either delay-seconds or an HTTP date. */
+function parseRetryAfter(value: string | null): number | null {
+  if (!value) return null
+  const seconds = Number(value)
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000)
+  const date = Date.parse(value)
+  return Number.isNaN(date) ? null : Math.max(0, date - Date.now())
+}
+
+function rateLimitMessage(url: string, until: number): string {
+  const server = isGoogleCalendarUrl(url) ? 'Google' : hostOf(url)
+  const time = new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return `${server} is temporarily limiting requests (HTTP 429). Paused until ${time} to avoid a longer block`
+}
+
+/**
+ * Downloads a feed. Redirects are followed by hand: at most MAX_REDIRECTS, and never
+ * from https to plain http, which would send the link's secret token unencrypted.
+ */
 async function fetchIcs(url: string): Promise<string> {
-  const response = await fetch(normalizeFeedUrl(url), {
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    // Google writes Meet join instructions into DESCRIPTION, localized per request; without
-    // this they can come back in an arbitrary language (e.g. Chinese).
-    headers: { Accept: 'text/calendar, */*;q=0.5', 'Accept-Language': 'en-US,en;q=0.9' }
-  })
-  if (!response.ok) {
-    throw new Error(`Server responded with HTTP ${response.status} ${response.statusText}`.trim())
+  const signal = AbortSignal.timeout(FETCH_TIMEOUT_MS)
+  let current = new URL(normalizeFeedUrl(url))
+  for (let redirects = 0; ; redirects++) {
+    const response = await fetch(current, {
+      signal,
+      redirect: 'manual',
+      // Google writes Meet join instructions into DESCRIPTION, localized per request; without
+      // this they can come back in an arbitrary language (e.g. Chinese).
+      headers: {
+        Accept: 'text/calendar, */*;q=0.5',
+        'Accept-Language': 'en-US,en;q=0.9',
+        // Identify as a calendar client rather than an anonymous script.
+        'User-Agent': `${APP_NAME}/${app.getVersion()}`
+      }
+    })
+    const location = response.headers.get('location')
+    if (response.status >= 300 && response.status < 400 && location) {
+      await response.body?.cancel()
+      if (redirects >= MAX_REDIRECTS) throw new Error('The server redirected too many times')
+      const next = new URL(location, current)
+      const allowed = next.protocol === 'https:' || (next.protocol === 'http:' && current.protocol === 'http:')
+      if (!allowed) throw new Error('The server redirected to an insecure address, so it was not followed')
+      current = next
+      continue
+    }
+    const retryAfter = response.headers.get('retry-after')
+    if (response.status === 429 || (response.status === 503 && retryAfter)) {
+      await response.body?.cancel()
+      throw new RateLimitedError(parseRetryAfter(retryAfter))
+    }
+    if (!response.ok) {
+      await response.body?.cancel()
+      throw new Error(`Server responded with HTTP ${response.status} ${response.statusText}`.trim())
+    }
+    const text = await readLimited(response)
+    if (!text.includes('BEGIN:VCALENDAR')) {
+      throw new Error('The URL did not return an iCalendar (ICS) file')
+    }
+    return text
   }
-  const text = await response.text()
-  if (!text.includes('BEGIN:VCALENDAR')) {
-    throw new Error('The URL did not return an iCalendar (ICS) file')
+}
+
+/** Reads the body as UTF-8, aborting once it exceeds MAX_FEED_BYTES. */
+async function readLimited(response: Response): Promise<string> {
+  const tooLarge = 'The calendar is too large to download (over 50 MB)'
+  if (Number(response.headers.get('content-length')) > MAX_FEED_BYTES) {
+    await response.body?.cancel()
+    throw new Error(tooLarge)
   }
-  return text
+  if (!response.body) return ''
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > MAX_FEED_BYTES) {
+      await reader.cancel()
+      throw new Error(tooLarge)
+    }
+    chunks.push(value)
+  }
+  // TextDecoder drops a leading BOM, like response.text() did.
+  return new TextDecoder().decode(Buffer.concat(chunks))
 }
 
 /** Reads an exported .ics file (file: URL). The file's mtime tells the user how old the snapshot is. */

@@ -52,7 +52,7 @@ export function normalizeFeedUrl(url: string): string {
 }
 
 /** Hostname of an http(s)/webcal(s) URL, or null for files and invalid URLs. */
-function hostOf(url: string): string | null {
+export function hostOf(url: string): string | null {
   try {
     const parsed = new URL(normalizeFeedUrl(url))
     return /^https?:$/.test(parsed.protocol) ? parsed.hostname.toLowerCase() : null
