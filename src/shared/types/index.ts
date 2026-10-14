@@ -76,6 +76,11 @@ export interface CalendarEvent {
   reminderMinutes: number | null
   /** Organizer and guests from the feed (ORGANIZER / ATTENDEE); empty for local events */
   attendees: EventAttendee[]
+  /**
+   * The calendar owner's own RSVP, when they are a guest (not the organizer); the
+   * calendar draws accepted, maybe, not answered and declined events differently.
+   */
+  myResponse: AttendeeStatus | null
   /** Id of the status picked by the user (see AppSettings.eventStatuses); null = none. */
   status: string | null
   /** Follow-up reminder time (ISO UTC) while the status is Follow-Up; null = none */
@@ -114,7 +119,7 @@ export type RecurrenceEnd = { type: 'never' } | { type: 'until'; date: string } 
 export type RecurrenceScope = 'this' | 'following' | 'all'
 
 /**
- * A status from Settings, picked per event. Events with a status are outlined in its color.
+ * A status from Settings, picked per event. Events with a status show a badge in its color.
  */
 export interface EventStatusDef {
   id: string

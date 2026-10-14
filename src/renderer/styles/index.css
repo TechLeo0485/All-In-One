@@ -261,12 +261,59 @@ textarea,
   }
 }
 /*
- * Status outline (only events with a status picked). CalendarPage sets
- * --event-status-color per `status-<id>` class from the colors in Settings.
+ * Status badge (only events with a status picked): a circle in the status color with
+ * its first letter, before the title. CalendarPage sets --event-status-color and
+ * --event-status-initial per `status-<id>` class from Settings. Month view and all-day
+ * events use FullCalendar's .fc-event-title, Week/Day timed events our .event-title.
  */
-.fc .fc-event[class*='status-'] {
-  outline: 2px solid var(--event-status-color);
-  outline-offset: -2px;
+.fc .fc-event.has-status :is(.fc-event-title, .event-title)::before {
+  content: var(--event-status-initial);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Whole pixels and no text shadow: fractional sizes and shadows blur such small text. */
+  width: 16px;
+  height: 16px;
+  margin-right: 5px;
+  border-radius: 9999px;
+  background: var(--event-status-color);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.3);
+  color: var(--event-status-text);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  vertical-align: -3px;
+  -webkit-font-smoothing: antialiased;
+}
+/*
+ * Invitations by the user's own RSVP (CalendarPage responseLook sets the colors):
+ * not answered = outlined, maybe = striped, declined = outlined, faded, struck through.
+ * In Month view, timed events are just a dot: hollow for not answered, dashed for maybe.
+ */
+.fc .fc-event.rsvp-tentative:not(.fc-daygrid-dot-event) {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent 0 5px,
+    color-mix(in srgb, var(--color-slate-900) 40%, transparent) 5px 10px
+  );
+}
+.fc .fc-event.rsvp-declined {
+  opacity: 0.75;
+}
+.fc .fc-event.rsvp-declined :is(.fc-event-title, .event-title) {
+  text-decoration: line-through;
+}
+.fc .fc-event.rsvp-declined.fc-daygrid-dot-event,
+.fc .fc-event.rsvp-declined .fc-event-time {
+  color: var(--color-slate-500);
+}
+.fc .fc-event:is(.rsvp-needs-action, .rsvp-declined, .rsvp-tentative) .fc-daygrid-event-dot {
+  width: 4px;
+  height: 4px;
+  border-width: 2px;
+}
+.fc .fc-event.rsvp-tentative .fc-daygrid-event-dot {
+  border-style: dashed;
 }
 /* Events that have already ended: same color, a little darker. */
 .fc .fc-event.event-ended {
@@ -302,14 +349,21 @@ textarea,
       0 0 28px 8px color-mix(in srgb, white 55%, transparent);
   }
 }
-/* Sidebar row of the selected event's calendar: a few outline pulses in its color (Sidebar.tsx). */
+/*
+ * Sidebar row of the selected event's calendar (Sidebar.tsx): an outline in its color while
+ * the event stays selected, with a single soft pulse when the selection happens.
+ */
+.calendar-row-selected {
+  box-shadow: inset 0 0 0 1.5px var(--row-color);
+  background-color: color-mix(in srgb, var(--row-color) 10%, transparent);
+}
 .calendar-row-flash {
-  animation: calendar-row-flash 0.55s ease-in-out 3;
+  animation: calendar-row-flash 0.7s ease-out 1;
 }
 @keyframes calendar-row-flash {
-  50% {
+  35% {
     box-shadow:
-      0 0 0 2px var(--row-color),
+      inset 0 0 0 1.5px var(--row-color),
       0 0 12px 2px color-mix(in srgb, var(--row-color) 45%, transparent);
   }
 }

@@ -1,4 +1,4 @@
-import type { CalendarEvent, EventAttendee, EventSearchResult, RecurrenceRule, SearchMatchField } from '@shared/types'
+import type { AttendeeStatus, CalendarEvent, EventAttendee, EventSearchResult, RecurrenceRule, SearchMatchField } from '@shared/types'
 import { eventSearchText, findMatches, foldText, guestsText, searchTerms, snippetAround } from '@shared/search'
 import { FOLLOW_UP_ID } from '@shared/eventStatus'
 import { htmlToPlainText } from '@shared/htmlText'
@@ -18,6 +18,7 @@ interface EventRow {
   color: string | null
   reminder_minutes: number | null
   attendees: string
+  my_response: string | null
   created_at: string
   series_id?: string | null
   /** From event_statuses, when the query joins it */
@@ -44,7 +45,11 @@ export interface SyncedEventData {
   allDay: boolean
   location: string
   attendees: EventAttendee[]
+  /** The calendar owner's RSVP when they are a guest (see CalendarEvent.myResponse) */
+  myResponse: AttendeeStatus | null
 }
+
+const RESPONSES: readonly string[] = ['accepted', 'declined', 'tentative', 'needs-action'] satisfies AttendeeStatus[]
 
 function parseAttendees(json: string): EventAttendee[] {
   try {
@@ -79,6 +84,7 @@ function toEvent(row: EventRow): CalendarEvent {
     color: row.color,
     reminderMinutes: row.reminder_minutes,
     attendees: parseAttendees(row.attendees),
+    myResponse: row.my_response && RESPONSES.includes(row.my_response) ? (row.my_response as AttendeeStatus) : null,
     status: row.status ?? null,
     followUpAt: row.status === FOLLOW_UP_ID ? (row.remind_at ?? null) : null,
     followUpReminded: row.remind_fired === 1,
@@ -298,14 +304,14 @@ export const eventRepository = {
     const db = getDb()
     const upsert = db.prepare(
       `INSERT INTO events (id, calendar_id, external_id, title, description, start_time, end_time,
-                           all_day, location, attendees, search_text, is_local_event, created_at)
+                           all_day, location, attendees, my_response, search_text, is_local_event, created_at)
        VALUES (@id, @calendarId, @externalId, @title, @description, @startTime, @endTime,
-               @allDay, @location, @attendees, @searchText, 0, @createdAt)
+               @allDay, @location, @attendees, @myResponse, @searchText, 0, @createdAt)
        ON CONFLICT (id) DO UPDATE SET
          title = excluded.title, description = excluded.description,
          start_time = excluded.start_time, end_time = excluded.end_time,
          all_day = excluded.all_day, location = excluded.location, attendees = excluded.attendees,
-         search_text = excluded.search_text`
+         my_response = excluded.my_response, search_text = excluded.search_text`
     )
     const now = new Date().toISOString()
 

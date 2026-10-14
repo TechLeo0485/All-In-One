@@ -159,7 +159,10 @@ export const migrations: Migration[] = [
   (db) => {
     addColumn(db, 'event_statuses', 'remind_at', 'TEXT')
     addColumn(db, 'event_statuses', 'remind_fired', 'INTEGER NOT NULL DEFAULT 0')
-  }
+  },
+  // v11: the calendar owner's RSVP to a synced event (accepted / tentative / declined /
+  // needs-action); NULL = not a guest. Filled in by the next sync of each calendar.
+  (db) => addColumn(db, 'events', 'my_response', 'TEXT')
 ]
 
 /** SQL text, or a function for changes that need checks or data conversion. */

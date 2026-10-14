@@ -48,7 +48,10 @@ function CalendarRow({
   syncTitle?: string
   /** Events in the period the calendar shows; omitted while the calendar page isn't open. */
   counts?: EventCounts
-  /** Changes each time an event of this calendar is selected; the row then flashes. */
+  /**
+   * Set while an event of this calendar is selected: the row keeps an outline, and
+   * flashes once each time the key changes (a new selection).
+   */
   flashKey?: number | null
 }) {
   const rowRef = useRef<HTMLLIElement>(null)
@@ -69,7 +72,7 @@ function CalendarRow({
   return (
     <li
       ref={rowRef}
-      className="group flex items-center rounded-md pr-1 hover:bg-slate-800"
+      className={`group flex items-center rounded-md pr-1 hover:bg-slate-800 ${flashKey ? ROW_SELECTED_CLASS : ''}`}
       style={{ '--row-color': color } as React.CSSProperties}
     >
       <button
@@ -107,25 +110,30 @@ function CalendarRow({
   )
 }
 
-/** Outline pulse in the calendar's color (index.css). */
+/** Outline in the calendar's color, and a single pulse of it on selection (index.css). */
+const ROW_SELECTED_CLASS = 'calendar-row-selected'
 const ROW_FLASH_CLASS = 'calendar-row-flash'
 
 /**
- * Which sidebar row to flash for the selected event: its calendar, or local events.
- * `token` grows with every selection so picking another event of the same calendar
- * (or the same event again) flashes once more.
+ * Which sidebar row to outline for the selected event: its calendar, or local events;
+ * null once nothing is selected. `token` grows with every selection so picking another
+ * event of the same calendar (or the same event again) flashes once more.
  */
 function useSelectedEventFlash(): { key: string; token: number } | null {
   const selectedEventId = useAppStore((s) => s.selectedEventId)
   const [flash, setFlash] = useState<{ key: string; token: number } | null>(null)
+  const token = useRef(0)
   useEffect(() => {
-    if (!selectedEventId) return
+    if (!selectedEventId) {
+      setFlash(null)
+      return
+    }
     let cancelled = false
     window.api.events
       .get(selectedEventId)
       .then((event) => {
         if (cancelled || !event) return
-        setFlash((prev) => ({ key: event.calendarId ?? LOCAL_EVENTS_KEY, token: (prev?.token ?? 0) + 1 }))
+        setFlash({ key: event.calendarId ?? LOCAL_EVENTS_KEY, token: ++token.current })
       })
       .catch(() => undefined) // only a visual hint; the details panel reports errors
     return () => {

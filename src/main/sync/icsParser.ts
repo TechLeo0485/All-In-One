@@ -17,6 +17,8 @@ import type { SyncedEventData } from '../database/eventRepository'
 export interface ParseOptions {
   windowStart?: Date
   windowEnd?: Date
+  /** Where the feed came from; a Google link names the calendar owner (see ownerEmail). */
+  sourceUrl?: string
 }
 
 /** Hard caps so a pathological RRULE can't hang the sync. */
@@ -83,7 +85,8 @@ export function parseIcs(calendarId: string, icsText: string, options: ParseOpti
       endTime,
       allDay: start.isDate,
       location: item.location || '',
-      attendees: readAttendees(item)
+      attendees: readAttendees(item),
+      myResponse: null // set below, once the owner is known
     })
   }
 
@@ -130,7 +133,54 @@ export function parseIcs(calendarId: string, icsText: string, options: ParseOpti
     pushEvent(ev, ev.startDate, ev.endDate, `${ev.uid}::${ev.recurrenceId.toString()}`)
   }
 
-  return mergeDuplicates(out)
+  const events = mergeDuplicates(out)
+  const owner = ownerEmail(events, ownerHints(root, options.sourceUrl))
+  if (owner) for (const e of events) e.myResponse = responseOf(e.attendees, owner)
+  return events
+}
+
+/**
+ * Emails the feed itself says belong to the calendar owner: Google's secret address
+ * (".../calendar/ical/<email>/private-.../basic.ics") and a calendar name that is an
+ * email (Google names primary calendars after the account).
+ */
+function ownerHints(root: ICAL.Component, sourceUrl: string | undefined): string[] {
+  const hints: string[] = []
+  const fromUrl = /\/calendar\/ical\/([^/]+)\//i.exec(sourceUrl ?? '')?.[1]
+  if (fromUrl) {
+    try {
+      hints.push(decodeURIComponent(fromUrl))
+    } catch {
+      // malformed escape: no hint from the link
+    }
+  }
+  hints.push(String(root.getFirstPropertyValue('x-wr-calname') ?? '').trim())
+  return hints.filter((h) => h.includes('@')).map((h) => h.toLowerCase())
+}
+
+/**
+ * The calendar owner's email, used to find their own RSVP. A hint from the feed wins
+ * if that address is a guest anywhere. Otherwise (Proton and other feeds don't say
+ * whose calendar it is) it's the guest on the most invitations, since the owner is on
+ * every invitation in their calendar (organizers don't count: someone who sends many
+ * invites would tie with the owner); a tie means we can't tell, so no RSVPs.
+ */
+function ownerEmail(events: SyncedEventData[], hints: string[]): string | null {
+  const lists = new Map<string, number>()
+  for (const e of events) {
+    const guests = e.attendees.filter((a) => !a.isOrganizer && a.email).map((a) => a.email.toLowerCase())
+    for (const email of new Set(guests)) lists.set(email, (lists.get(email) ?? 0) + 1)
+  }
+  const hinted = hints.find((h) => lists.has(h))
+  if (hinted) return hinted
+  const [first, second] = [...lists].sort((a, b) => b[1] - a[1])
+  return first && (!second || first[1] > second[1]) ? first[0] : null
+}
+
+/** The owner's RSVP; null when they aren't a guest or organize the event themselves. */
+function responseOf(attendees: EventAttendee[], owner: string): AttendeeStatus | null {
+  const me = attendees.find((a) => a.email.toLowerCase() === owner)
+  return me && !me.isOrganizer ? me.status : null
 }
 
 /**

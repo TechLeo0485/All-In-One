@@ -161,7 +161,7 @@ class SyncService {
       const { text, modifiedAt } = isFileSource(calendar.sourceUrl)
         ? await readIcsFile(calendar.sourceUrl)
         : { text: await fetchIcs(calendar.sourceUrl), modifiedAt: undefined }
-      const events = parseIcs(calendar.id, text)
+      const events = parseIcs(calendar.id, text, { sourceUrl: calendar.sourceUrl })
       eventRepository.replaceCalendarEvents(calendar.id, events)
       calendarRepository.setSyncSuccess(calendar.id, this.warnings.get(calendar.id) ?? null)
       if (host) hostBackoff.recordSuccess(host)

@@ -1,6 +1,7 @@
 /**
  * Event status, shared by main and renderer. The user edits the list in Settings
- * and picks a status per event; events with a status are outlined in its color.
+ * and picks a status per event; events with a status show a badge with its first
+ * letter in its color.
  * (Whether an event has ended is shown by darkening it, not by a status.)
  */
 import type { EventStatusDef } from './types'

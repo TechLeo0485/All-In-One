@@ -27,7 +27,7 @@ import type {
   SlotLabelContentArg
 } from '@fullcalendar/core'
 import type { EventResizeDoneArg } from '@fullcalendar/interaction'
-import type { CalendarEvent, LocalEventInput } from '@shared/types'
+import type { AttendeeStatus, CalendarEvent, LocalEventInput } from '@shared/types'
 import { DEFAULT_EVENT_STATUSES, findStatus } from '@shared/eventStatus'
 import { clampHourHeight, DEFAULT_HOUR_HEIGHT, HOUR_HEIGHT_STEP } from '@shared/hourHeight'
 import { LOCAL_EVENTS_KEY, useAppStore, type EventCounts } from '../stores/appStore'
@@ -102,11 +102,17 @@ export function CalendarPage() {
   }, [calendars, settings?.hiddenCalendarIds])
   const visibleCalendars = useMemo(() => new Map<string, string>(JSON.parse(visibleKey)), [visibleKey])
 
-  // Outline color per status: events get a `status-<id>` class (ids and colors are
-  // validated in main, so they are safe in CSS); the outline itself is in index.css.
+  // Badge color and letter per status: events get a `status-<id>` class (ids and colors
+  // are validated in main, so they are safe in CSS); the badge itself is in index.css.
   const statuses = settings?.eventStatuses ?? DEFAULT_EVENT_STATUSES
   const statusCss = useMemo(
-    () => statuses.map((s) => `.fc .fc-event.status-${s.id} { --event-status-color: ${s.color}; }`).join('\n'),
+    () =>
+      statuses
+        .map(
+          (s) =>
+            `.fc .fc-event.status-${s.id} { --event-status-color: ${s.color}; --event-status-initial: ${statusInitialCss(s.label)}; --event-status-text: ${readableTextOn(s.color)}; }`
+        )
+        .join('\n'),
     [statuses]
   )
 
@@ -380,8 +386,10 @@ export function CalendarPage() {
             ...(arg.event.id === highlightedId ? [HIGHLIGHT_CLASS] : []),
             // Not FullCalendar's own isPast: that is only recomputed occasionally, not every minute.
             ...(isEnded(arg.event.end ?? arg.event.start, now) ? ['event-ended'] : []),
-            // Only events with a picked status get an outline.
-            ...[findStatus(statuses, arg.event.extendedProps.status as string | null)].flatMap((s) => (s ? [`status-${s.id}`] : []))
+            // Only events with a picked status get a badge.
+            ...[findStatus(statuses, arg.event.extendedProps.status as string | null)].flatMap((s) =>
+              s ? [STATUS_CLASS, `status-${s.id}`] : []
+            )
           ]}
         />
       </div>
@@ -676,7 +684,7 @@ function renderEventContent(arg: EventContentArg, hourHeight: number): ReactElem
     const startText = start ? arg.view.calendar.formatDate(start, TIME_FORMAT) : ''
     return (
       <div className="truncate">
-        {title ? <span className="font-medium">{title}</span> : null}
+        {title ? <span className="event-title font-medium">{title}</span> : null}
         {title && startText ? ', ' : null}
         {startText}
       </div>
@@ -684,10 +692,25 @@ function renderEventContent(arg: EventContentArg, hourHeight: number): ReactElem
   }
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {title && <div className={`font-medium ${px >= TWO_LINE_TITLE_PX ? 'line-clamp-2' : 'truncate'}`}>{title}</div>}
+      {title && <div className={`event-title font-medium ${px >= TWO_LINE_TITLE_PX ? 'line-clamp-2' : 'truncate'}`}>{title}</div>}
       <div className="truncate opacity-85">{arg.timeText}</div>
     </div>
   )
+}
+
+/** Events with a status: a badge with its first letter before the title (index.css). */
+const STATUS_CLASS = 'has-status'
+
+/** The status label's first letter as a CSS string, hex-escaped so any character is safe. */
+function statusInitialCss(label: string): string {
+  const first = Array.from(label.trim())[0]?.toLocaleUpperCase() ?? ''
+  return `"${Array.from(first, (c) => `\\${c.codePointAt(0)!.toString(16)} `).join('')}"`
+}
+
+/** Dark or white letter, whichever reads better on the status color (#rrggbb, checked in main). */
+function readableTextOn(color: string): string {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(color.slice(i, i + 2), 16) / 255)
+  return 0.299 * r + 0.587 * g + 0.114 * b > 0.6 ? '#0f172a' : 'white'
 }
 
 /** Ring on the selected event; FLASH_CLASS pulses it when the calendar points at it (index.css). */
@@ -724,6 +747,22 @@ function toFullCalendarEvent(e: CalendarEvent, color: string): EventInput {
     editable: e.isLocalEvent,
     backgroundColor: color,
     borderColor: color,
+    ...(e.myResponse ? responseLook(e.myResponse, color) : {}),
     extendedProps: { status: e.status, calendarId: e.calendarId, location: e.location }
+  }
+}
+
+/**
+ * Google Calendar style for invitations, by the user's own RSVP: accepted stays filled;
+ * not answered and declined are outlined in the calendar color (declined also faded and
+ * struck through), maybe is striped. The class carries the rest of the look (index.css).
+ */
+function responseLook(response: AttendeeStatus, color: string): EventInput {
+  if (response === 'accepted') return {}
+  if (response === 'tentative') return { classNames: ['rsvp-tentative'] }
+  return {
+    classNames: [`rsvp-${response}`],
+    backgroundColor: `color-mix(in srgb, ${color} ${response === 'declined' ? 6 : 14}%, var(--color-slate-900))`,
+    textColor: `color-mix(in srgb, ${color} 55%, white)`
   }
 }

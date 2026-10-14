@@ -348,8 +348,8 @@ function StatusEditor() {
   return (
     <>
       <p className="pt-2 text-sm text-slate-400">
-        Pick a status in an event's details; the event is then outlined in the status color. Events without a status
-        have no outline. Follow-Up is built in: events marked Follow-Up can get a reminder notification.
+        Pick a status in an event's details; the event then shows a circle with the status's first letter in
+        its color. Events without a status have no badge. Follow-Up is built in: events marked Follow-Up can get a reminder notification.
       </p>
       <ul className="divide-y divide-slate-800">
         {statuses.map((status) => (
