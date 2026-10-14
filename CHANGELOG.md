@@ -9,10 +9,11 @@ How to use this file:
 - Write for users: what they can now do, or what works better. Not file names or code.
 -->
 
-## Unreleased
+## 1.0.7
 - New Help window: click the All-In-One logo at the top of the sidebar to open the setup guide and the list of what changed in each version.
 - After an update, a "What's new" window shows what changed since your last version.
 - For invitations, the calendar now shows your own reply the way Google Calendar does. Accepted meetings stay filled in. Meetings you haven't answered are shown as an outline. "Maybe" meetings are striped. Declined meetings are faded and crossed out.
+- Proton accounts now remember your email address, so the app knows which guest is you in their invitations. It's filled in when you log in, and you can change it with the new Edit button on the account. For accounts you already had, click Edit and enter your email once.
 - Event statuses now appear as a small colored circle with the status's first letter, next to the event title. Before, the whole event was outlined.
 - While an event is selected, its calendar stays highlighted in the sidebar. The highlight goes away once you close the event.
 

@@ -16,7 +16,9 @@
   downloads new versions in the background and offers **Restart now** (or installs when you quit).
 
 **New users:** see **[docs/HELP.md](docs/HELP.md)** for how to get your Google, Outlook and Proton calendar links.
-- Month, week and day views (FullCalendar), with a color per calendar.
+- Month, week and day views (FullCalendar), with a color per calendar. Invitations show your own reply
+  like Google Calendar (not answered = outlined, maybe = striped, declined = faded and struck through),
+  and events with a status get a small badge with the status's first letter.
 - Show or hide calendars from the sidebar; enable or disable syncing per calendar.
 - Local events with title, time, description, location, color and desktop reminders. Drag and resize
   them directly in the calendar.
@@ -129,8 +131,14 @@ of them.
 1. Open **Proton accounts → Add account**, type a name for it (e.g. the email address), and click
    **Continue to Proton login**.
 2. Sign in on Proton's own login page, including 2FA. The window closes by itself once you're in, and
-   the account shows **Logged in · not synced yet**.
+   the account shows **Logged in · not synced yet**. The username/email you typed (only that field, never
+   the password) is saved as the account's email.
 3. Click **Sync now** to download every calendar of that account.
+
+The account email (editable with **Edit**) tells the app which guest is you, so invitations are drawn by
+your own reply: not answered = outlined, maybe = striped, declined = faded and struck through. Proton
+aliases (`@pm.me`, `@protonmail.com`, `+tag`) count as the same address. Google links name their owner
+themselves; for other feeds the app takes the guest on the most invitations, and skips this on a tie.
 
 Repeat for each account. Each one gets its own isolated, persistent login session, like a separate
 browser profile. Your password goes only to Proton, never to the app.
@@ -277,10 +285,11 @@ Migrations are tracked with SQLite's `user_version` (see `src/main/database/migr
 | `events` | id, calendar_id, external_id, title, description, start_time, end_time, all_day, location, is_local_event, color, reminder_minutes, created_at |
 | `notes` | id, event_id (unique), content, updated_at |
 | `settings` | id, key (unique), value (JSON) |
-| `proton_accounts` | id, label, auto_sync, status, last_export_at, last_error, created_at |
+| `proton_accounts` | id, label, email, auto_sync, status, last_export_at, last_error, created_at |
 
 Migration 2 also adds `calendars.account_id` and `calendars.proton_calendar_name`. Migration 3 adds
-`calendars.notify` (per-calendar reminders). Shown reminders are remembered in `settings` under
+`calendars.notify` (per-calendar reminders). Migration 11 adds `events.my_response` (the calendar owner's
+RSVP to a synced invitation, NULL = not a guest) and migration 12 `proton_accounts.email`. Shown reminders are remembered in `settings` under
 `internal:reminders.fired`, so restarting the app does not repeat them.
 
 Beyond the spec, `events` adds `all_day`, `color` and `reminder_minutes` for local events. `calendars`

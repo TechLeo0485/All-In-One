@@ -122,8 +122,13 @@ This works with **free accounts** and adds **all calendars** of the account at o
 1. In All-In-One, click **Proton accounts** in the sidebar.
 2. Click **Add account** and enter a name for it (only shown in All-In-One, for example your email address).
 3. Click **Continue to Proton login**. A Proton window opens: sign in as usual, including two-factor authentication
-   if you use it. The window closes by itself once you're in.
+   if you use it. The window closes by itself once you're in. All-In-One remembers the email address you signed in
+   with (never the password).
 4. Click **Sync now**. All-In-One downloads all calendars from that account.
+
+The email tells All-In-One which guest is you, so invitations show your reply like in Google Calendar: meetings you
+haven't answered appear as an outline, "Maybe" is striped, and declined meetings are faded and crossed out. To see or
+change it, click **Edit** on the account.
 
 Repeat for each Proton account you have. Later, click **Sync now** (or **Sync all**) whenever you want the latest
 events.
@@ -202,5 +207,6 @@ on the calendar in All-In-One.
 | "Network error" or "Request timed out" | Check your internet connection, then click refresh. |
 | Proton account says "Login needed" | Click **Log in** on the account and sign in again. |
 | Proton account says "Sync failed" | Click **Sync now** again. If it keeps failing, use **Open Proton** → **Download ICS** (see [Option A](#option-a-connect-your-proton-account-recommended)). |
+| Invitations from Proton you declined or haven't answered look like normal events | Click **Edit** on the Proton account and check **Your email** (accounts added before version 1.0.7 need it entered once). |
 | Events show only "Busy" with no titles | The Proton share link was created with **Limited view**. Create a new link with **Full view**. |
 | A calendar doesn't appear | In **Manage calendars**, make sure it is not marked **Disabled** (turn its switch on). In the sidebar, make sure it is not hidden. |

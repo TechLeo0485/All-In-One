@@ -303,8 +303,7 @@ textarea,
 .fc .fc-event.rsvp-declined :is(.fc-event-title, .event-title) {
   text-decoration: line-through;
 }
-.fc .fc-event.rsvp-declined.fc-daygrid-dot-event,
-.fc .fc-event.rsvp-declined .fc-event-time {
+.fc .fc-daygrid-dot-event.rsvp-declined :is(.fc-event-title, .fc-event-time) {
   color: var(--color-slate-500);
 }
 .fc .fc-event:is(.rsvp-needs-action, .rsvp-declined, .rsvp-tentative) .fc-daygrid-event-dot {
@@ -316,7 +315,30 @@ textarea,
   border-style: dashed;
 }
 /* Events that have already ended: same color, a little darker. */
-.fc .fc-event.event-ended {
+/*
+ * A dark layer over the event (not a filter, which would darken the status badge too);
+ * the badge sits above it so it keeps its color. Month-view dot events have no
+ * background to cover, so only their dot and text get darker.
+ */
+.fc .fc-event.event-ended:not(.fc-daygrid-dot-event, .event-highlighted)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgb(0 0 0 / 0.3);
+  pointer-events: none;
+}
+.fc .fc-event.event-ended.has-status :is(.fc-event-title, .event-title)::before {
+  position: relative;
+  z-index: 1;
+}
+.fc .fc-daygrid-dot-event.event-ended:not(.event-highlighted) .fc-event-title {
+  color: var(--color-slate-400);
+}
+.fc .fc-daygrid-dot-event.event-ended:not(.event-highlighted) .fc-event-time {
+  color: var(--color-slate-500);
+}
+.fc .fc-daygrid-dot-event.event-ended:not(.event-highlighted) .fc-daygrid-event-dot {
   filter: brightness(0.7);
 }
 /*
