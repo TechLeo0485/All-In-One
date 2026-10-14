@@ -5,6 +5,7 @@ import { app } from 'electron'
 import { APP_NAME } from '@shared/brand'
 import type { CalendarSource, CalendarSyncResult, SyncStatus } from '@shared/types'
 import { hostOf, isAutoSyncSource, isFileSource, isGoogleCalendarUrl, normalizeFeedUrl } from '@shared/sources'
+import { accountRepository } from '../database/accountRepository'
 import { calendarRepository } from '../database/calendarRepository'
 import { eventRepository } from '../database/eventRepository'
 import { fileSourcePath } from '../services/fileSourceService'
@@ -161,7 +162,8 @@ class SyncService {
       const { text, modifiedAt } = isFileSource(calendar.sourceUrl)
         ? await readIcsFile(calendar.sourceUrl)
         : { text: await fetchIcs(calendar.sourceUrl), modifiedAt: undefined }
-      const events = parseIcs(calendar.id, text, { sourceUrl: calendar.sourceUrl })
+      const ownerEmail = calendar.accountId ? accountRepository.get(calendar.accountId)?.email : undefined
+      const events = parseIcs(calendar.id, text, { sourceUrl: calendar.sourceUrl, ownerEmail })
       eventRepository.replaceCalendarEvents(calendar.id, events)
       calendarRepository.setSyncSuccess(calendar.id, this.warnings.get(calendar.id) ?? null)
       if (host) hostBackoff.recordSuccess(host)

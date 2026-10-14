@@ -1,6 +1,7 @@
 import ICAL from 'ical.js'
 import { createHash } from 'node:crypto'
 import type { AttendeeStatus, EventAttendee } from '@shared/types'
+import { sameMailbox } from '@shared/protonEmail'
 import { zoneFormatter, zonedWallTimeToUtc } from '@shared/timezone'
 import type { SyncedEventData } from '../database/eventRepository'
 
@@ -19,6 +20,8 @@ export interface ParseOptions {
   windowEnd?: Date
   /** Where the feed came from; a Google link names the calendar owner (see ownerEmail). */
   sourceUrl?: string
+  /** The owner's address when the app knows it (a Proton account's email). */
+  ownerEmail?: string
 }
 
 /** Hard caps so a pathological RRULE can't hang the sync. */
@@ -134,7 +137,7 @@ export function parseIcs(calendarId: string, icsText: string, options: ParseOpti
   }
 
   const events = mergeDuplicates(out)
-  const owner = ownerEmail(events, ownerHints(root, options.sourceUrl))
+  const owner = ownerEmail(events, [...(options.ownerEmail ? [options.ownerEmail] : []), ...ownerHints(root, options.sourceUrl)])
   if (owner) for (const e of events) e.myResponse = responseOf(e.attendees, owner)
   return events
 }
@@ -159,9 +162,9 @@ function ownerHints(root: ICAL.Component, sourceUrl: string | undefined): string
 }
 
 /**
- * The calendar owner's email, used to find their own RSVP. A hint from the feed wins
- * if that address is a guest anywhere. Otherwise (Proton and other feeds don't say
- * whose calendar it is) it's the guest on the most invitations, since the owner is on
+ * The calendar owner's email, used to find their own RSVP. A known address (the Proton
+ * account's, or a hint from the feed) wins if it is a guest anywhere; Proton aliases
+ * count as the same address. Otherwise it's the guest on the most invitations, since the owner is on
  * every invitation in their calendar (organizers don't count: someone who sends many
  * invites would tie with the owner); a tie means we can't tell, so no RSVPs.
  */
@@ -171,8 +174,10 @@ function ownerEmail(events: SyncedEventData[], hints: string[]): string | null {
     const guests = e.attendees.filter((a) => !a.isOrganizer && a.email).map((a) => a.email.toLowerCase())
     for (const email of new Set(guests)) lists.set(email, (lists.get(email) ?? 0) + 1)
   }
-  const hinted = hints.find((h) => lists.has(h))
-  if (hinted) return hinted
+  for (const hint of hints) {
+    const guest = [...lists.keys()].find((email) => sameMailbox(email, hint))
+    if (guest) return guest
+  }
   const [first, second] = [...lists].sort((a, b) => b[1] - a[1])
   return first && (!second || first[1] > second[1]) ? first[0] : null
 }

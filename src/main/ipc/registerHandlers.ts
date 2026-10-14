@@ -167,7 +167,8 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
   handle(IPC.protonUpdateAccount, (_e, id, patch) => {
     const p = (patch ?? {}) as Record<string, unknown>
     return protonAccountService.update(v.id(id), {
-      label: p.label === undefined ? undefined : accountLabel(p.label)
+      label: p.label === undefined ? undefined : accountLabel(p.label),
+      email: p.email === undefined ? undefined : v.protonEmail(p.email)
     })
   })
   handle(IPC.protonRemoveAccount, async (_e, id) => {

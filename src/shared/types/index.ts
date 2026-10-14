@@ -42,10 +42,21 @@ export type ProtonAccountStatus = 'new' | 'ready' | 'ok' | 'syncing' | 'login-re
 export interface ProtonAccount {
   id: string
   label: string
+  /**
+   * The account's own address, taken from the login page or typed in; it tells which
+   * guest is the user, for their RSVP in this account's calendars. '' = not known.
+   */
+  email: string
   status: ProtonAccountStatus
   lastExportAt: string | null
   lastError: string | null
   createdAt: string
+}
+
+/** Editable fields of a Proton account; email '' clears it. */
+export interface ProtonAccountPatch {
+  label?: string
+  email?: string
 }
 
 export interface CalendarSourceInput {
@@ -376,7 +387,8 @@ export interface CalendarApi {
     listAccounts(): Promise<ProtonAccount[]>
     /** Creates the account and opens its login window. */
     addAccount(label: string): Promise<ProtonAccount>
-    updateAccount(id: string, patch: { label?: string }): Promise<ProtonAccount>
+    /** A changed email re-reads the account's calendars (no Proton download). */
+    updateAccount(id: string, patch: ProtonAccountPatch): Promise<ProtonAccount>
     /** Removes the account, its calendars/notes, and clears its saved login. */
     removeAccount(id: string): Promise<void>
     /** Login window; closes itself after a successful login (no automatic download). */

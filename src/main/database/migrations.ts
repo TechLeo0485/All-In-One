@@ -162,7 +162,10 @@ export const migrations: Migration[] = [
   },
   // v11: the calendar owner's RSVP to a synced event (accepted / tentative / declined /
   // needs-action); NULL = not a guest. Filled in by the next sync of each calendar.
-  (db) => addColumn(db, 'events', 'my_response', 'TEXT')
+  (db) => addColumn(db, 'events', 'my_response', 'TEXT'),
+  // v12: the Proton account's own address (from the login or typed in), used to find
+  // the user's RSVP in that account's calendars; '' = not known yet.
+  (db) => addColumn(db, 'proton_accounts', 'email', "TEXT NOT NULL DEFAULT ''")
 ]
 
 /** SQL text, or a function for changes that need checks or data conversion. */

@@ -26,22 +26,23 @@ function StatusBadge({ account }: { account: ProtonAccount }) {
   )
 }
 
-function RenameAccountDialog({ account, onClose }: { account: ProtonAccount; onClose: () => void }) {
+function EditAccountDialog({ account, onClose }: { account: ProtonAccount; onClose: () => void }) {
   const updateProtonAccount = useAppStore((s) => s.updateProtonAccount)
   const [label, setLabel] = useState(account.label)
+  const [email, setEmail] = useState(account.email)
   const [saving, setSaving] = useState(false)
 
   const onSubmit = async (e: FormEvent): Promise<void> => {
     e.preventDefault()
     if (!label.trim()) return
     setSaving(true)
-    if (await updateProtonAccount(account.id, { label: label.trim() })) onClose()
+    if (await updateProtonAccount(account.id, { label: label.trim(), email: email.trim() })) onClose()
     setSaving(false)
   }
 
   return (
     <Modal
-      title="Rename account"
+      title="Edit account"
       onClose={onClose}
       footer={
         <>
@@ -52,9 +53,21 @@ function RenameAccountDialog({ account, onClose }: { account: ProtonAccount; onC
         </>
       }
     >
-      <form id="account-form" onSubmit={onSubmit}>
+      <form id="account-form" className="space-y-4" onSubmit={onSubmit}>
         <Field label="Account name" hint="Only shown in this app, e.g. your email address or “Work”.">
           <TextInput autoFocus value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. me@proton.me" />
+        </Field>
+        <Field
+          label="Your email"
+          hint="Filled in when you log in. Shows which guest is you, so invitations you declined, answered maybe or haven’t answered look different."
+        >
+          <TextInput
+            inputMode="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="e.g. me@proton.me"
+            spellCheck={false}
+          />
         </Field>
       </form>
     </Modal>
@@ -75,7 +88,7 @@ export function ProtonAccountCard({
   const removeProtonAccount = useAppStore((s) => s.removeProtonAccount)
   const askConfirm = useAppStore((s) => s.askConfirm)
   const protonAction = useAppStore((s) => s.protonAction)
-  const [renaming, setRenaming] = useState(false)
+  const [editing, setEditing] = useState(false)
   const needsLogin = account.status === 'new' || account.status === 'login-required'
   const syncing = account.status === 'syncing'
 
@@ -88,7 +101,7 @@ export function ProtonAccountCard({
             <StatusBadge account={account} />
           </div>
           <p className="mt-1 text-xs text-slate-400">
-            Proton account ·{' '}
+            {account.email && account.email !== account.label ? `${account.email} · ` : 'Proton account · '}
             <span className={isProtonStale(account, now) ? 'text-amber-300/80' : undefined}>
               {account.lastExportAt ? `last synced ${formatAge(account.lastExportAt, now)}` : 'never synced'}
             </span>
@@ -116,8 +129,8 @@ export function ProtonAccountCard({
           >
             <ExternalIcon /> Open Proton
           </Button>
-          <Button variant="ghost" onClick={() => setRenaming(true)}>
-            Rename
+          <Button variant="ghost" onClick={() => setEditing(true)}>
+            Edit
           </Button>
           <Button
             variant="ghost"
@@ -166,7 +179,7 @@ export function ProtonAccountCard({
         </p>
       )}
 
-      {renaming && <RenameAccountDialog account={account} onClose={() => setRenaming(false)} />}
+      {editing && <EditAccountDialog account={account} onClose={() => setEditing(false)} />}
     </li>
   )
 }

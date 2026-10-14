@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import type { ProtonAccount, ProtonAccountStatus } from '@shared/types'
+import type { ProtonAccount, ProtonAccountPatch, ProtonAccountStatus } from '@shared/types'
 import { getDb } from './connection'
 
 interface AccountRow {
   id: string
   label: string
+  email: string
   status: string
   last_export_at: string | null
   last_error: string | null
@@ -15,6 +16,7 @@ function toAccount(row: AccountRow): ProtonAccount {
   return {
     id: row.id,
     label: row.label,
+    email: row.email ?? '',
     status: row.status as ProtonAccountStatus,
     lastExportAt: row.last_export_at,
     lastError: row.last_error,
@@ -41,11 +43,18 @@ export const accountRepository = {
     return this.get(id)!
   },
 
-  update(id: string, patch: { label?: string }): ProtonAccount {
+  update(id: string, patch: ProtonAccountPatch): ProtonAccount {
     const existing = this.get(id)
     if (!existing) throw new Error('Account not found')
-    getDb().prepare('UPDATE proton_accounts SET label = ? WHERE id = ?').run(patch.label ?? existing.label, id)
+    getDb()
+      .prepare('UPDATE proton_accounts SET label = ?, email = ? WHERE id = ?')
+      .run(patch.label ?? existing.label, patch.email ?? existing.email, id)
     return this.get(id)!
+  },
+
+  /** The address typed on the login page; doesn't replace one already known. Returns whether it was stored. */
+  setEmailIfMissing(id: string, email: string): boolean {
+    return getDb().prepare("UPDATE proton_accounts SET email = ? WHERE id = ? AND email = ''").run(email, id).changes > 0
   },
 
   /** After a successful login: logged in, waiting for the user to sync. */

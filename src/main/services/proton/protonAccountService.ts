@@ -5,7 +5,8 @@ import { mkdir, readdir, rename, rm } from 'node:fs/promises'
 import { extname, basename, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { nextUnusedColor } from '@shared/colors'
-import type { ProtonAccount } from '@shared/types'
+import { MAX_EMAIL_LENGTH, normalizeProtonEmail } from '@shared/protonEmail'
+import type { ProtonAccount, ProtonAccountPatch } from '@shared/types'
 import { accountRepository } from '../../database/accountRepository'
 import { calendarRepository } from '../../database/calendarRepository'
 import { syncService } from '../../sync/syncService'
@@ -14,6 +15,7 @@ import { ExportAbortedError, exportAccountCalendars, LoginRequiredError, type Ex
 import {
   clearProtonSession,
   getProtonSession,
+  isLoginUrl,
   isSignedInUrl,
   lockNavigationToProton,
   PROTON_EXPORT_URL,
@@ -21,7 +23,16 @@ import {
   setDownloadListener
 } from './protonSession'
 
-const MISSING_WARNING = 'Not found in this Proton account anymore. Remove it if it was deleted in Proton.'
+/**
+ * The username/email field of Proton's login form (`#username` in Proton's WebClients
+ * LoginForm). Only this field is read: never the password.
+ */
+const READ_LOGIN_EMAIL_SCRIPT = `(() => {
+  const input = document.querySelector('input#username, input[name="username"], input[autocomplete="username"]');
+  return input ? input.value : '';
+})()`
+
+const MISSING_WARNING ='Not found in this Proton account anymore. Remove it if it was deleted in Proton.'
 
 type Listener = (accounts: ProtonAccount[]) => void
 
@@ -80,10 +91,22 @@ class ProtonAccountService {
     return account
   }
 
-  update(id: string, patch: { label?: string }): ProtonAccount {
+  update(id: string, patch: ProtonAccountPatch): ProtonAccount {
+    const before = accountRepository.get(id)
     const account = accountRepository.update(id, patch)
     this.emit()
+    if (before && before.email !== account.email) this.rereadCalendars(id)
     return account
+  }
+
+  /**
+   * Re-reads the account's already downloaded calendars, so a new email shows the
+   * user's RSVPs right away. Only local files: nothing is downloaded from Proton.
+   */
+  private rereadCalendars(id: string): void {
+    for (const c of calendarRepository.listForAccount(id)) {
+      if (c.enabled) void syncService.syncOne(c.id).catch(() => undefined)
+    }
   }
 
   async remove(id: string): Promise<void> {
@@ -142,8 +165,30 @@ class ProtonAccountService {
     setDownloadListener(id, (item) => this.captureManualDownload(id, item))
 
     let signedIn = false
+    // The address typed on Proton's login page, read while the window is open; once
+    // signed in it becomes the account's email (unless one is already set).
+    let typedEmail = ''
+    const readTyped = (): void => {
+      if (signedIn || win.isDestroyed() || !isLoginUrl(win.webContents.getURL())) return
+      win.webContents
+        .executeJavaScript(READ_LOGIN_EMAIL_SCRIPT, false)
+        .then((value: unknown) => {
+          if (typeof value === 'string' && value.trim()) typedEmail = value
+        })
+        .catch(() => undefined) // page navigating; next tick tries again
+    }
+    const typedTimer = setInterval(readTyped, 1000)
+    win.on('closed', () => clearInterval(typedTimer))
+
     const checkSignedIn = (navUrl: string): void => {
       if (!isSignedInUrl(navUrl)) return
+      if (!signedIn && typedEmail) {
+        const email = normalizeProtonEmail(typedEmail)
+        if (email.length <= MAX_EMAIL_LENGTH && accountRepository.setEmailIfMissing(id, email)) {
+          this.emit()
+          this.rereadCalendars(id) // a re-login of an account that already has calendars
+        }
+      }
       signedIn = true
       if (!closeWhenSignedIn) return
       // Give Proton a moment to persist the session before closing.

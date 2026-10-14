@@ -4,6 +4,7 @@ import { isValidShortcut } from '@shared/shortcut'
 import { MAX_STATUS_LABEL, MAX_STATUSES, normalizeStatuses, STATUS_ID_RE } from '@shared/eventStatus'
 import { isValidTimeZone, MAX_TIME_ZONE_LABEL } from '@shared/timezone'
 import { clampHourHeight, MAX_HOUR_HEIGHT, MIN_HOUR_HEIGHT } from '@shared/hourHeight'
+import { MAX_EMAIL_LENGTH, normalizeProtonEmail } from '@shared/protonEmail'
 
 /**
  * The renderer is treated as untrusted: every IPC payload is validated here before
@@ -28,6 +29,14 @@ export function str(value: unknown, field: string, { required = false, max = MAX
 
 export function id(value: unknown, field = 'id'): string {
   return str(value, field, { required: true, max: 200 })
+}
+
+/** A Proton address or bare username ("name" = name@proton.me); '' clears it. */
+export function protonEmail(value: unknown): string {
+  const email = normalizeProtonEmail(str(value, 'Email', { max: MAX_EMAIL_LENGTH }))
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail('Email must look like name@proton.me')
+  if (email.length > MAX_EMAIL_LENGTH) fail('Email is too long')
+  return email
 }
 
 function color(value: unknown, field = 'Color'): string {

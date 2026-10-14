@@ -7,6 +7,7 @@ import type {
   LocalEventInput,
   OpenEventRequest,
   ProtonAccount,
+  ProtonAccountPatch,
   RecurrenceScope,
   SyncStatus
 } from '@shared/types'
@@ -130,7 +131,7 @@ interface AppState {
   loadCalendars(): Promise<void>
   setProtonAccounts(accounts: ProtonAccount[]): void
   addProtonAccount(label: string): Promise<boolean>
-  updateProtonAccount(id: string, patch: { label?: string }): Promise<boolean>
+  updateProtonAccount(id: string, patch: ProtonAccountPatch): Promise<boolean>
   removeProtonAccount(id: string): Promise<void>
   protonAction(action: 'openLogin' | 'openProton' | 'syncAccount', id: string): Promise<void>
   syncAllProtonAccounts(): Promise<void>
