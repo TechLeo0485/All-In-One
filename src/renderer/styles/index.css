@@ -316,21 +316,27 @@ textarea,
 }
 /* Events that have already ended: same color, a little darker. */
 /*
- * A dark layer over the event (not a filter, which would darken the status badge too);
- * the badge sits above it so it keeps its color. Month-view dot events have no
- * background to cover, so only their dot and text get darker.
+ * A dark layer over the whole event, border and text included (not a filter, which
+ * would darken the status badge too); the badge sits above the layer so it keeps its
+ * color. FullCalendar lifts .fc-event-main (z-index 2) above the event, which would
+ * put the text out of the layer's reach, so ended events drop that. Month-view dot
+ * events have no background to cover, so only their dot and text get darker.
  */
 .fc .fc-event.event-ended:not(.fc-daygrid-dot-event, .event-highlighted)::after {
   content: '';
   position: absolute;
-  inset: 0;
+  inset: -1px;
+  z-index: 1;
   border-radius: inherit;
   background: rgb(0 0 0 / 0.3);
   pointer-events: none;
 }
+.fc .fc-event.event-ended:not(.fc-daygrid-dot-event, .event-highlighted) .fc-event-main {
+  z-index: auto;
+}
 .fc .fc-event.event-ended.has-status :is(.fc-event-title, .event-title)::before {
   position: relative;
-  z-index: 1;
+  z-index: 2;
 }
 .fc .fc-daygrid-dot-event.event-ended:not(.event-highlighted) .fc-event-title {
   color: var(--color-slate-400);
