@@ -9,6 +9,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { Toasts } from './components/Toasts'
 import { TitleBar } from './components/TitleBar'
 import { UpdateDialog } from './components/UpdateDialog'
+import { HelpDialog } from './components/HelpDialog'
 import { Spinner } from './components/ui'
 import { CalendarPage } from './pages/CalendarPage'
 import { CalendarsPage } from './pages/CalendarsPage'
@@ -70,6 +71,7 @@ export default function App() {
       </div>
       <ConfirmDialog />
       <UpdateDialog />
+      <HelpDialog />
       <Toasts />
     </div>
   )

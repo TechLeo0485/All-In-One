@@ -37,6 +37,8 @@ export const IPC = {
 
   appInfo: 'app:info',
   appSuspendShortcut: 'app:suspendShortcut',
+  appWhatsNew: 'app:whatsNew',
+  appWhatsNewSeen: 'app:whatsNewSeen',
 
   updatesStatus: 'updates:status',
   updatesCheck: 'updates:check',

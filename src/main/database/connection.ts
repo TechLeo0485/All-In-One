@@ -8,6 +8,8 @@ import { fillMissingSearchText } from './searchText'
 let db: Database.Database | null = null
 /** Set on shutdown so late async work fails loudly instead of silently reopening the file. */
 let shutDown = false
+/** The database file was created by this launch (a fresh install or a reset data folder). */
+let createdNow = false
 
 /**
  * Lazily opens the SQLite database stored in the user's app-data folder.
@@ -26,7 +28,7 @@ export function getDb(): Database.Database {
     // Case- and accent-insensitive matching for event search (SQLite's own LIKE only folds ASCII).
     opened.function('casefold', { deterministic: true }, (value: unknown) => (value == null ? '' : foldText(String(value))))
     // After an app update: back up, then upgrade the schema in place (see migrations.ts).
-    upgradeDatabase(opened, join(app.getPath('userData'), 'backups'))
+    createdNow = upgradeDatabase(opened, join(app.getPath('userData'), 'backups')).from === 0
     fillMissingSearchText(opened)
   } catch (err) {
     opened.close() // don't keep a half-usable handle; the caller reports the error
@@ -34,6 +36,11 @@ export function getDb(): Database.Database {
   }
   db = opened
   return db
+}
+
+export function isNewDatabase(): boolean {
+  getDb()
+  return createdNow
 }
 
 export function closeDb(): void {

@@ -15,6 +15,9 @@ import { errorMessage } from '../utils/errors'
 
 export type View = 'calendar' | 'pipeline' | 'calendars' | 'settings'
 
+/** Tab of the Help popup (opened from the logo, or after an update). */
+export type HelpTab = 'guide' | 'whats-new'
+
 /** What the local-event dialog is doing, if open. */
 export type EventEditorState =
   | { mode: 'create'; defaults: Partial<LocalEventInput> }
@@ -97,9 +100,13 @@ interface AppState {
   periodStats: PeriodStats | null
   eventEditor: EventEditorState
   toasts: Toast[]
+  /** Open tab of the Help popup; null while it's closed. */
+  helpTab: HelpTab | null
 
   init(): Promise<void>
   setView(view: View): void
+  /** Opens the Help popup on a tab (or switches tab); null closes it. */
+  setHelpTab(tab: HelpTab | null): void
   selectEvent(id: string | null): void
   /** Reminder or tray click: show the calendar, jump to the date and select the event. */
   openEvent(request: OpenEventRequest): void
@@ -177,6 +184,7 @@ export const useAppStore = create<AppState>((set, get) => {
     periodStats: null,
     eventEditor: null,
     toasts: [],
+    helpTab: null,
 
     async init() {
       const [calendars, settings, syncStatus, protonAccounts] = await Promise.all([
@@ -190,6 +198,7 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     setView: (view) => set({ view }),
+    setHelpTab: (tab) => set({ helpTab: tab }),
     selectEvent: (id) => set({ selectedEventId: id }),
     openEvent: (request) =>
       set((s) => ({

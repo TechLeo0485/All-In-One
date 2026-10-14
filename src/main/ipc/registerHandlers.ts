@@ -14,6 +14,7 @@ import { protonAccountService } from '../services/proton/protonAccountService'
 import { reminderService } from '../services/reminderService'
 import { shortcutService } from '../services/shortcutService'
 import { updateService } from '../services/updateService'
+import { whatsNewService } from '../services/whatsNewService'
 import { syncService } from '../sync/syncService'
 import * as v from './validation'
 
@@ -146,6 +147,8 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
   // App
   handle(IPC.appInfo, () => ({ name: APP_NAME, version: app.getVersion(), dataFolder: app.getPath('userData') }))
   handle(IPC.appSuspendShortcut, (_e, suspended) => shortcutService.setSuspended(Boolean(suspended)))
+  handle(IPC.appWhatsNew, () => whatsNewService.get())
+  handle(IPC.appWhatsNewSeen, () => whatsNewService.markSeen())
 
   // Updates
   handle(IPC.updatesStatus, () => updateService.getStatus())

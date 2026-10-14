@@ -261,6 +261,13 @@ export interface AppInfo {
   dataFolder: string
 }
 
+/** First launches after an update, until the user closed the "What's new" popup. */
+export interface WhatsNew {
+  /** Version used before; null when it wasn't recorded (updated from 1.0.6 or older). */
+  from: string | null
+  to: string
+}
+
 /**
  * Auto-update state (installed app only; updates come from GitHub Releases).
  * 'unsupported' – development build, updates are disabled
@@ -343,6 +350,9 @@ export interface CalendarApi {
     info(): Promise<AppInfo>
     /** Pauses the show/hide shortcut while Settings records a new one (so pressing it doesn't hide the window). */
     suspendShortcut(suspended: boolean): Promise<void>
+    /** Set right after an update, so the window shows the new release notes once. */
+    whatsNew(): Promise<WhatsNew | null>
+    whatsNewSeen(): Promise<void>
   }
   updates: {
     status(): Promise<UpdateStatus>

@@ -430,3 +430,21 @@ textarea,
 .markdown td {
   @apply border border-slate-700 px-2 py-1 text-left;
 }
+
+/* Help guide (HelpDialog): a long document, so more room between sections. */
+.help-markdown h1 {
+  @apply text-xl text-white;
+}
+.help-markdown h2 {
+  @apply mt-6 text-lg text-white;
+}
+.help-markdown h3 {
+  @apply mt-4 text-slate-100;
+}
+.help-markdown :is(h1, h2, h3, h4) {
+  /* In-page links land below the popup's sticky tab bar. */
+  scroll-margin-top: 3.5rem;
+}
+.help-markdown hr {
+  @apply my-6 border-slate-800;
+}

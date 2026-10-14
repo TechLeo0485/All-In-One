@@ -399,6 +399,7 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
   const updateSettings = useAppStore((s) => s.updateSettings)
   const openEventEditor = useAppStore((s) => s.openEventEditor)
   const setView = useAppStore((s) => s.setView)
+  const setHelpTab = useAppStore((s) => s.setHelpTab)
   const syncOne = useAppStore((s) => s.syncOne)
   const protonAction = useAppStore((s) => s.protonAction)
   const { syncStatus, accounts, accountSyncing, busy, refreshEverything } = useRefreshAll()
@@ -443,8 +444,14 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
   return (
     <>
       <div className="flex items-center gap-2.5 pt-4 pr-3 pb-3 pl-4">
-        <AppLogo size={32} />
-        <span className="min-w-0 flex-1 truncate text-lg font-semibold tracking-tight">{APP_NAME}</span>
+        <button
+          onClick={() => setHelpTab('guide')}
+          title="Help and what's new"
+          className="-m-1 flex min-w-0 flex-1 items-center gap-2.5 rounded-md p-1 text-left hover:bg-slate-800"
+        >
+          <AppLogo size={32} />
+          <span className="min-w-0 flex-1 truncate text-lg font-semibold tracking-tight">{APP_NAME}</span>
+        </button>
         <button
           onClick={onToggle}
           title={toggleTitle}
