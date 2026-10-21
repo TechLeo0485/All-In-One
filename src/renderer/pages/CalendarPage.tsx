@@ -231,6 +231,8 @@ export function CalendarPage() {
 
   const onSelect = (arg: DateSelectArg): void => {
     arg.view.calendar.unselect()
+    // A new event replaces the one whose details were open.
+    selectEvent(null)
     openEventEditor({
       mode: 'create',
       defaults: arg.allDay
