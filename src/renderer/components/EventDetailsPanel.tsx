@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { AttendeeStatus, CalendarEvent, EventAttendee } from '@shared/types'
 import { DEFAULT_EVENT_STATUSES, findStatus, FOLLOW_UP_ID } from '@shared/eventStatus'
-import { htmlToPlainText } from '@shared/htmlText'
+import { findMeetingUrl } from '@shared/meetingLink'
 import { describeRecurrence } from '@shared/recurrence'
 import { useAppStore } from '../stores/appStore'
 import { useEventDetails } from '../hooks/useEventDetails'
@@ -16,7 +16,7 @@ import {
   toLocalInputValue,
   zonedDateString
 } from '../utils/dates'
-import { findFirstUrl, linkify } from '../utils/linkify'
+import { linkify } from '../utils/linkify'
 import { renderDescription } from '../utils/richText'
 import { BellIcon, ClockIcon, ExternalIcon, LockIcon, MapPinIcon, RepeatIcon, UsersIcon, XIcon } from './icons'
 import { NotesEditor } from './NotesEditor'
@@ -278,7 +278,7 @@ export function EventDetailsPanel() {
 
   const calendar = event?.calendarId ? calendars.find((c) => c.id === event.calendarId) : undefined
   const accountLabel = protonAccounts.find((a) => a.id === calendar?.accountId)?.label
-  const meetingUrl = event ? findFirstUrl(event.location, htmlToPlainText(event.description)) : null
+  const meetingUrl = event ? findMeetingUrl(event.location, event.description) : null
 
   // Which reminder applies: local events have their own; calendar events use the default.
   let reminderText: string | null = null

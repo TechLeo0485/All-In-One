@@ -2,15 +2,6 @@ import type { ReactNode } from 'react'
 
 const URL_RE = /\bhttps?:\/\/[^\s<>"')\]]+[^\s<>"')\].,;:!?]/gi
 
-/** First http(s) URL in the text, e.g. a video-call link in a meeting description. */
-export function findFirstUrl(...texts: string[]): string | null {
-  for (const text of texts) {
-    const match = text.match(URL_RE)
-    if (match) return match[0]
-  }
-  return null
-}
-
 /**
  * Turns URLs in plain text into links. Returns React nodes (no HTML parsing),
  * so event text from feeds can't inject markup. Links open in the system browser

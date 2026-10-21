@@ -9,10 +9,11 @@ How to use this file:
 - Write for users: what they can now do, or what works better. Not file names or code.
 -->
 
-## Unreleased
+## 1.0.8
 - New light theme: pick **Dark** or **Light** in **Settings → Appearance → Theme**. The whole app switches right away, including the window's title bar, and remembers your choice.
 - You can now choose which statuses appear on the Pipeline. In **Settings → Event status**, click the pin next to a status to show it as a column on the Pipeline, or click it again to hide it there. Your existing statuses stay pinned. New statuses start unpinned.
 - Clicking an empty spot in the calendar to create an event now closes the details of the event you had open.
+- **Open meeting link** now finds the real video-call link (Google Meet, Zoom, Teams, Webex and others) instead of the first link in the invite, which was sometimes a scheduling, reschedule or help page. If an invite has no recognized meeting link, the button only appears when the event's location is a link.
 
 ## 1.0.7
 - New Help window: click the All-In-One logo at the top of the sidebar to open the setup guide and the list of what changed in each version.

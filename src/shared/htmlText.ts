@@ -1,8 +1,7 @@
 /**
  * Some invites (Google, scheduling tools like GoodTime/Calendly) put HTML in the
  * event DESCRIPTION. The details panel renders a safe subset of it (renderer's
- * richText.tsx); everywhere else (search, snippets, meeting link detection) uses
- * this plain-text version. Regex-based so it also runs in the main process.
+ * richText.tsx); everywhere else (search, snippets) uses this plain-text version. Regex-based so it also runs in the main process.
  */
 
 const HTML_TAG_RE = /<\/?(?:br|p|div|span|a|b|strong|i|em|u|ul|ol|li|table|tbody|tr|td|th|h[1-6]|font|hr|blockquote)\b[^>]*>/i
