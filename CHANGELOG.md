@@ -9,6 +9,9 @@ How to use this file:
 - Write for users: what they can now do, or what works better. Not file names or code.
 -->
 
+## Unreleased
+- New light theme: pick **Dark** or **Light** in **Settings → Appearance → Theme**. The whole app switches right away, including the window's title bar, and remembers your choice.
+
 ## 1.0.7
 - New Help window: click the All-In-One logo at the top of the sidebar to open the setup guide and the list of what changed in each version.
 - After an update, a "What's new" window shows what changed since your last version.

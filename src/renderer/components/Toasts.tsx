@@ -12,7 +12,7 @@ export function Toasts() {
           key={t.id}
           role={t.kind === 'error' ? 'alert' : 'status'}
           className={`pointer-events-auto flex max-w-md items-start gap-2 rounded-lg px-4 py-2.5 text-sm shadow-lg ${
-            t.kind === 'error' ? 'bg-red-600 text-white' : 'bg-slate-700 text-white ring-1 ring-white/10'
+            t.kind === 'error' ? 'bg-red-600 text-white' : 'bg-slate-700 text-slate-50 ring-1 ring-slate-50/10'
           }`}
         >
           {t.kind === 'error' && <AlertIcon className="mt-0.5 shrink-0" />}

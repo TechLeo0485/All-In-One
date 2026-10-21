@@ -2,6 +2,7 @@ import type { AppSettings } from '@shared/types'
 import { DEFAULT_EVENT_STATUSES, normalizeStatuses } from '@shared/eventStatus'
 import { DEFAULT_SHORTCUT } from '@shared/shortcut'
 import { DEFAULT_HOUR_HEIGHT } from '@shared/hourHeight'
+import { DEFAULT_THEME } from '@shared/theme'
 import { getDb } from './connection'
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -19,6 +20,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   globalShortcut: DEFAULT_SHORTCUT,
   autoSyncMinutes: 30,
   eventStatuses: DEFAULT_EVENT_STATUSES,
+  theme: DEFAULT_THEME,
   hourHeight: DEFAULT_HOUR_HEIGHT,
   primaryTimeZone: '',
   primaryTimeZoneLabel: '',

@@ -115,7 +115,7 @@ export function DatePicker({
                 onClick={() => onPick(date)}
                 className={`mx-auto flex size-8 items-center justify-center rounded-full transition ${
                   inRange ? 'bg-blue-600/30 text-blue-100' : inMonth ? 'text-slate-200' : 'text-slate-600'
-                } ${isToday ? 'ring-1 ring-blue-400' : ''} hover:bg-slate-700 hover:text-white`}
+                } ${isToday ? 'ring-1 ring-blue-400' : ''} hover:bg-slate-700 hover:text-slate-50`}
                 aria-label={date.toDateString()}
                 aria-current={isToday ? 'date' : undefined}
               >

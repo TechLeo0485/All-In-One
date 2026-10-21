@@ -243,6 +243,10 @@ export interface AppSettings {
   /** Event statuses, in the order they are offered */
   eventStatuses: EventStatusDef[]
 
+  /* ----- appearance ----- */
+  /** Dark or light colors for the whole app */
+  theme: ThemeMode
+
   /* ----- calendar view ----- */
   /** Height of one hour in Week/Day views, px (MIN_HOUR_HEIGHT..MAX_HOUR_HEIGHT) */
   hourHeight: number
@@ -263,6 +267,9 @@ export interface AppSettings {
 export type StatusPromptMode = 'guests' | 'all' | 'off'
 
 /** 'same-day' = 09:00 on the day, 'day-before' = 18:00 the evening before */
+/** Colors of the whole app */
+export type ThemeMode = 'dark' | 'light'
+
 export type AllDayReminder = 'off' | 'same-day' | 'day-before'
 
 export interface AppInfo {

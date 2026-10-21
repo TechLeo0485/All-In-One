@@ -219,7 +219,7 @@ function NavButton({ view, label, icon, compact = false }: { view: View; label: 
         title={label}
         aria-label={label}
         className={`flex h-9 w-9 items-center justify-center rounded-md ${
-          active ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+          active ? 'bg-slate-800 text-slate-50' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
         }`}
       >
         {icon}
@@ -230,7 +230,7 @@ function NavButton({ view, label, icon, compact = false }: { view: View; label: 
     <button
       onClick={() => setView(view)}
       className={`flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm ${
-        active ? 'bg-slate-800 font-medium text-white' : 'text-slate-300 hover:bg-slate-800'
+        active ? 'bg-slate-800 font-medium text-slate-50' : 'text-slate-300 hover:bg-slate-800'
       }`}
     >
       {icon}

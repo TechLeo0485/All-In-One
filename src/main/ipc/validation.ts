@@ -4,6 +4,7 @@ import { isValidShortcut } from '@shared/shortcut'
 import { MAX_STATUS_LABEL, MAX_STATUSES, normalizeStatuses, STATUS_ID_RE } from '@shared/eventStatus'
 import { isValidTimeZone, MAX_TIME_ZONE_LABEL } from '@shared/timezone'
 import { clampHourHeight, MAX_HOUR_HEIGHT, MIN_HOUR_HEIGHT } from '@shared/hourHeight'
+import { THEMES } from '@shared/theme'
 import { MAX_EMAIL_LENGTH, normalizeProtonEmail } from '@shared/protonEmail'
 
 /**
@@ -235,6 +236,10 @@ export function settingsPatch(value: unknown): Partial<AppSettings> {
     out.hourHeight = clampHourHeight(n)
   }
   if (v.showSecondaryTimeZone !== undefined) out.showSecondaryTimeZone = Boolean(v.showSecondaryTimeZone)
+  if (v.theme !== undefined) {
+    if (!(THEMES as readonly unknown[]).includes(v.theme)) fail('Invalid theme')
+    out.theme = v.theme as AppSettings['theme']
+  }
   return out
 }
 

@@ -18,6 +18,53 @@ body {
 :root {
   /* Native controls (scrollbars, selects, date/color pickers) render dark too. */
   color-scheme: dark;
+  /* Effects that differ per theme (light values below). */
+  --selection-ring: white;
+  --ended-overlay: rgb(0 0 0 / 0.3);
+  --dimmed-event-filter: brightness(0.4) saturate(0.6);
+}
+
+/*
+ * Light theme (Settings > Appearance > Theme, utils/theme.ts). The whole UI is written
+ * with slate shades for a dark background, so the light theme flips the slate scale:
+ * slate-950 (page) becomes a light gray, slate-900 (cards) white, slate-100 (headings)
+ * near black. Accent text shades (300/400, meant for dark backgrounds) get the darker
+ * shade of the same color so they stay readable on white. Use text-slate-50, not
+ * text-white, for "brightest text" on a slate background.
+ */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --selection-ring: var(--color-slate-900);
+  --ended-overlay: rgb(255 255 255 / 0.45);
+  --dimmed-event-filter: opacity(0.35) saturate(0.6);
+
+  --color-slate-50: oklch(12.9% 0.042 264.695);
+  --color-slate-100: oklch(20.8% 0.042 265.755);
+  --color-slate-200: oklch(27.9% 0.041 260.031);
+  --color-slate-300: oklch(37.2% 0.044 257.287);
+  --color-slate-400: oklch(44.6% 0.043 257.281);
+  --color-slate-500: oklch(55.4% 0.046 257.417);
+  --color-slate-600: oklch(76% 0.03 256);
+  --color-slate-700: oklch(88.5% 0.017 254);
+  --color-slate-800: oklch(94.2% 0.01 252);
+  --color-slate-900: oklch(100% 0 0);
+  --color-slate-950: oklch(96.8% 0.007 247.896);
+
+  --color-blue-100: oklch(37.9% 0.146 265.522);
+  --color-blue-300: oklch(48.8% 0.243 264.376);
+  --color-blue-400: oklch(54.6% 0.245 262.881);
+  --color-red-300: oklch(50.5% 0.213 27.518);
+  --color-red-400: oklch(57.7% 0.245 27.325);
+  --color-red-900: oklch(80.8% 0.114 19.571);
+  --color-amber-100: oklch(41.4% 0.112 45.904);
+  --color-amber-200: oklch(47.3% 0.137 46.201);
+  --color-amber-300: oklch(55.5% 0.163 48.998);
+  --color-amber-400: oklch(66.6% 0.179 58.318);
+  --color-emerald-300: oklch(50.8% 0.118 165.612);
+  --color-emerald-400: oklch(59.6% 0.145 163.225);
+  --color-sky-300: oklch(50% 0.134 242.749);
+  --color-sky-400: oklch(58.8% 0.158 241.966);
+  --color-violet-300: oklch(49.1% 0.27 292.581);
 }
 
 input,
@@ -328,7 +375,7 @@ textarea,
   inset: -1px;
   z-index: 1;
   border-radius: inherit;
-  background: rgb(0 0 0 / 0.3);
+  background: var(--ended-overlay);
   pointer-events: none;
 }
 .fc .fc-event.event-ended:not(.fc-daygrid-dot-event, .event-highlighted) .fc-event-main {
@@ -348,18 +395,19 @@ textarea,
   filter: brightness(0.7);
 }
 /*
- * Selected event (CalendarPage): a white ring, drawn above overlapping events. While its
- * details are open the others dim, so it stands out; it pulses when the calendar jumps
- * to it (search result) or the details modal closes (then the ring goes with the pulse).
+ * Selected event (CalendarPage): a white ring (dark in the light theme), drawn above
+ * overlapping events. While its details are open the others dim, so it stands out; it
+ * pulses when the calendar jumps to it (search result) or the details modal closes (then
+ * the ring goes with the pulse).
  */
 .has-selection .fc .fc-event:not(.event-highlighted) {
-  filter: brightness(0.4) saturate(0.6);
+  filter: var(--dimmed-event-filter);
 }
 .fc .fc-event.event-highlighted {
   filter: none;
   box-shadow:
-    0 0 0 2px white,
-    0 0 14px 2px color-mix(in srgb, white 35%, transparent);
+    0 0 0 2px var(--selection-ring),
+    0 0 14px 2px color-mix(in srgb, var(--selection-ring) 35%, transparent);
 }
 .fc .fc-daygrid-dot-event.event-highlighted {
   background: var(--color-slate-800);
@@ -373,8 +421,8 @@ textarea,
 @keyframes event-flash {
   50% {
     box-shadow:
-      0 0 0 4px white,
-      0 0 28px 8px color-mix(in srgb, white 55%, transparent);
+      0 0 0 4px var(--selection-ring),
+      0 0 28px 8px color-mix(in srgb, var(--selection-ring) 55%, transparent);
   }
 }
 /*
@@ -461,10 +509,10 @@ textarea,
 
 /* Help guide (HelpDialog): a long document, so more room between sections. */
 .help-markdown h1 {
-  @apply text-xl text-white;
+  @apply text-xl text-slate-50;
 }
 .help-markdown h2 {
-  @apply mt-6 text-lg text-white;
+  @apply mt-6 text-lg text-slate-50;
 }
 .help-markdown h3 {
   @apply mt-4 text-slate-100;

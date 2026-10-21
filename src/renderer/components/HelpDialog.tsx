@@ -81,7 +81,7 @@ function TabButton({
       type="button"
       onClick={() => onSelect(tab)}
       className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium ${
-        active ? 'border-blue-500 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'
+        active ? 'border-blue-500 text-slate-50' : 'border-transparent text-slate-400 hover:text-slate-200'
       }`}
     >
       {children}
@@ -141,12 +141,12 @@ function ReleaseList({ version, whatsNew, onDone }: { version: string; whatsNew:
           <p className="flex-1 text-slate-200">
             {whatsNew.from ? (
               <>
-                Updated from <span className="font-medium text-white">{whatsNew.from}</span> to{' '}
-                <span className="font-medium text-white">{whatsNew.to}</span>. Here's what changed.
+                Updated from <span className="font-medium text-slate-50">{whatsNew.from}</span> to{' '}
+                <span className="font-medium text-slate-50">{whatsNew.to}</span>. Here's what changed.
               </>
             ) : (
               <>
-                You're now on <span className="font-medium text-white">{whatsNew.to}</span>. Here's what changed.
+                You're now on <span className="font-medium text-slate-50">{whatsNew.to}</span>. Here's what changed.
               </>
             )}
           </p>
@@ -157,7 +157,7 @@ function ReleaseList({ version, whatsNew, onDone }: { version: string; whatsNew:
       )}
       {releases.map((r) => (
         <section key={r.version}>
-          <h3 className="mb-2 flex items-center gap-2 text-base font-semibold text-white">
+          <h3 className="mb-2 flex items-center gap-2 text-base font-semibold text-slate-50">
             Version {r.version}
             {r.version === version && <Badge className="bg-slate-700 text-slate-200">Installed</Badge>}
             {isNew(r.version) && <Badge className="bg-blue-500 text-white">New</Badge>}

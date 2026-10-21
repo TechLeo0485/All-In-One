@@ -3,7 +3,8 @@ import { join } from 'node:path'
 import { APP_NAME } from '@shared/brand'
 import { findStatus, FOLLOW_UP_ID } from '@shared/eventStatus'
 import { IPC } from '@shared/ipcChannels'
-import type { AppSettings, OpenEventRequest } from '@shared/types'
+import { WINDOW_COLORS } from '@shared/theme'
+import type { AppSettings, OpenEventRequest, ThemeMode } from '@shared/types'
 import { setUpDataFolder } from './dataFolder'
 import { calendarRepository } from './database/calendarRepository'
 import { eventRepository } from './database/eventRepository'
@@ -35,9 +36,19 @@ let trayHintShown = false
 /** Version we already showed the "update ready" notification for. */
 let updateNotifiedVersion: string | null = null
 
+/** Native parts in the theme's colors: Windows menus/dialogs, title bar buttons, background. */
+function applyWindowTheme(theme: ThemeMode, win: BrowserWindow | null): void {
+  nativeTheme.themeSource = theme
+  if (!win || win.isDestroyed()) return
+  const colors = WINDOW_COLORS[theme]
+  win.setBackgroundColor(colors.background)
+  win.setTitleBarOverlay({ color: colors.titleBar, symbolColor: colors.symbols })
+}
+
 function createWindow(showOnReady: boolean): BrowserWindow {
-  // Dark UI: also makes the Windows title bar dark.
-  nativeTheme.themeSource = 'dark'
+  const theme = settingsRepository.get().theme
+  const colors = WINDOW_COLORS[theme]
+  applyWindowTheme(theme, null)
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -47,13 +58,13 @@ function createWindow(showOnReady: boolean): BrowserWindow {
     show: false,
     title: APP_NAME,
     icon: appIconFile(),
-    backgroundColor: '#020617',
+    backgroundColor: colors.background,
     autoHideMenuBar: true,
     // Our own title bar (TitleBar.tsx) without the app icon, so there is no icon to
     // open the Windows system menu (Restore/Move/Size/...). Windows still draws the
     // minimize/maximize/close buttons. Height must match TITLE_BAR_HEIGHT there.
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#0f172a', symbolColor: '#cbd5e1', height: 32 },
+    titleBarOverlay: { color: colors.titleBar, symbolColor: colors.symbols, height: 32 },
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       // Security: the renderer gets no Node access. Everything goes through the
@@ -195,6 +206,7 @@ function applyLaunchAtStartup(enabled: boolean): void {
 /** Side effects of settings that live in the main process. */
 function onSettingsChanged(patch: Partial<AppSettings>, settings: AppSettings): void {
   if (patch.launchAtStartup !== undefined) applyLaunchAtStartup(settings.launchAtStartup)
+  if (patch.theme !== undefined) applyWindowTheme(settings.theme, mainWindow)
   reminderService.refresh() // also updates the tray
 }
 

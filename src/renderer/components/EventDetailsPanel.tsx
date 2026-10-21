@@ -115,7 +115,7 @@ function StatusPicker({ event }: { event: CalendarEvent }) {
               title={selected ? 'Click again to clear the status' : undefined}
               onClick={() => void setEventStatus(event.id, selected ? null : o.id)}
               className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition ${
-                selected ? 'font-medium text-white' : 'border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+                selected ? 'font-medium text-slate-50' : 'border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200'
               }`}
               style={selected ? { borderColor: o.color, backgroundColor: `${o.color}26` } : undefined}
             >
@@ -151,7 +151,7 @@ function daysFromNowAtNine(days: number): Date {
 const REMINDER_FORMAT = { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' } as const
 const reminderFmt = { format: (date: Date): string => formatInDisplayZone(date, REMINDER_FORMAT) }
 const chipClass =
-  'rounded-full border border-slate-700 px-2.5 py-0.5 text-xs text-slate-300 hover:border-slate-500 hover:text-white'
+  'rounded-full border border-slate-700 px-2.5 py-0.5 text-xs text-slate-300 hover:border-slate-500 hover:text-slate-50'
 const linkClass = 'text-xs text-slate-400 hover:text-slate-200 hover:underline'
 
 /** "Remind me" for an event marked Follow-Up: shows the reminder, or offers quick choices. */

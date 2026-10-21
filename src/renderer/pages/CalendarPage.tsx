@@ -763,6 +763,7 @@ function responseLook(response: AttendeeStatus, color: string): EventInput {
   return {
     classNames: [`rsvp-${response}`],
     backgroundColor: `color-mix(in srgb, ${color} ${response === 'declined' ? 6 : 14}%, var(--color-slate-900))`,
-    textColor: `color-mix(in srgb, ${color} 55%, white)`
+    // slate-50: near white, near black in the light theme (index.css).
+    textColor: `color-mix(in srgb, ${color} 55%, var(--color-slate-50))`
   }
 }

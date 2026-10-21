@@ -41,7 +41,7 @@ export function UpdateDialog() {
     body = (
       <>
         <p>
-          {APP_NAME} <span className="font-medium text-white">{version}</span> is available
+          {APP_NAME} <span className="font-medium text-slate-50">{version}</span> is available
           {currentVersion ? ` (you have ${currentVersion})` : ''}.
         </p>
         <p className="mt-2 text-slate-400">

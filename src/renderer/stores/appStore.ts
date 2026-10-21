@@ -13,6 +13,7 @@ import type {
 } from '@shared/types'
 import { setDisplayTimeZone } from '../utils/dates'
 import { errorMessage } from '../utils/errors'
+import { applyTheme } from '../utils/theme'
 
 export type View = 'calendar' | 'pipeline' | 'calendars' | 'settings'
 
@@ -195,6 +196,7 @@ export const useAppStore = create<AppState>((set, get) => {
         window.api.proton.listAccounts()
       ])
       setDisplayTimeZone(settings.primaryTimeZone)
+      applyTheme(settings.theme)
       set({ calendars, settings, syncStatus, protonAccounts, ready: true })
     },
 
@@ -353,6 +355,7 @@ export const useAppStore = create<AppState>((set, get) => {
       if (!settings) return
       // Before set(): components re-render with the new zone already in place.
       setDisplayTimeZone(settings.primaryTimeZone)
+      applyTheme(settings.theme)
       set({ settings })
     },
 

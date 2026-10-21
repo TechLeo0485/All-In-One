@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { APP_NAME, APP_TAGLINE } from '@shared/brand'
-import type { AllDayReminder, AppInfo, StatusPromptMode, UpdateStatus } from '@shared/types'
+import type { AllDayReminder, AppInfo, StatusPromptMode, ThemeMode, UpdateStatus } from '@shared/types'
 import { AUTO_SYNC_OPTIONS } from '@shared/sources'
 import type { EventStatusDef } from '@shared/types'
 import { FOLLOW_UP_ID, MAX_STATUS_LABEL, MAX_STATUSES, newStatusId } from '@shared/eventStatus'
@@ -11,7 +11,7 @@ import { MAX_TIME_ZONE_LABEL, systemTimeZone, tzOffsetMs, zoneFormatter } from '
 import { useAppStore } from '../stores/appStore'
 import { AppLogo } from '../components/AppLogo'
 import { ColorPicker } from '../components/ColorPicker'
-import { BellIcon, PlusIcon, RefreshIcon } from '../components/icons'
+import { BellIcon, MoonIcon, PlusIcon, RefreshIcon, SunIcon } from '../components/icons'
 import { Button, ColorDot, Toggle, inputClass } from '../components/ui'
 import { useNow } from '../hooks/useNow'
 import { useUpdateStatus } from '../hooks/useUpdateStatus'
@@ -61,6 +61,41 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       <h2 className="pt-4 text-xs font-semibold tracking-wide text-slate-500 uppercase">{title}</h2>
       <div className="divide-y divide-slate-800">{children}</div>
     </section>
+  )
+}
+
+const THEME_OPTIONS: { label: string; value: ThemeMode; icon: typeof SunIcon }[] = [
+  { label: 'Dark', value: 'dark', icon: MoonIcon },
+  { label: 'Light', value: 'light', icon: SunIcon }
+]
+
+/** Dark / Light switch; applies at once (appStore → utils/theme). */
+function ThemeRow() {
+  const theme = useAppStore((s) => s.settings!.theme)
+  const updateSettings = useAppStore((s) => s.updateSettings)
+  return (
+    <Row title="Theme" description="Colors of the whole app.">
+      <div className="flex rounded-lg border border-slate-700 bg-slate-800 p-0.5" role="radiogroup" aria-label="Theme">
+        {THEME_OPTIONS.map(({ label, value, icon: ThemeIcon }) => {
+          const selected = theme === value
+          return (
+            <button
+              key={value}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              onClick={() => void updateSettings({ theme: value })}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-sm transition-colors ${
+                selected ? 'bg-blue-600 font-medium text-white' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <ThemeIcon size={14} />
+              {label}
+            </button>
+          )
+        })}
+      </div>
+    </Row>
   )
 }
 
@@ -700,6 +735,10 @@ export function SettingsPage() {
               onChange={(launchAtStartup) => void updateSettings({ launchAtStartup })}
             />
           </Row>
+        </Section>
+
+        <Section title="Appearance">
+          <ThemeRow />
         </Section>
 
         <Section title="Calendar">
