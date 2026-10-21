@@ -136,6 +136,8 @@ export interface EventStatusDef {
   id: string
   label: string
   color: string
+  /** Shown as a column on the Pipeline page */
+  pinned: boolean
 }
 
 /** RSVP state from the iCalendar PARTSTAT parameter. */

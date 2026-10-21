@@ -18,26 +18,29 @@ const RETIRED_IDS = ['scheduled', 'ended']
 export const FOLLOW_UP_ID = 'follow-up'
 
 export const DEFAULT_EVENT_STATUSES: EventStatusDef[] = [
-  { id: 'follow-up', label: 'Follow-Up', color: '#f59e0b' },
-  { id: 'passed', label: 'Passed', color: '#22c55e' },
-  { id: 'failed', label: 'Failed', color: '#ef4444' }
+  { id: 'follow-up', label: 'Follow-Up', color: '#f59e0b', pinned: true },
+  { id: 'passed', label: 'Passed', color: '#22c55e', pinned: true },
+  { id: 'failed', label: 'Failed', color: '#ef4444', pinned: true }
 ]
 
 /**
  * Drops malformed entries, duplicate ids and the retired automatic statuses, and
  * makes sure the fixed Follow-Up status is present (first, if it was missing).
+ * Statuses saved before pinning existed stay on the Pipeline.
  */
 export function normalizeStatuses(statuses: EventStatusDef[]): EventStatusDef[] {
   const seen = new Set<string>()
-  const list = statuses.filter(
-    (s) =>
-      typeof s?.id === 'string' &&
-      typeof s.label === 'string' &&
-      typeof s.color === 'string' &&
-      !RETIRED_IDS.includes(s.id) &&
-      !seen.has(s.id) &&
-      seen.add(s.id)
-  )
+  const list = statuses
+    .filter(
+      (s) =>
+        typeof s?.id === 'string' &&
+        typeof s.label === 'string' &&
+        typeof s.color === 'string' &&
+        !RETIRED_IDS.includes(s.id) &&
+        !seen.has(s.id) &&
+        seen.add(s.id)
+    )
+    .map((s) => ({ id: s.id, label: s.label, color: s.color, pinned: s.pinned !== false }))
   return seen.has(FOLLOW_UP_ID) ? list : [DEFAULT_EVENT_STATUSES[0], ...list]
 }
 

@@ -6,8 +6,8 @@ import { useNow } from '../hooks/useNow'
 import { formatInDisplayZone } from '../utils/dates'
 import { errorMessage } from '../utils/errors'
 import { companyOf, daysFromToday, formatCardDate, formatDayAge, startMs } from '../utils/pipeline'
-import { BellIcon, CalendarIcon, ClockIcon, SearchIcon } from '../components/icons'
-import { ColorDot, inputClass, Spinner } from '../components/ui'
+import { BellIcon, CalendarIcon, ClockIcon, PinIcon, SearchIcon } from '../components/icons'
+import { Button, ColorDot, inputClass, Spinner } from '../components/ui'
 
 /** A Follow-Up older than this, with no reminder pending, gets an amber age. */
 const STALE_FOLLOW_UP_DAYS = 7
@@ -38,8 +38,8 @@ interface Data {
 }
 
 /**
- * Pipeline: every event with a status, as a board with a column per status (in the
- * Settings order). Drag a card to another column to change its status; click it for
+ * Pipeline: events with a pinned status, as a board with a column per pinned status
+ * (in the Settings order; the pin is set in Settings → Event status). Drag a card to another column to change its status; click it for
  * the details panel. Built for tracking interviews: the company
  * is guessed from the organizer's email domain.
  */
@@ -73,7 +73,8 @@ export function PipelinePage() {
     }
   }, [eventsVersion, tick, detailsOpen, notify])
 
-  const statuses = settings?.eventStatuses ?? DEFAULT_EVENT_STATUSES
+  const statuses = useMemo(() => (settings?.eventStatuses ?? DEFAULT_EVENT_STATUSES).filter((s) => s.pinned), [settings])
+  const setView = useAppStore((s) => s.setView)
   const localColor = settings?.localEventColor ?? '#10b981'
 
   const cards = useMemo(() => {
@@ -172,6 +173,13 @@ export function PipelinePage() {
       {!visible ? (
         <div className="flex flex-1 items-center justify-center text-slate-500">
           <Spinner />
+        </div>
+      ) : statuses.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center text-sm text-slate-400">
+          <p>No statuses are pinned to the Pipeline.</p>
+          <Button onClick={() => setView('settings')}>
+            <PinIcon size={14} /> Pin statuses in Settings
+          </Button>
         </div>
       ) : (
         <>

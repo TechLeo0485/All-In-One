@@ -11,7 +11,7 @@ import { MAX_TIME_ZONE_LABEL, systemTimeZone, tzOffsetMs, zoneFormatter } from '
 import { useAppStore } from '../stores/appStore'
 import { AppLogo } from '../components/AppLogo'
 import { ColorPicker } from '../components/ColorPicker'
-import { BellIcon, MoonIcon, PlusIcon, RefreshIcon, SunIcon } from '../components/icons'
+import { BellIcon, MoonIcon, PinIcon, PlusIcon, RefreshIcon, SunIcon } from '../components/icons'
 import { Button, ColorDot, Toggle, inputClass } from '../components/ui'
 import { useNow } from '../hooks/useNow'
 import { useUpdateStatus } from '../hooks/useUpdateStatus'
@@ -305,7 +305,7 @@ function AboutSection() {
   )
 }
 
-/** One status: editable name (saved on Enter / leaving the field), color, order, delete. */
+/** One status: editable name (saved on Enter / leaving the field), color, Pipeline pin, order, delete. */
 function StatusRow({
   status,
   onChange,
@@ -344,6 +344,18 @@ function StatusRow({
         <ColorPicker value={status.color} onChange={(color) => onChange({ color })} />
       </div>
       <div className="flex shrink-0 items-center gap-1">
+        <button
+          type="button"
+          aria-pressed={status.pinned}
+          aria-label="Show on Pipeline"
+          title={status.pinned ? 'Shown on the Pipeline: click to hide it there' : 'Not on the Pipeline: click to show it there'}
+          onClick={() => onChange({ pinned: !status.pinned })}
+          className={`rounded-md p-1.5 transition-colors ${
+            status.pinned ? 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20' : 'text-slate-600 hover:bg-slate-800 hover:text-slate-300'
+          }`}
+        >
+          <PinIcon size={15} fill={status.pinned ? 'currentColor' : 'none'} />
+        </button>
         <Button variant="ghost" className="px-1.5!" title="Move up" onClick={() => onMove(-1)}>
           ↑
         </Button>
@@ -364,7 +376,7 @@ function StatusRow({
   )
 }
 
-/** Settings → Event status: add, rename, recolor, reorder and delete statuses. */
+/** Settings → Event status: add, rename, recolor, pin to the Pipeline, reorder and delete statuses. */
 function StatusEditor() {
   const statuses = useAppStore((s) => s.settings?.eventStatuses ?? [])
   const updateSettings = useAppStore((s) => s.updateSettings)
@@ -385,6 +397,9 @@ function StatusEditor() {
       <p className="pt-2 text-sm text-slate-400">
         Pick a status in an event's details; the event then shows a circle with the status's first letter in
         its color. Events without a status have no badge. Follow-Up is built in: events marked Follow-Up can get a reminder notification.
+      </p>
+      <p className="pt-2 text-sm text-slate-400">
+        Click the pin <PinIcon size={13} className="inline -translate-y-px" /> to show a status as a column on the Pipeline.
       </p>
       <ul className="divide-y divide-slate-800">
         {statuses.map((status) => (
@@ -412,7 +427,12 @@ function StatusEditor() {
           onClick={() =>
             save([
               ...statuses,
-              { id: newStatusId(), label: 'New status', color: nextUnusedColor(statuses.map((s) => s.color)) }
+              {
+                id: newStatusId(),
+                label: 'New status',
+                color: nextUnusedColor(statuses.map((s) => s.color)),
+                pinned: false
+              }
             ])
           }
         >

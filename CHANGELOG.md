@@ -11,6 +11,7 @@ How to use this file:
 
 ## Unreleased
 - New light theme: pick **Dark** or **Light** in **Settings → Appearance → Theme**. The whole app switches right away, including the window's title bar, and remembers your choice.
+- You can now choose which statuses appear on the Pipeline. In **Settings → Event status**, click the pin next to a status to show it as a column on the Pipeline, or click it again to hide it there. Your existing statuses stay pinned. New statuses start unpinned.
 
 ## 1.0.7
 - New Help window: click the All-In-One logo at the top of the sidebar to open the setup guide and the list of what changed in each version.

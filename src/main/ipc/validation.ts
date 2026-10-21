@@ -216,7 +216,8 @@ export function settingsPatch(value: unknown): Partial<AppSettings> {
         return {
           id: sid,
           label: str(s.label, 'Status name', { required: true, max: MAX_STATUS_LABEL }),
-          color: color(s.color, 'Status color')
+          color: color(s.color, 'Status color'),
+          pinned: s.pinned !== false
         }
       })
     )
