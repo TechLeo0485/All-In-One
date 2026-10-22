@@ -1,5 +1,5 @@
 import type { CalendarEvent } from '@shared/types'
-import { formatInDisplayZone, parseDateString, todayString, zonedDateString } from './dates'
+import { formatInDisplayZone, parseDateString, toDateString, todayString, zonedDateString } from './dates'
 
 /** Mail providers whose domain says nothing about the company. */
 const PERSONAL_MAIL = new Set([
@@ -73,11 +73,24 @@ export function formatCardDate(event: CalendarEvent): string {
   return formatInDisplayZone(new Date(event.startTime), { ...day, hour: 'numeric', minute: '2-digit' })
 }
 
+/** The event's day as "YYYY-MM-DD", in the display zone. */
+export function eventDay(event: CalendarEvent): string {
+  return event.allDay ? event.startTime : zonedDateString(new Date(event.startTime))
+}
+
 /** Whole days from today to the event's day (negative = past), in the display zone. */
 export function daysFromToday(event: CalendarEvent): number {
-  const day = event.allDay ? event.startTime : zonedDateString(new Date(event.startTime))
-  const ms = parseDateString(day).getTime() - parseDateString(todayString()).getTime()
+  const ms = parseDateString(eventDay(event)).getTime() - parseDateString(todayString()).getTime()
   return Math.round(ms / 86_400_000)
+}
+
+/** The same day `months` months before `day` ("YYYY-MM-DD"), or that month's last day if it's shorter. */
+export function monthsBefore(day: string, months: number): string {
+  const d = parseDateString(day)
+  const target = new Date(d.getFullYear(), d.getMonth() - months, 1)
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate()
+  target.setDate(Math.min(d.getDate(), lastDay))
+  return toDateString(target)
 }
 
 /** "today", "yesterday", "5 days ago", "tomorrow", "in 3 days". */

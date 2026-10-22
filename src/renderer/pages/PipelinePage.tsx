@@ -3,9 +3,9 @@ import type { CalendarEvent } from '@shared/types'
 import { DEFAULT_EVENT_STATUSES, FOLLOW_UP_ID } from '@shared/eventStatus'
 import { useAppStore } from '../stores/appStore'
 import { useNow } from '../hooks/useNow'
-import { formatInDisplayZone } from '../utils/dates'
+import { addDays, formatInDisplayZone, parseDateString, todayString } from '../utils/dates'
 import { errorMessage } from '../utils/errors'
-import { companyOf, daysFromToday, formatCardDate, formatDayAge, startMs } from '../utils/pipeline'
+import { companyOf, daysFromToday, eventDay, formatCardDate, formatDayAge, monthsBefore, startMs } from '../utils/pipeline'
 import { BellIcon, CalendarIcon, ClockIcon, PinIcon, SearchIcon } from '../components/icons'
 import { Button, ColorDot, inputClass, Spinner } from '../components/ui'
 
@@ -13,14 +13,62 @@ import { Button, ColorDot, inputClass, Spinner } from '../components/ui'
 const STALE_FOLLOW_UP_DAYS = 7
 const DRAG_TYPE = 'application/x-all-in-one-event'
 const PERIOD_KEY = 'pipeline.period'
+const CUSTOM_RANGE_KEY = 'pipeline.customRange'
 
 const PERIODS = [
-  { value: '30', label: 'Last 30 days' },
-  { value: '90', label: 'Last 3 months' },
-  { value: '365', label: 'Last 12 months' },
-  { value: 'all', label: 'All time' }
+  { value: 'week', label: 'This week' },
+  { value: '1m', label: 'Past month' },
+  { value: '3m', label: 'Past 3 months' },
+  { value: 'all', label: 'All time' },
+  { value: 'custom', label: 'Custom range' }
 ] as const
 type Period = (typeof PERIODS)[number]['value']
+
+/** First and last day shown, inclusive ("YYYY-MM-DD"); '' = no limit. */
+interface DayRange {
+  from: string
+  to: string
+}
+
+/** The last picked period; periods of earlier versions fall back to the default. */
+function savedPeriod(): Period {
+  const saved = localStorage.getItem(PERIOD_KEY)
+  return PERIODS.find((p) => p.value === saved)?.value ?? '3m'
+}
+
+/** The last custom range, or the past month to today. */
+function savedCustomRange(): DayRange {
+  try {
+    const saved = JSON.parse(localStorage.getItem(CUSTOM_RANGE_KEY) ?? 'null') as Partial<DayRange> | null
+    if (typeof saved?.from === 'string' && typeof saved.to === 'string') return { from: saved.from, to: saved.to }
+  } catch {
+    // Unreadable: use the default.
+  }
+  const today = todayString()
+  return { from: monthsBefore(today, 1), to: today }
+}
+
+/**
+ * Days a period covers. This week runs Sunday to Saturday, like the calendar's Week view;
+ * the past month and 3 months still include upcoming events.
+ */
+function periodRange(period: Period, custom: DayRange): DayRange {
+  const today = todayString()
+  switch (period) {
+    case 'week': {
+      const sunday = addDays(today, -parseDateString(today).getDay())
+      return { from: sunday, to: addDays(sunday, 6) }
+    }
+    case '1m':
+      return { from: monthsBefore(today, 1), to: '' }
+    case '3m':
+      return { from: monthsBefore(today, 3), to: '' }
+    case 'custom':
+      return custom
+    case 'all':
+      return { from: '', to: '' }
+  }
+}
 
 interface Card {
   event: CalendarEvent
@@ -56,7 +104,8 @@ export function PipelinePage() {
 
   const [data, setData] = useState<Data | null>(null)
   const [query, setQuery] = useState('')
-  const [period, setPeriod] = useState<Period>(() => (localStorage.getItem(PERIOD_KEY) as Period | null) ?? '90')
+  const [period, setPeriod] = useState<Period>(savedPeriod)
+  const [customRange, setCustomRange] = useState<DayRange>(savedCustomRange)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
 
   // Notes aren't part of eventsVersion: reload when the details panel opens or closes too.
@@ -107,15 +156,22 @@ export function PipelinePage() {
 
   const visible = useMemo(() => {
     if (!cards) return null
-    const from = period === 'all' ? -Infinity : Date.now() - Number(period) * 86_400_000
+    const { from, to } = periodRange(period, customRange)
     const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
     return cards.filter((card) => {
-      if (startMs(card.event) < from) return false
+      const day = eventDay(card.event)
+      if ((from && day < from) || (to && day > to)) return false
       if (!terms.length) return true
       const text = [card.event.title, card.company, card.calendarName, card.note, card.event.location].join(' ').toLowerCase()
       return terms.every((t) => text.includes(t))
     })
-  }, [cards, period, query])
+  }, [cards, period, customRange, query])
+
+  const updateCustomRange = (change: Partial<DayRange>): void => {
+    const next = { ...customRange, ...change }
+    localStorage.setItem(CUSTOM_RANGE_KEY, JSON.stringify(next))
+    setCustomRange(next)
+  }
 
   const columns = useMemo(() => {
     const list = visible ?? []
@@ -167,6 +223,27 @@ export function PipelinePage() {
               </option>
             ))}
           </select>
+          {period === 'custom' && (
+            <div className="flex items-center gap-1.5 text-sm text-slate-400">
+              <input
+                type="date"
+                className={`${inputClass} w-auto!`}
+                value={customRange.from}
+                max={customRange.to || undefined}
+                aria-label="From"
+                onChange={(e) => updateCustomRange({ from: e.target.value })}
+              />
+              <span>to</span>
+              <input
+                type="date"
+                className={`${inputClass} w-auto!`}
+                value={customRange.to}
+                min={customRange.from || undefined}
+                aria-label="To"
+                onChange={(e) => updateCustomRange({ to: e.target.value })}
+              />
+            </div>
+          )}
         </div>
       </header>
 
@@ -199,7 +276,7 @@ export function PipelinePage() {
                   if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropTarget(null)
                 }}
                 onDrop={(e) => onDrop(e, column.id)}
-                // Columns share the full width and shrink when the details panel opens, like the
+                // Columns share the full width and shrink with the window, like the
                 // calendar; only below their minimum width (many statuses) does the board scroll.
                 className={`flex min-w-44 flex-1 basis-0 flex-col rounded-xl border bg-slate-900/60 transition-colors ${
                   dropTarget === column.id ? 'border-blue-500/70 bg-blue-500/5' : 'border-slate-800'
@@ -287,6 +364,9 @@ function PipelineCard({
         e.dataTransfer.effectAllowed = 'move'
       }}
       onClick={onOpen}
+      // The details card sits next to the selected card and switches on a click on another (EventDetailsPanel).
+      data-pipeline-card
+      data-details-anchor={selected || undefined}
       className={`group cursor-pointer rounded-lg border bg-slate-900 p-3 shadow-sm transition-colors hover:border-slate-600 ${
         selected ? 'border-blue-500 ring-1 ring-blue-500/40' : 'border-slate-800'
       }`}

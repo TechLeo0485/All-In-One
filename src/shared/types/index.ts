@@ -130,7 +130,7 @@ export type RecurrenceEnd = { type: 'never' } | { type: 'until'; date: string } 
 export type RecurrenceScope = 'this' | 'following' | 'all'
 
 /**
- * A status from Settings, picked per event. Events with a status show a badge in its color.
+ * A status from Settings, picked per event. Events with a status get a stripe in its color on their left edge.
  */
 export interface EventStatusDef {
   id: string

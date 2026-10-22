@@ -9,6 +9,11 @@ How to use this file:
 - Write for users: what they can now do, or what works better. Not file names or code.
 -->
 
+## 1.0.9
+- Events with a status now have a thick stripe in the status's color on their left edge instead of a small circle with a letter, so you can see the status at a glance. Events that have ended are shown darker, but their stripe keeps its full color.
+- New periods on the Pipeline: **This week**, **Past month**, **Past 3 months**, **All time** and **Custom range**. With **Custom range**, pick the first and last day to show; the Pipeline remembers your range.
+- Event details now open in a card right next to the event you click, like Google Calendar, instead of a panel on the side. The calendar keeps its full width. Close the card with the X, Escape, or a click anywhere outside it. While the card is open, clicking another event shows that event's details instead, and clicking an empty spot in the calendar or Pipeline only closes the card, so you don't start a new event by accident.
+
 ## 1.0.8
 - New light theme: pick **Dark** or **Light** in **Settings → Appearance → Theme**. The whole app switches right away, including the window's title bar, and remembers your choice.
 - You can now choose which statuses appear on the Pipeline. In **Settings → Event status**, click the pin next to a status to show it as a column on the Pipeline, or click it again to hide it there. Your existing statuses stay pinned. New statuses start unpinned.

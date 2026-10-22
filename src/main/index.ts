@@ -52,7 +52,7 @@ function createWindow(showOnReady: boolean): BrowserWindow {
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
-    // The layout adapts down to this (sidebar rail, details panel over the calendar).
+    // The layout adapts down to this (sidebar rail, details card over the calendar).
     minWidth: 720,
     minHeight: 520,
     show: false,

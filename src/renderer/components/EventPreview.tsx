@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import type { EventStatusDef } from '@shared/types'
 import { CalendarIcon, ClockIcon, MapPinIcon } from './icons'
 import { ColorDot } from './ui'
+import { placeNextTo } from '../utils/placement'
 
 export interface EventPreviewData {
   /** The hovered event element: the card is placed next to it. */
@@ -14,9 +15,6 @@ export interface EventPreviewData {
   status?: EventStatusDef
 }
 
-const MARGIN = 8
-const GAP = 8
-
 /**
  * Hover card for a calendar event (CalendarPage): the full title, time, calendar,
  * location and status, which narrow Week/Month cells cut off. Sits to the right of the
@@ -28,19 +26,7 @@ export function EventPreview({ data }: { data: EventPreviewData }) {
 
   useLayoutEffect(() => {
     const box = ref.current?.getBoundingClientRect()
-    if (!box) return
-    const rect = data.anchor.getBoundingClientRect()
-    const maxLeft = window.innerWidth - box.width - MARGIN
-    const maxTop = window.innerHeight - box.height - MARGIN
-    let left = rect.right + GAP
-    let top = rect.top
-    if (left > maxLeft) left = rect.left - GAP - box.width
-    if (left < MARGIN) {
-      // No room on either side: below the event (or above it near the bottom).
-      left = Math.min(Math.max(MARGIN, rect.left), maxLeft)
-      top = rect.bottom + GAP > maxTop ? rect.top - GAP - box.height : rect.bottom + GAP
-    }
-    setPos({ left, top: Math.min(Math.max(MARGIN, top), maxTop) })
+    if (box) setPos(placeNextTo(data.anchor.getBoundingClientRect(), box))
   }, [data])
 
   return (

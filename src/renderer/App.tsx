@@ -16,7 +16,7 @@ import { CalendarsPage } from './pages/CalendarsPage'
 import { PipelinePage } from './pages/PipelinePage'
 import { SettingsPage } from './pages/SettingsPage'
 
-/** Layout: sidebar | main view | event details panel (when an event is selected). */
+/** Layout: sidebar | main view; the event details card floats next to the selected event. */
 export default function App() {
   const ready = useAppStore((s) => s.ready)
   const view = useAppStore((s) => s.view)

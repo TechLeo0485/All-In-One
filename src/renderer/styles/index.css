@@ -132,7 +132,7 @@ textarea,
   white-space: nowrap;
 }
 /*
- * Narrow calendar (small window, details panel open): the title gets its own row
+ * Narrow calendar (small window): the title gets its own row
  * under the buttons instead of wrapping into three lines between them. The wrapper
  * in CalendarPage is the size container (same 42rem as its @max-2xl date picker offset).
  */
@@ -308,29 +308,13 @@ textarea,
   }
 }
 /*
- * Status badge (only events with a status picked): a circle in the status color with
- * its first letter, before the title. CalendarPage sets --event-status-color and
- * --event-status-initial per `status-<id>` class from Settings. Month view and all-day
- * events use FullCalendar's .fc-event-title, Week/Day timed events our .event-title.
+ * Status stripe (only events with a status picked): a thick left border in the status
+ * color. CalendarPage sets --event-status-color per `status-<id>` class from Settings. A
+ * border, not an outline, so it pushes the text in instead of covering it; !important
+ * beats the calendar color FullCalendar sets on the event's own style.
  */
-.fc .fc-event.has-status :is(.fc-event-title, .event-title)::before {
-  content: var(--event-status-initial);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  /* Whole pixels and no text shadow: fractional sizes and shadows blur such small text. */
-  width: 16px;
-  height: 16px;
-  margin-right: 5px;
-  border-radius: 9999px;
-  background: var(--event-status-color);
-  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.3);
-  color: var(--event-status-text);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 16px;
-  vertical-align: -3px;
-  -webkit-font-smoothing: antialiased;
+.fc .fc-event.has-status {
+  border-left: 3px solid var(--event-status-color) !important;
 }
 /*
  * Invitations by the user's own RSVP (CalendarPage responseLook sets the colors):
@@ -364,8 +348,8 @@ textarea,
 /* Events that have already ended: same color, a little darker. */
 /*
  * A dark layer over the whole event, border and text included (not a filter, which
- * would darken the status badge too); the badge sits above the layer so it keeps its
- * color. FullCalendar lifts .fc-event-main (z-index 2) above the event, which would
+ * would darken the status stripe too); with a status it stops at the left border, so
+ * the stripe keeps its color. FullCalendar lifts .fc-event-main (z-index 2) above the event, which would
  * put the text out of the layer's reach, so ended events drop that. Month-view dot
  * events have no background to cover, so only their dot and text get darker.
  */
@@ -381,9 +365,10 @@ textarea,
 .fc .fc-event.event-ended:not(.fc-daygrid-dot-event, .event-highlighted) .fc-event-main {
   z-index: auto;
 }
-.fc .fc-event.event-ended.has-status :is(.fc-event-title, .event-title)::before {
-  position: relative;
-  z-index: 2;
+.fc .fc-event.event-ended.has-status::after {
+  left: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
 }
 .fc .fc-daygrid-dot-event.event-ended:not(.event-highlighted) .fc-event-title {
   color: var(--color-slate-400);
@@ -397,8 +382,7 @@ textarea,
 /*
  * Selected event (CalendarPage): a white ring (dark in the light theme), drawn above
  * overlapping events. While its details are open the others dim, so it stands out; it
- * pulses when the calendar jumps to it (search result) or the details modal closes (then
- * the ring goes with the pulse).
+ * pulses when the calendar jumps to it (search result, reminder).
  */
 .has-selection .fc .fc-event:not(.event-highlighted) {
   filter: var(--dimmed-event-filter);

@@ -1,11 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import type { AttendeeStatus, CalendarEvent, EventAttendee } from '@shared/types'
 import { DEFAULT_EVENT_STATUSES, findStatus, FOLLOW_UP_ID } from '@shared/eventStatus'
 import { findMeetingUrl } from '@shared/meetingLink'
 import { describeRecurrence } from '@shared/recurrence'
 import { useAppStore } from '../stores/appStore'
 import { useEventDetails } from '../hooks/useEventDetails'
-import { useMediaQuery } from '../hooks/useMediaQuery'
 import {
   addDays,
   formatEventWhen,
@@ -18,9 +17,10 @@ import {
 } from '../utils/dates'
 import { linkify } from '../utils/linkify'
 import { renderDescription } from '../utils/richText'
+import { placeNextTo } from '../utils/placement'
 import { BellIcon, ClockIcon, ExternalIcon, LockIcon, MapPinIcon, RepeatIcon, UsersIcon, XIcon } from './icons'
 import { NotesEditor } from './NotesEditor'
-import { Button, ColorDot, isModalOpen, Modal, Spinner } from './ui'
+import { Button, ColorDot, isModalOpen, Spinner } from './ui'
 
 /** Long guest lists start collapsed to keep the notes editor in view. */
 const GUESTS_COLLAPSED = 8
@@ -241,10 +241,53 @@ function FollowUpReminder({ event }: { event: CalendarEvent }) {
   )
 }
 
-/** Below xl (1280px) the details open as a modal; beside the calendar they would leave it no room. */
-export const DETAILS_MODAL_QUERY = '(max-width: 1279px)'
+/** The selected event on screen: its ring in the calendar (CalendarPage) or its Pipeline card. */
+const ANCHOR_SELECTOR = '.fc-event.event-highlighted, [data-details-anchor]'
+/** Any event: in the calendar, or a Pipeline card. */
+const EVENT_SELECTOR = '.fc-event, [data-pipeline-card]'
 
-/** Right-hand panel (a modal on narrow windows): details of the selected event plus its notes. */
+/**
+ * Where the selected event is drawn: preferably a part of it in the window (an event
+ * over several weeks has several), else any part; null while it isn't drawn (yet).
+ */
+function findAnchor(): DOMRect | null {
+  let fallback: DOMRect | null = null
+  for (const el of document.querySelectorAll<HTMLElement>(ANCHOR_SELECTOR)) {
+    const rect = el.getBoundingClientRect()
+    if (!rect.width || !rect.height) continue
+    if (rect.bottom > 0 && rect.top < window.innerHeight) return rect
+    fallback ??= rect
+  }
+  return fallback
+}
+
+/**
+ * Stops the mousedown and click that follow a press, so it doesn't select a time range
+ * or open an event. Not tied to the card: it is gone by the time they arrive.
+ */
+function swallowRestOfClick(): void {
+  const stop = (e: Event): void => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.type === 'click') remove()
+  }
+  const remove = (): void => {
+    window.removeEventListener('mousedown', stop, true)
+    window.removeEventListener('click', stop, true)
+    window.removeEventListener('pointerdown', remove, true)
+  }
+  window.addEventListener('mousedown', stop, true)
+  window.addEventListener('click', stop, true)
+  // A drag ends without a click: then the next press is a normal one again.
+  window.addEventListener('pointerdown', remove, true)
+}
+
+/**
+ * Details of the selected event plus its notes, in a card next to the event (like
+ * Google Calendar); centered when the event isn't on screen. Escape, the close button
+ * or a click outside closes it (in the calendar or Pipeline, that click does nothing else);
+ * a click on another event shows that one instead.
+ */
 export function EventDetailsPanel() {
   const selectedEventId = useAppStore((s) => s.selectedEventId)
   const selectEvent = useAppStore((s) => s.selectEvent)
@@ -257,21 +300,58 @@ export function EventDetailsPanel() {
   const protonAccounts = useAppStore((s) => s.protonAccounts)
   const settings = useAppStore((s) => s.settings)
   const { event, loading, error } = useEventDetails(selectedEventId)
-  const narrow = useMediaQuery(DETAILS_MODAL_QUERY)
+  const cardRef = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
 
-  // Escape closes the side panel (the narrow-window Modal handles it itself). Not while
-  // typing (fields use Escape themselves) or while a dialog is open on top.
+  // Placed every frame, so the card follows the event when the calendar scrolls, redraws
+  // it (a status change) or shows it after a jump, and when the card itself grows.
+  useLayoutEffect(() => {
+    if (!selectedEventId) return
+    let frame = 0
+    const place = (): void => {
+      const card = cardRef.current
+      if (card) {
+        const next = placeNextTo(findAnchor(), card.getBoundingClientRect())
+        setPos((prev) => (prev?.left === next.left && prev.top === next.top ? prev : next))
+      }
+      frame = requestAnimationFrame(place)
+    }
+    place()
+    return () => cancelAnimationFrame(frame)
+  }, [selectedEventId])
+
+  // Escape or a click outside closes the card. Escape not while typing (fields use it
+  // themselves); neither while a dialog is open on top. A click on the event itself
+  // keeps it open.
   useEffect(() => {
-    if (!selectedEventId || narrow) return
+    if (!selectedEventId) return
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape' || e.defaultPrevented || isModalOpen()) return
       const target = e.target as HTMLElement | null
       if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
       selectEvent(null)
     }
+    const onDown = (e: PointerEvent): void => {
+      const target = e.target as Element | null
+      if (!target || isModalOpen() || cardRef.current?.contains(target)) return
+      // On an event (this one or another) the click goes through: it opens that event's details.
+      if (target.closest(EVENT_SELECTOR)) return
+      // Elsewhere in the calendar or Pipeline the click only closes the card (no new event).
+      // In the sidebar or title bar it also does its own thing.
+      if (target.closest('main')) {
+        e.preventDefault()
+        swallowRestOfClick()
+      }
+      selectEvent(null)
+    }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [selectedEventId, narrow, selectEvent])
+    // Capture: before FullCalendar or the Pipeline cards see the press.
+    window.addEventListener('pointerdown', onDown, true)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('pointerdown', onDown, true)
+    }
+  }, [selectedEventId, selectEvent])
 
   // All hooks must run before this early return (React requires the same hook order every render).
   if (!selectedEventId) return null
@@ -416,22 +496,21 @@ export function EventDetailsPanel() {
     </div>
   )
 
-  if (narrow) {
-    return (
-      <Modal title="Event details" onClose={() => selectEvent(null)}>
-        {body}
-      </Modal>
-    )
-  }
   return (
-    <aside className="flex w-96 shrink-0 flex-col border-l border-slate-800 bg-slate-900">
-      <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
-        <span className="text-xs font-semibold tracking-wide text-slate-500 uppercase">Event details</span>
+    <div
+      ref={cardRef}
+      role="dialog"
+      aria-label="Event details"
+      // no-drag: near the top the card can cover the title bar, whose drag area would swallow clicks.
+      style={{ left: pos?.left ?? 0, top: pos?.top ?? 0, visibility: pos ? 'visible' : 'hidden', WebkitAppRegion: 'no-drag' } as CSSProperties}
+      className="fixed z-40 flex max-h-[calc(100vh-16px)] w-[26rem] max-w-[calc(100vw-16px)] flex-col rounded-xl border border-slate-700 bg-slate-900 shadow-2xl"
+    >
+      <div className="flex justify-end px-2 pt-2">
         <Button variant="ghost" className="px-1.5!" onClick={() => selectEvent(null)} aria-label="Close details">
           <XIcon />
         </Button>
       </div>
-      <div className="flex-1 overflow-y-auto px-5 py-4">{body}</div>
-    </aside>
+      <div className="overflow-y-auto px-5 pb-5">{body}</div>
+    </div>
   )
 }

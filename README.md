@@ -18,7 +18,7 @@
 **New users:** see **[docs/HELP.md](docs/HELP.md)** for how to get your Google, Outlook and Proton calendar links.
 - Month, week and day views (FullCalendar), with a color per calendar. Invitations show your own reply
   like Google Calendar (not answered = outlined, maybe = striped, declined = faded and struck through),
-  and events with a status get a small badge with the status's first letter.
+  and events with a status get a thick stripe in the status's color on their left edge.
 - Show or hide calendars from the sidebar; enable or disable syncing per calendar.
 - Local events with title, time, description, location, color and desktop reminders. Drag and resize
   them directly in the calendar.

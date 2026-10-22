@@ -32,8 +32,6 @@ import { DEFAULT_EVENT_STATUSES, findStatus } from '@shared/eventStatus'
 import { clampHourHeight, DEFAULT_HOUR_HEIGHT, HOUR_HEIGHT_STEP } from '@shared/hourHeight'
 import { LOCAL_EVENTS_KEY, useAppStore, type EventCounts } from '../stores/appStore'
 import { useNow } from '../hooks/useNow'
-import { useMediaQuery } from '../hooks/useMediaQuery'
-import { DETAILS_MODAL_QUERY } from '../components/EventDetailsPanel'
 import { DatePicker } from '../components/DatePicker'
 import { EventPreview, type EventPreviewData } from '../components/EventPreview'
 import { gmtOffsetLabel, isValidTimeZone, systemTimeZone, wallFields, zonedWallTimeToUtc, zoneFormatter } from '@shared/timezone'
@@ -102,17 +100,11 @@ export function CalendarPage() {
   }, [calendars, settings?.hiddenCalendarIds])
   const visibleCalendars = useMemo(() => new Map<string, string>(JSON.parse(visibleKey)), [visibleKey])
 
-  // Badge color and letter per status: events get a `status-<id>` class (ids and colors
-  // are validated in main, so they are safe in CSS); the badge itself is in index.css.
+  // Stripe color per status: events get a `status-<id>` class (ids and colors are
+  // validated in main, so they are safe in CSS); the stripe itself is in index.css.
   const statuses = settings?.eventStatuses ?? DEFAULT_EVENT_STATUSES
   const statusCss = useMemo(
-    () =>
-      statuses
-        .map(
-          (s) =>
-            `.fc .fc-event.status-${s.id} { --event-status-color: ${s.color}; --event-status-initial: ${statusInitialCss(s.label)}; --event-status-text: ${readableTextOn(s.color)}; }`
-        )
-        .join('\n'),
+    () => statuses.map((s) => `.fc .fc-event.status-${s.id} { --event-status-color: ${s.color}; }`).join('\n'),
     [statuses]
   )
 
@@ -148,11 +140,8 @@ export function CalendarPage() {
     mounted.current = true
   }, [eventsVersion, visibleCalendars, showLocal, localColor])
 
-  // The highlighted event: the one whose details are open. On small windows the details
-  // modal covers the calendar, so once it closes the event keeps its ring just long
-  // enough to pulse (see below).
-  const [closingId, setClosingId] = useState<string | null>(null)
-  const highlightedId = selectedEventId ?? closingId
+  // The highlighted event: the one whose details are open (the details card finds it by its ring).
+  const highlightedId = selectedEventId
 
   /** Scrolls the highlighted event into view and makes it pulse; false if it isn't rendered (yet). */
   const revealHighlighted = useCallback((): boolean => {
@@ -187,22 +176,6 @@ export function CalendarPage() {
     revealUntil.current = Date.now() + REVEAL_TIMEOUT_MS
     tryReveal()
   }, [focusDate, tryReveal])
-
-  // Small windows: the details modal hid the calendar, so closing it points at the event.
-  const detailsAsModal = useMediaQuery(DETAILS_MODAL_QUERY)
-  const prevSelectedId = useRef(selectedEventId)
-  useEffect(() => {
-    const closedId = selectedEventId === null ? prevSelectedId.current : null
-    prevSelectedId.current = selectedEventId
-    if (closedId && detailsAsModal) setClosingId(closedId)
-    else if (selectedEventId) setClosingId(null)
-  }, [selectedEventId, detailsAsModal])
-  useEffect(() => {
-    if (!closingId) return
-    requestAnimationFrame(() => revealHighlighted())
-    const timer = window.setTimeout(() => setClosingId(null), CLOSE_PULSE_MS)
-    return () => window.clearTimeout(timer)
-  }, [closingId, revealHighlighted])
 
   const fetchEvents = useCallback(
     (info: EventSourceFuncArg, success: (events: EventInput[]) => void, failure: (error: Error) => void) => {
@@ -388,7 +361,7 @@ export function CalendarPage() {
             ...(arg.event.id === highlightedId ? [HIGHLIGHT_CLASS] : []),
             // Not FullCalendar's own isPast: that is only recomputed occasionally, not every minute.
             ...(isEnded(arg.event.end ?? arg.event.start, now) ? ['event-ended'] : []),
-            // Only events with a picked status get a badge.
+            // Only events with a picked status get a stripe.
             ...[findStatus(statuses, arg.event.extendedProps.status as string | null)].flatMap((s) =>
               s ? [STATUS_CLASS, `status-${s.id}`] : []
             )
@@ -700,28 +673,14 @@ function renderEventContent(arg: EventContentArg, hourHeight: number): ReactElem
   )
 }
 
-/** Events with a status: a badge with its first letter before the title (index.css). */
+/** Events with a status: a stripe in its color on the left edge (index.css). */
 const STATUS_CLASS = 'has-status'
-
-/** The status label's first letter as a CSS string, hex-escaped so any character is safe. */
-function statusInitialCss(label: string): string {
-  const first = Array.from(label.trim())[0]?.toLocaleUpperCase() ?? ''
-  return `"${Array.from(first, (c) => `\\${c.codePointAt(0)!.toString(16)} `).join('')}"`
-}
-
-/** Dark or white letter, whichever reads better on the status color (#rrggbb, checked in main). */
-function readableTextOn(color: string): string {
-  const [r, g, b] = [1, 3, 5].map((i) => parseInt(color.slice(i, i + 2), 16) / 255)
-  return 0.299 * r + 0.587 * g + 0.114 * b > 0.6 ? '#0f172a' : 'white'
-}
 
 /** Ring on the selected event; FLASH_CLASS pulses it when the calendar points at it (index.css). */
 const HIGHLIGHT_CLASS = 'event-highlighted'
 const FLASH_CLASS = 'event-flash'
 /** How long after a jump to keep waiting for the event to be fetched and drawn. */
 const REVEAL_TIMEOUT_MS = 5000
-/** The ring stays this long after the details modal closes: the pulse (3 × 0.55s in index.css). */
-const CLOSE_PULSE_MS = 1700
 
 const VIEW_STORAGE_KEY = 'calendar.view'
 const TITLE_SELECTOR = '.fc-toolbar-title'

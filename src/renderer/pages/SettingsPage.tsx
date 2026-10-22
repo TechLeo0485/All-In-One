@@ -395,8 +395,8 @@ function StatusEditor() {
   return (
     <>
       <p className="pt-2 text-sm text-slate-400">
-        Pick a status in an event's details; the event then shows a circle with the status's first letter in
-        its color. Events without a status have no badge. Follow-Up is built in: events marked Follow-Up can get a reminder notification.
+        Pick a status in an event's details; the event then gets a thick stripe in the status's color on its left edge.
+        Events without a status have no stripe. Follow-Up is built in: events marked Follow-Up can get a reminder notification.
       </p>
       <p className="pt-2 text-sm text-slate-400">
         Click the pin <PinIcon size={13} className="inline -translate-y-px" /> to show a status as a column on the Pipeline.
