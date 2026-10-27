@@ -225,11 +225,11 @@ function writeRow(db: Database.Database, id: string, input: LocalEventInput, ext
   )
 }
 
-/** Moves notes and statuses to new event IDs (two passes, so swapped IDs don't collide). */
+/** Moves notes, statuses and Important marks to new event IDs (two passes, so swapped IDs don't collide). */
 function moveEventData(db: Database.Database, moves: [from: string, to: string][]): void {
   const pairs = moves.filter(([from, to]) => from !== to)
   if (!pairs.length) return
-  for (const table of ['notes', 'event_statuses']) {
+  for (const table of ['notes', 'event_statuses', 'event_important']) {
     const update = db.prepare(`UPDATE OR REPLACE ${table} SET event_id = ? WHERE event_id = ?`)
     for (const [from, to] of pairs) update.run(`~moving~${to}`, from)
     for (const [, to] of pairs) update.run(to, `~moving~${to}`)
@@ -237,8 +237,8 @@ function moveEventData(db: Database.Database, moves: [from: string, to: string][
 }
 
 function deleteRows(db: Database.Database, ids: string[]): void {
-  const statements = ['DELETE FROM events WHERE id = ?', 'DELETE FROM notes WHERE event_id = ?', 'DELETE FROM event_statuses WHERE event_id = ?'].map(
-    (sql) => db.prepare(sql)
+  const statements = ['events WHERE id', 'notes WHERE event_id', 'event_statuses WHERE event_id', 'event_important WHERE event_id'].map(
+    (target) => db.prepare(`DELETE FROM ${target} = ?`)
   )
   for (const id of ids) for (const s of statements) s.run(id)
 }

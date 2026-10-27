@@ -175,6 +175,7 @@ export function settingsPatch(value: unknown): Partial<AppSettings> {
   }
   if (v.showLocalEvents !== undefined) out.showLocalEvents = Boolean(v.showLocalEvents)
   if (v.localEventColor !== undefined) out.localEventColor = color(v.localEventColor, 'Local event color')
+  if (v.importantColor !== undefined) out.importantColor = color(v.importantColor, 'Important color')
   if (v.hiddenCalendarIds !== undefined) {
     if (!Array.isArray(v.hiddenCalendarIds) || v.hiddenCalendarIds.length > 1000) fail('Invalid hidden calendars')
     out.hiddenCalendarIds = v.hiddenCalendarIds.map((x) => id(x, 'calendar id'))

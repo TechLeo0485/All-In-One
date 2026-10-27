@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { EventStatusDef } from '@shared/types'
-import { CalendarIcon, ClockIcon, MapPinIcon } from './icons'
+import { CalendarIcon, ClockIcon, MapPinIcon, StarIcon } from './icons'
 import { ColorDot } from './ui'
 import { placeNextTo } from '../utils/placement'
 
@@ -13,6 +13,8 @@ export interface EventPreviewData {
   calendarName: string
   location: string
   status?: EventStatusDef
+  /** The Important outline color, when the event is marked Important */
+  important?: string
 }
 
 /**
@@ -57,6 +59,12 @@ export function EventPreview({ data }: { data: EventPreviewData }) {
           <CalendarIcon size={12} className="shrink-0" />
           <span className="truncate">{data.calendarName}</span>
         </div>
+        {data.important && (
+          <span className="mt-1 mr-1 inline-flex items-center gap-1 rounded-full border border-slate-700 px-1.5 py-px text-[11px] text-slate-300">
+            <StarIcon size={10} stroke={data.important} fill={data.important} />
+            Important
+          </span>
+        )}
         {data.status && (
           <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-slate-700 px-1.5 py-px text-[11px] text-slate-300">
             <ColorDot color={data.status.color} size={6} />

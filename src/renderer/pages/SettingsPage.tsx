@@ -3,7 +3,7 @@ import { APP_NAME, APP_TAGLINE } from '@shared/brand'
 import type { AllDayReminder, AppInfo, StatusPromptMode, ThemeMode, UpdateStatus } from '@shared/types'
 import { AUTO_SYNC_OPTIONS } from '@shared/sources'
 import type { EventStatusDef } from '@shared/types'
-import { FOLLOW_UP_ID, MAX_STATUS_LABEL, MAX_STATUSES, newStatusId } from '@shared/eventStatus'
+import { DEFAULT_IMPORTANT_COLOR, FOLLOW_UP_ID, MAX_STATUS_LABEL, MAX_STATUSES, newStatusId } from '@shared/eventStatus'
 import { nextUnusedColor } from '@shared/colors'
 import { DEFAULT_SHORTCUT, shortcutFromKeyEvent, shortcutKeys } from '@shared/shortcut'
 import { DEFAULT_HOUR_HEIGHT, HOUR_HEIGHT_STEP, MAX_HOUR_HEIGHT, MIN_HOUR_HEIGHT } from '@shared/hourHeight'
@@ -11,7 +11,7 @@ import { MAX_TIME_ZONE_LABEL, systemTimeZone, tzOffsetMs, zoneFormatter } from '
 import { useAppStore } from '../stores/appStore'
 import { AppLogo } from '../components/AppLogo'
 import { ColorPicker } from '../components/ColorPicker'
-import { BellIcon, MoonIcon, PinIcon, PlusIcon, RefreshIcon, SunIcon } from '../components/icons'
+import { BellIcon, MoonIcon, PinIcon, PlusIcon, RefreshIcon, StarIcon, SunIcon } from '../components/icons'
 import { Button, ColorDot, Toggle, inputClass } from '../components/ui'
 import { useNow } from '../hooks/useNow'
 import { useUpdateStatus } from '../hooks/useUpdateStatus'
@@ -379,6 +379,7 @@ function StatusRow({
 /** Settings → Event status: add, rename, recolor, pin to the Pipeline, reorder and delete statuses. */
 function StatusEditor() {
   const statuses = useAppStore((s) => s.settings?.eventStatuses ?? [])
+  const importantColor = useAppStore((s) => s.settings?.importantColor ?? DEFAULT_IMPORTANT_COLOR)
   const updateSettings = useAppStore((s) => s.updateSettings)
   const askConfirm = useAppStore((s) => s.askConfirm)
   const save = (next: EventStatusDef[]): void => void updateSettings({ eventStatuses: next })
@@ -399,9 +400,24 @@ function StatusEditor() {
         Events without a status have no stripe. Follow-Up is built in: events marked Follow-Up can get a reminder notification.
       </p>
       <p className="pt-2 text-sm text-slate-400">
+        Click <strong className="font-medium text-slate-300">Important</strong> in an event's details to outline it in the Important color,
+        e.g. for final interview rounds. It works alongside a status.
+      </p>
+      <p className="pt-2 text-sm text-slate-400">
         Click the pin <PinIcon size={13} className="inline -translate-y-px" /> to show a status as a column on the Pipeline.
       </p>
       <ul className="divide-y divide-slate-800">
+        {/* Not a status: an on/off mark per event that can sit alongside one; only its color is set here. */}
+        <li className="flex items-center gap-3 py-3">
+          <div className="flex w-44 shrink-0 items-center gap-2 px-1 text-sm text-slate-200">
+            <StarIcon size={15} stroke={importantColor} fill={importantColor} />
+            Important
+          </div>
+          <div className="min-w-0 flex-1">
+            <ColorPicker value={importantColor} onChange={(color) => void updateSettings({ importantColor: color })} />
+          </div>
+          <span className="shrink-0 text-xs text-slate-500">Outline around the event</span>
+        </li>
         {statuses.map((status) => (
           <StatusRow
             key={status.id}

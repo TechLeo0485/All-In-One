@@ -16,6 +16,7 @@ export const IPC = {
   eventsUpdateLocal: 'events:updateLocal',
   eventsRemoveLocal: 'events:removeLocal',
   eventsSetStatus: 'events:setStatus',
+  eventsSetImportant: 'events:setImportant',
   eventsSetFollowUpReminder: 'events:setFollowUpReminder',
   eventsListWithStatus: 'events:listWithStatus',
   /** main -> renderer push */

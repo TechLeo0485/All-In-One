@@ -9,6 +9,10 @@ How to use this file:
 - Write for users: what they can now do, or what works better. Not file names or code.
 -->
 
+## 1.1.0
+- New **Important** mark for key events, like final interview rounds: open an event and click **Important** to give it an outline on the calendar (yellow at first). Click it again to remove the mark. If the event also has a status, the status stays on the left edge and the outline goes around the other three sides. To change the outline color, go to **Settings → Event status**, where **Important** is at the top of the list.
+- The status stripe on the left edge of events is now much wider, so it's easier to see.
+
 ## 1.0.9
 - Events with a status now have a thick stripe in the status's color on their left edge instead of a small circle with a letter, so you can see the status at a glance. Events that have ended are shown darker, but their stripe keeps its full color.
 - New periods on the Pipeline: **This week**, **Past month**, **Past 3 months**, **All time** and **Custom range**. With **Custom range**, pick the first and last day to show; the Pipeline remembers your range.

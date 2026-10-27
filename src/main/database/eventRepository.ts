@@ -25,13 +25,16 @@ interface EventRow {
   status?: string | null
   remind_at?: string | null
   remind_fired?: number | null
+  /** 1 when the event is in event_important, when the query joins it */
+  important?: number | null
   /** From local_series, when the query joins it */
   series_rule?: string | null
 }
 
-/** Events plus the status the user picked (if any) and the repeat rule of local series. */
-const SELECT_EVENTS = `SELECT e.*, s.status, s.remind_at, s.remind_fired, ls.rule AS series_rule FROM events e
+/** Events plus the status the user picked (if any), the Important mark and the repeat rule of local series. */
+const SELECT_EVENTS = `SELECT e.*, s.status, s.remind_at, s.remind_fired, i.event_id IS NOT NULL AS important, ls.rule AS series_rule FROM events e
   LEFT JOIN event_statuses s ON s.event_id = e.id
+  LEFT JOIN event_important i ON i.event_id = e.id
   LEFT JOIN local_series ls ON ls.id = e.series_id`
 
 /** Event shape produced by the ICS parser, before it is stored. */
@@ -88,6 +91,7 @@ function toEvent(row: EventRow): CalendarEvent {
     status: row.status ?? null,
     followUpAt: row.status === FOLLOW_UP_ID ? (row.remind_at ?? null) : null,
     followUpReminded: row.remind_fired === 1,
+    important: row.important === 1,
     seriesId: row.series_id ?? null,
     recurrence: parseRule(row.series_rule),
     createdAt: row.created_at
@@ -160,10 +164,12 @@ export const eventRepository = {
 
     const rows = db
       .prepare(
-        `SELECT e.*, n.content AS note, c.name AS calendar_name, s.status, s.remind_at, s.remind_fired, ls.rule AS series_rule
+        `SELECT e.*, n.content AS note, c.name AS calendar_name, s.status, s.remind_at, s.remind_fired,
+                i.event_id IS NOT NULL AS important, ls.rule AS series_rule
          FROM events e
          LEFT JOIN notes n ON n.event_id = e.id
          LEFT JOIN event_statuses s ON s.event_id = e.id
+         LEFT JOIN event_important i ON i.event_id = e.id
          LEFT JOIN local_series ls ON ls.id = e.series_id
          LEFT JOIN calendars c ON c.id = e.calendar_id
          WHERE (e.is_local_event = 1 OR c.enabled = 1) AND ${clauses.join(' AND ')}
@@ -264,6 +270,16 @@ export const eventRepository = {
          remind_fired = CASE WHEN status = excluded.status THEN remind_fired ELSE 0 END,
          status = excluded.status, updated_at = excluded.updated_at`
     ).run(id, status, new Date().toISOString())
+  },
+
+  /** Marks or unmarks an event as Important; like the status, works for synced events too. */
+  setImportant(id: string, important: boolean): void {
+    const db = getDb()
+    if (!important) {
+      db.prepare('DELETE FROM event_important WHERE event_id = ?').run(id)
+      return
+    }
+    db.prepare('INSERT OR IGNORE INTO event_important (event_id, updated_at) VALUES (?, ?)').run(id, new Date().toISOString())
   },
 
   /** Sets (or with null, removes) the reminder of an event marked Follow-Up. */

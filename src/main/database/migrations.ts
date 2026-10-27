@@ -165,7 +165,16 @@ export const migrations: Migration[] = [
   (db) => addColumn(db, 'events', 'my_response', 'TEXT'),
   // v12: the Proton account's own address (from the login or typed in), used to find
   // the user's RSVP in that account's calendars; '' = not known yet.
-  (db) => addColumn(db, 'proton_accounts', 'email', "TEXT NOT NULL DEFAULT ''")
+  (db) => addColumn(db, 'proton_accounts', 'email', "TEXT NOT NULL DEFAULT ''"),
+  // v13: events the user marked Important (e.g. final interview rounds); a row = marked.
+  // Kept beside the event like notes and statuses, so it works for synced events too
+  // and survives an event briefly leaving its feed.
+  `
+  CREATE TABLE IF NOT EXISTS event_important (
+    event_id   TEXT PRIMARY KEY,
+    updated_at TEXT NOT NULL
+  );
+  `
 ]
 
 /** SQL text, or a function for changes that need checks or data conversion. */

@@ -1,5 +1,5 @@
 import type { AppSettings } from '@shared/types'
-import { DEFAULT_EVENT_STATUSES, normalizeStatuses } from '@shared/eventStatus'
+import { DEFAULT_EVENT_STATUSES, DEFAULT_IMPORTANT_COLOR, normalizeStatuses } from '@shared/eventStatus'
 import { DEFAULT_SHORTCUT } from '@shared/shortcut'
 import { DEFAULT_HOUR_HEIGHT } from '@shared/hourHeight'
 import { DEFAULT_THEME } from '@shared/theme'
@@ -20,6 +20,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   globalShortcut: DEFAULT_SHORTCUT,
   autoSyncMinutes: 30,
   eventStatuses: DEFAULT_EVENT_STATUSES,
+  importantColor: DEFAULT_IMPORTANT_COLOR,
   theme: DEFAULT_THEME,
   hourHeight: DEFAULT_HOUR_HEIGHT,
   primaryTimeZone: '',

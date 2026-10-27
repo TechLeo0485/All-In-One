@@ -28,7 +28,7 @@ import type {
 } from '@fullcalendar/core'
 import type { EventResizeDoneArg } from '@fullcalendar/interaction'
 import type { AttendeeStatus, CalendarEvent, LocalEventInput } from '@shared/types'
-import { DEFAULT_EVENT_STATUSES, findStatus } from '@shared/eventStatus'
+import { DEFAULT_EVENT_STATUSES, DEFAULT_IMPORTANT_COLOR, findStatus } from '@shared/eventStatus'
 import { clampHourHeight, DEFAULT_HOUR_HEIGHT, HOUR_HEIGHT_STEP } from '@shared/hourHeight'
 import { LOCAL_EVENTS_KEY, useAppStore, type EventCounts } from '../stores/appStore'
 import { useNow } from '../hooks/useNow'
@@ -102,10 +102,15 @@ export function CalendarPage() {
 
   // Stripe color per status: events get a `status-<id>` class (ids and colors are
   // validated in main, so they are safe in CSS); the stripe itself is in index.css.
+  // The Important outline color comes from Settings the same way.
   const statuses = settings?.eventStatuses ?? DEFAULT_EVENT_STATUSES
+  const importantColor = settings?.importantColor ?? DEFAULT_IMPORTANT_COLOR
   const statusCss = useMemo(
-    () => statuses.map((s) => `.fc .fc-event.status-${s.id} { --event-status-color: ${s.color}; }`).join('\n'),
-    [statuses]
+    () =>
+      [`.fc { --important-color: ${importantColor}; }`]
+        .concat(statuses.map((s) => `.fc .fc-event.status-${s.id} { --event-status-color: ${s.color}; }`))
+        .join('\n'),
+    [statuses, importantColor]
   )
 
   // Primary zone drives the whole grid ('local' = the computer's zone); the secondary
@@ -244,7 +249,8 @@ export function CalendarPage() {
         when: describeWhen(event, view.calendar),
         calendarName: calendar ? (account ? `${calendar.name} · ${account.label}` : calendar.name) : 'Local event',
         location: (event.extendedProps.location as string) ?? '',
-        status: findStatus(statuses, event.extendedProps.status as string | null)
+        status: findStatus(statuses, event.extendedProps.status as string | null),
+        important: event.extendedProps.important === true ? importantColor : undefined
       })
     }, PREVIEW_DELAY_MS)
   }
@@ -364,7 +370,8 @@ export function CalendarPage() {
             // Only events with a picked status get a stripe.
             ...[findStatus(statuses, arg.event.extendedProps.status as string | null)].flatMap((s) =>
               s ? [STATUS_CLASS, `status-${s.id}`] : []
-            )
+            ),
+            ...(arg.event.extendedProps.important === true ? [IMPORTANT_CLASS] : [])
           ]}
         />
       </div>
@@ -675,6 +682,8 @@ function renderEventContent(arg: EventContentArg, hourHeight: number): ReactElem
 
 /** Events with a status: a stripe in its color on the left edge (index.css). */
 const STATUS_CLASS = 'has-status'
+/** Events marked Important: a yellow outline, around the status stripe if there is one (index.css). */
+const IMPORTANT_CLASS = 'is-important'
 
 /** Ring on the selected event; FLASH_CLASS pulses it when the calendar points at it (index.css). */
 const HIGHLIGHT_CLASS = 'event-highlighted'
@@ -709,7 +718,7 @@ function toFullCalendarEvent(e: CalendarEvent, color: string): EventInput {
     backgroundColor: color,
     borderColor: color,
     ...(e.myResponse ? responseLook(e.myResponse, color) : {}),
-    extendedProps: { status: e.status, calendarId: e.calendarId, location: e.location }
+    extendedProps: { status: e.status, important: e.important, calendarId: e.calendarId, location: e.location }
   }
 }
 

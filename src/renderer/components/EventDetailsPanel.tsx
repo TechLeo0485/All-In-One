@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import type { AttendeeStatus, CalendarEvent, EventAttendee } from '@shared/types'
-import { DEFAULT_EVENT_STATUSES, findStatus, FOLLOW_UP_ID } from '@shared/eventStatus'
+import { DEFAULT_EVENT_STATUSES, DEFAULT_IMPORTANT_COLOR, findStatus, FOLLOW_UP_ID } from '@shared/eventStatus'
 import { findMeetingUrl } from '@shared/meetingLink'
 import { describeRecurrence } from '@shared/recurrence'
 import { useAppStore } from '../stores/appStore'
@@ -18,7 +18,7 @@ import {
 import { linkify } from '../utils/linkify'
 import { renderDescription } from '../utils/richText'
 import { placeNextTo } from '../utils/placement'
-import { BellIcon, ClockIcon, ExternalIcon, LockIcon, MapPinIcon, RepeatIcon, UsersIcon, XIcon } from './icons'
+import { BellIcon, ClockIcon, ExternalIcon, LockIcon, MapPinIcon, RepeatIcon, StarIcon, UsersIcon, XIcon } from './icons'
 import { NotesEditor } from './NotesEditor'
 import { Button, ColorDot, isModalOpen, Spinner } from './ui'
 
@@ -87,6 +87,29 @@ function GuestList({ attendees }: { attendees: EventAttendee[] }) {
           {expanded ? 'Show fewer' : `Show all ${attendees.length} guests`}
         </button>
       )}
+    </div>
+  )
+}
+
+/** On/off mark for key events (e.g. final rounds): an outline in the color from Settings. Separate from the status. */
+function ImportantToggle({ event }: { event: CalendarEvent }) {
+  const setEventImportant = useAppStore((s) => s.setEventImportant)
+  const color = useAppStore((s) => s.settings?.importantColor ?? DEFAULT_IMPORTANT_COLOR)
+  return (
+    <div className="pl-6">
+      <button
+        role="switch"
+        aria-checked={event.important}
+        title={event.important ? 'Click to remove the Important mark' : 'Outline this event on the calendar'}
+        onClick={() => void setEventImportant(event.id, !event.important)}
+        className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition ${
+          event.important ? 'font-medium text-slate-50' : 'border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+        }`}
+        style={event.important ? { borderColor: color, backgroundColor: `${color}26` } : undefined}
+      >
+        <StarIcon size={12} stroke={color} fill={event.important ? color : 'none'} />
+        Important
+      </button>
     </div>
   )
 }
@@ -433,6 +456,7 @@ export function EventDetailsPanel() {
             </div>
             {/* Guests and their replies sit with the summary, above the status. */}
             {event.attendees.length > 0 && <GuestList key={event.id} attendees={event.attendees} />}
+            <ImportantToggle event={event} />
             <StatusPicker event={event} />
           </section>
 

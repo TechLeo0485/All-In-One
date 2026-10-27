@@ -102,6 +102,12 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
     }
     withEventsChanged(eventRepository.setStatus(eid, statusId))
   })
+  handle(IPC.eventsSetImportant, (_e, id, important) => {
+    const eid = v.id(id)
+    if (!eventRepository.get(eid)) throw new Error('Event not found')
+    if (typeof important !== 'boolean') throw new Error('Invalid important flag')
+    withEventsChanged(eventRepository.setImportant(eid, important))
+  })
   handle(IPC.eventsSetFollowUpReminder, (_e, id, remindAt) => {
     withEventsChanged(eventRepository.setFollowUpReminder(v.id(id), v.optionalTime(remindAt, 'Reminder time')))
   })

@@ -16,6 +16,9 @@ const RETIRED_IDS = ['scheduled', 'ended']
 /** Built-in status that can't be deleted; events with it can get a follow-up reminder. */
 export const FOLLOW_UP_ID = 'follow-up'
 
+/** Outline color of events marked Important, until the user picks another in Settings. */
+export const DEFAULT_IMPORTANT_COLOR = '#facc15'
+
 export const DEFAULT_EVENT_STATUSES: EventStatusDef[] = [
   { id: 'follow-up', label: 'Follow-Up', color: '#f59e0b', pinned: true },
   { id: 'passed', label: 'Passed', color: '#22c55e', pinned: true },
