@@ -9,6 +9,12 @@ How to use this file:
 - Write for users: what they can now do, or what works better. Not file names or code.
 -->
 
+## 1.1.1
+- The Pipeline now shows one **Week** or **Month** at a time, with arrows to go to the previous or next week or month and a **Today** button to come back. **All time** and **Custom range** are still there; **Past month** and **Past 3 months** were replaced by **Month**.
+- The event details card is now at most 70% of the window's height, so it covers less of the calendar. Long details scroll inside the card.
+- Meeting notes can now have pictures: paste a screenshot with Ctrl+V, drag images onto the note, or click **Add image** while editing. Click a picture to see it big, like in chat apps: click it again for full size, use the arrows or ← → to go through the note's pictures, and press Escape or click outside to close. You can also drop text files or text from another app onto a note to add their text.
+- In Week and Day views, each hour label now sits centred on its hour line, like Google Calendar, and the line no longer runs through the time column, so it's easier to see which line is which hour. This applies to the secondary time zone column too.
+
 ## 1.1.0
 - New **Important** mark for key events, like final interview rounds: open an event and click **Important** to give it an outline on the calendar (yellow at first). Click it again to remove the mark. If the event also has a status, the status stays on the left edge and the outline goes around the other three sides. To change the outline color, go to **Settings → Event status**, where **Important** is at the top of the list.
 - The status stripe on the left edge of events is now much wider, so it's easier to see.

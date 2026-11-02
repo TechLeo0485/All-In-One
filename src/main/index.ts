@@ -1,8 +1,9 @@
-import { app, BrowserWindow, dialog, nativeTheme, Notification, shell } from 'electron'
+import { app, BrowserWindow, dialog, nativeTheme, Notification, protocol, shell } from 'electron'
 import { join } from 'node:path'
 import { APP_NAME } from '@shared/brand'
 import { findStatus, FOLLOW_UP_ID } from '@shared/eventStatus'
 import { IPC } from '@shared/ipcChannels'
+import { NOTE_IMAGE_SCHEME } from '@shared/noteImages'
 import { WINDOW_COLORS } from '@shared/theme'
 import type { AppSettings, OpenEventRequest, ThemeMode } from '@shared/types'
 import { setUpDataFolder } from './dataFolder'
@@ -10,6 +11,7 @@ import { calendarRepository } from './database/calendarRepository'
 import { eventRepository } from './database/eventRepository'
 import { closeDb, getDb } from './database/connection'
 import { DatabaseUpgradeError } from './database/migrations'
+import { noteImageRepository } from './database/noteImageRepository'
 import { settingsRepository } from './database/settingsRepository'
 import { protonAccountService } from './services/proton/protonAccountService'
 import { registerIpcHandlers } from './ipc/registerHandlers'
@@ -28,6 +30,9 @@ app.setName(APP_NAME)
 // %APPDATA%\All-In-One for dev and the installed app; moves data from the pre-rename
 // folder on first start. Must run before the app is ready.
 const dataMigration = setUpDataFolder()
+// Images in notes load from note-image://<id> (see @shared/noteImages). Schemes must
+// be registered before the app is ready.
+protocol.registerSchemesAsPrivileged([{ scheme: NOTE_IMAGE_SCHEME, privileges: { standard: true, secure: true } }])
 
 let mainWindow: BrowserWindow | null = null
 /** True once the user chose Quit (tray menu, or close with close-to-tray off). */
@@ -127,6 +132,17 @@ function openMainWindow(show = true): BrowserWindow {
     if (process.platform !== 'darwin') quitApp()
   })
   return win
+}
+
+/** Serves note images from the database; the host part of the URL is the image id. */
+function registerNoteImageProtocol(): void {
+  protocol.handle(NOTE_IMAGE_SCHEME, (request) => {
+    const image = noteImageRepository.get(new URL(request.url).hostname)
+    if (!image) return new Response(null, { status: 404 })
+    return new Response(new Uint8Array(image.data), {
+      headers: { 'Content-Type': image.mimeType, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'max-age=31536000, immutable' }
+    })
+  })
 }
 
 /** Sends to the renderer only while the main window is alive. */
@@ -233,6 +249,9 @@ if (!app.requestSingleInstanceLock()) {
       const moved = calendarRepository.rebaseFileSources(dataMigration.fromUrl, dataMigration.toUrl)
       console.log(`[data] updated ${moved} calendar file paths`)
     }
+    const unusedImages = noteImageRepository.removeUnused()
+    if (unusedImages) console.log(`[notes] removed ${unusedImages} images no note uses any more`)
+    registerNoteImageProtocol()
 
     registerIpcHandlers({ onSettingsChanged, onEventsChanged: () => reminderService.refresh() })
 

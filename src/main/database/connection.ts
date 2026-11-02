@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3'
 import { join } from 'node:path'
 import { app } from 'electron'
+import { stripNoteImages } from '@shared/noteImages'
 import { foldText } from '@shared/search'
 import { upgradeDatabase } from './migrations'
 import { fillMissingSearchText } from './searchText'
@@ -27,6 +28,8 @@ export function getDb(): Database.Database {
     opened.pragma('foreign_keys = ON')
     // Case- and accent-insensitive matching for event search (SQLite's own LIKE only folds ASCII).
     opened.function('casefold', { deterministic: true }, (value: unknown) => (value == null ? '' : foldText(String(value))))
+    // Note text without its image references, so searching "image" doesn't find every note with a picture.
+    opened.function('note_text', { deterministic: true }, (value: unknown) => (value == null ? null : stripNoteImages(String(value))))
     // After an app update: back up, then upgrade the schema in place (see migrations.ts).
     createdNow = upgradeDatabase(opened, join(app.getPath('userData'), 'backups')).from === 0
     fillMissingSearchText(opened)

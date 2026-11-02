@@ -174,6 +174,17 @@ export const migrations: Migration[] = [
     event_id   TEXT PRIMARY KEY,
     updated_at TEXT NOT NULL
   );
+  `,
+  // v14: images pasted or dropped into notes. A note refers to one by its id in the
+  // markdown (see @shared/noteImages); images no note refers to any more are removed
+  // at startup, so undoing a deletion while editing still works.
+  `
+  CREATE TABLE IF NOT EXISTS note_images (
+    id         TEXT PRIMARY KEY,
+    mime_type  TEXT NOT NULL,
+    data       BLOB NOT NULL,
+    created_at TEXT NOT NULL
+  );
   `
 ]
 

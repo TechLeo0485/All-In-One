@@ -36,7 +36,8 @@ const api: CalendarApi = {
     get: (eventId) => ipcRenderer.invoke(IPC.notesGet, eventId),
     save: (eventId, content) => ipcRenderer.invoke(IPC.notesSave, eventId, content),
     remove: (eventId) => ipcRenderer.invoke(IPC.notesRemove, eventId),
-    previews: (eventIds) => ipcRenderer.invoke(IPC.notesPreviews, eventIds)
+    previews: (eventIds) => ipcRenderer.invoke(IPC.notesPreviews, eventIds),
+    addImage: (data, mimeType) => ipcRenderer.invoke(IPC.notesAddImage, data, mimeType)
   },
   sync: {
     runAll: () => ipcRenderer.invoke(IPC.syncRunAll),

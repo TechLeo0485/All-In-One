@@ -26,6 +26,7 @@ export const IPC = {
   notesSave: 'notes:save',
   notesRemove: 'notes:remove',
   notesPreviews: 'notes:previews',
+  notesAddImage: 'notes:add-image',
 
   syncRunAll: 'sync:runAll',
   syncRunOne: 'sync:runOne',

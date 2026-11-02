@@ -5,10 +5,12 @@ import type { AppSettings } from '@shared/types'
 import { calendarRepository } from '../database/calendarRepository'
 import { eventRepository } from '../database/eventRepository'
 import { localEventRepository } from '../database/localEventRepository'
+import { noteImageRepository } from '../database/noteImageRepository'
 import { noteRepository } from '../database/noteRepository'
 import { settingsRepository } from '../database/settingsRepository'
 import { isFileSource } from '@shared/sources'
 import { findStatus } from '@shared/eventStatus'
+import { MAX_NOTE_IMAGE_BYTES, NOTE_IMAGE_TYPES } from '@shared/noteImages'
 import { fileSourceService } from '../services/fileSourceService'
 import { protonAccountService } from '../services/proton/protonAccountService'
 import { reminderService } from '../services/reminderService'
@@ -126,6 +128,14 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
   handle(IPC.notesPreviews, (_e, eventIds) => {
     if (!Array.isArray(eventIds) || eventIds.length > 5000) throw new Error('Invalid event list')
     return noteRepository.previews(eventIds.map((x) => v.id(x, 'eventId')))
+  })
+  handle(IPC.notesAddImage, (_e, data, mimeType) => {
+    if (!(data instanceof Uint8Array) || data.byteLength === 0) throw new Error('Invalid image')
+    if (data.byteLength > MAX_NOTE_IMAGE_BYTES) {
+      throw new Error(`Images can be at most ${MAX_NOTE_IMAGE_BYTES / 1024 / 1024} MB`)
+    }
+    if (!(NOTE_IMAGE_TYPES as readonly unknown[]).includes(mimeType)) throw new Error('Unsupported image type')
+    return noteImageRepository.add(mimeType as string, Buffer.from(data))
   })
 
   // Sync

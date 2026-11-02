@@ -527,7 +527,7 @@ export function EventDetailsPanel() {
       aria-label="Event details"
       // no-drag: near the top the card can cover the title bar, whose drag area would swallow clicks.
       style={{ left: pos?.left ?? 0, top: pos?.top ?? 0, visibility: pos ? 'visible' : 'hidden', WebkitAppRegion: 'no-drag' } as CSSProperties}
-      className="fixed z-40 flex max-h-[calc(100vh-16px)] w-[26rem] max-w-[calc(100vw-16px)] flex-col rounded-xl border border-slate-700 bg-slate-900 shadow-2xl"
+      className="fixed z-40 flex max-h-[70vh] w-[26rem] max-w-[calc(100vw-16px)] flex-col rounded-xl border border-slate-700 bg-slate-900 shadow-2xl"
     >
       <div className="flex justify-end px-2 pt-2">
         <Button variant="ghost" className="px-1.5!" onClick={() => selectEvent(null)} aria-label="Close details">

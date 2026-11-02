@@ -359,6 +359,8 @@ export interface CalendarApi {
     remove(eventId: string): Promise<void>
     /** First lines of the notes of these events, by event id (events without notes are left out). */
     previews(eventIds: string[]): Promise<Record<string, string>>
+    /** Stores an image for a note; returns its id, to put in the note with noteImageMarkdown(). */
+    addImage(data: Uint8Array, mimeType: string): Promise<string>
   }
   sync: {
     runAll(): Promise<SyncStatus>

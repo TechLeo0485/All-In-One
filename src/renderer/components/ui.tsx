@@ -85,19 +85,11 @@ export function isModalOpen(): boolean {
   return modalStack.length > 0
 }
 
-export function Modal({
-  title,
-  onClose,
-  children,
-  footer,
-  width = 'max-w-lg'
-}: {
-  title: string
-  onClose: () => void
-  children: ReactNode
-  footer?: ReactNode
-  width?: string
-}) {
+/**
+ * Makes the calling component a modal layer: counts for isModalOpen() and closes on
+ * Escape when it's the topmost one. Returns whether it is the topmost layer now.
+ */
+export function useModalLayer(onClose: () => void): () => boolean {
   const [token] = useState(() => Symbol('modal'))
   useEffect(() => {
     modalStack.push(token)
@@ -112,6 +104,23 @@ export function Modal({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose, token])
+  return () => modalStack[modalStack.length - 1] === token
+}
+
+export function Modal({
+  title,
+  onClose,
+  children,
+  footer,
+  width = 'max-w-lg'
+}: {
+  title: string
+  onClose: () => void
+  children: ReactNode
+  footer?: ReactNode
+  width?: string
+}) {
+  useModalLayer(onClose)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onMouseDown={onClose}>

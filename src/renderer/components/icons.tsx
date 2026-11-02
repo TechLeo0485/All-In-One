@@ -62,6 +62,16 @@ export const XIcon = (p: IconProps) => (
     <path d="M18 6 6 18M6 6l12 12" />
   </Icon>
 )
+export const ChevronLeftIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m15 18-6-6 6-6" />
+  </Icon>
+)
+export const ChevronRightIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m9 18 6-6-6-6" />
+  </Icon>
+)
 export const EyeIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />

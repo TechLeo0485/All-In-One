@@ -193,6 +193,30 @@ textarea,
 .fc .fc-timegrid-axis-cushion {
   @apply text-xs text-slate-500;
 }
+/*
+ * Hour labels sit centred on their hour line (Google Calendar style) instead of
+ * in the middle of the half-hour row below it, with no line through the text.
+ * The cushion is taken out of the flow so it centres on the line exactly (an
+ * inline box adds line-height slack); FullCalendar still sizes the column from
+ * its width. The first label (12am) would be cut off by the top edge, so it is hidden.
+ */
+.fc td.fc-timegrid-slot-label {
+  vertical-align: top;
+  border-top-color: transparent;
+}
+.fc .fc-timegrid-slot-label-frame {
+  position: relative;
+}
+.fc .fc-timegrid-slot-label-cushion {
+  position: absolute;
+  top: 0;
+  right: 0;
+  line-height: 1rem;
+  transform: translateY(-50%);
+}
+.fc .fc-timegrid-slots tr:first-child .fc-timegrid-slot-label-cushion {
+  visibility: hidden;
+}
 /* Half-hour lines are fainter than full-hour lines. */
 .fc .fc-timegrid-slot-minor {
   border-top-style: dashed;
@@ -314,17 +338,17 @@ textarea,
  * beats the calendar color FullCalendar sets on the event's own style.
  */
 .fc .fc-event.has-status {
-  border-left: 10px solid var(--event-status-color) !important;
+  border-left: 5px solid var(--event-status-color) !important;
 }
 /*
  * Events marked Important: a border all around in the color from Settings (CalendarPage
  * sets --important-color). With a status too, the left side stays the status stripe.
  */
 .fc .fc-event.is-important {
-  border: 4px solid var(--important-color) !important;
+  border: 2px solid var(--important-color) !important;
 }
 .fc .fc-event.is-important.has-status {
-  border-width: 2px 4px 2px 10px !important;
+  border-width: 2px 3px 2px 5px !important;
   border-left-color: var(--event-status-color) !important;
 }
 /*
@@ -498,6 +522,9 @@ textarea,
 }
 .markdown blockquote {
   @apply border-l-4 border-slate-700 pl-3 text-slate-400;
+}
+.markdown img {
+  @apply max-h-64 max-w-full cursor-zoom-in rounded-md border border-slate-700;
 }
 .markdown table {
   @apply w-full border-collapse text-xs;

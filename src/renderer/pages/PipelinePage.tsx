@@ -3,10 +3,10 @@ import type { CalendarEvent } from '@shared/types'
 import { DEFAULT_EVENT_STATUSES, FOLLOW_UP_ID } from '@shared/eventStatus'
 import { useAppStore } from '../stores/appStore'
 import { useNow } from '../hooks/useNow'
-import { addDays, formatInDisplayZone, parseDateString, todayString } from '../utils/dates'
+import { addDays, formatInDisplayZone, parseDateString, toDateString, todayString } from '../utils/dates'
 import { errorMessage } from '../utils/errors'
 import { companyOf, daysFromToday, eventDay, formatCardDate, formatDayAge, monthsBefore, startMs } from '../utils/pipeline'
-import { BellIcon, CalendarIcon, ClockIcon, PinIcon, SearchIcon } from '../components/icons'
+import { BellIcon, CalendarIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, PinIcon, SearchIcon } from '../components/icons'
 import { Button, ColorDot, inputClass, Spinner } from '../components/ui'
 
 /** A Follow-Up older than this, with no reminder pending, gets an amber age. */
@@ -16,13 +16,15 @@ const PERIOD_KEY = 'pipeline.period'
 const CUSTOM_RANGE_KEY = 'pipeline.customRange'
 
 const PERIODS = [
-  { value: 'week', label: 'This week' },
-  { value: '1m', label: 'Past month' },
-  { value: '3m', label: 'Past 3 months' },
+  { value: 'week', label: 'Week' },
+  { value: 'month', label: 'Month' },
   { value: 'all', label: 'All time' },
   { value: 'custom', label: 'Custom range' }
 ] as const
 type Period = (typeof PERIODS)[number]['value']
+/** Periods stepped through with the arrows. */
+type SteppedPeriod = 'week' | 'month'
+const isStepped = (period: Period): period is SteppedPeriod => period === 'week' || period === 'month'
 
 /** First and last day shown, inclusive ("YYYY-MM-DD"); '' = no limit. */
 interface DayRange {
@@ -33,7 +35,7 @@ interface DayRange {
 /** The last picked period; periods of earlier versions fall back to the default. */
 function savedPeriod(): Period {
   const saved = localStorage.getItem(PERIOD_KEY)
-  return PERIODS.find((p) => p.value === saved)?.value ?? '3m'
+  return PERIODS.find((p) => p.value === saved)?.value ?? 'month'
 }
 
 /** The last custom range, or the past month to today. */
@@ -49,25 +51,44 @@ function savedCustomRange(): DayRange {
 }
 
 /**
- * Days a period covers. This week runs Sunday to Saturday, like the calendar's Week view;
- * the past month and 3 months still include upcoming events.
+ * Days a period covers. Week and Month are the week (Sunday to Saturday, like the
+ * calendar's Week view) or calendar month that contains `anchor`.
  */
-function periodRange(period: Period, custom: DayRange): DayRange {
-  const today = todayString()
+function periodRange(period: Period, anchor: string, custom: DayRange): DayRange {
   switch (period) {
     case 'week': {
-      const sunday = addDays(today, -parseDateString(today).getDay())
+      const sunday = addDays(anchor, -parseDateString(anchor).getDay())
       return { from: sunday, to: addDays(sunday, 6) }
     }
-    case '1m':
-      return { from: monthsBefore(today, 1), to: '' }
-    case '3m':
-      return { from: monthsBefore(today, 3), to: '' }
+    case 'month': {
+      const d = parseDateString(anchor)
+      return {
+        from: toDateString(new Date(d.getFullYear(), d.getMonth(), 1)),
+        to: toDateString(new Date(d.getFullYear(), d.getMonth() + 1, 0))
+      }
+    }
     case 'custom':
       return custom
     case 'all':
       return { from: '', to: '' }
   }
+}
+
+/** A day in the week/month before (-1) or after (+1) the one containing `anchor`. */
+function stepAnchor(period: SteppedPeriod, anchor: string, by: number): string {
+  if (period === 'week') return addDays(anchor, 7 * by)
+  const d = parseDateString(anchor)
+  return toDateString(new Date(d.getFullYear(), d.getMonth() + by, 1))
+}
+
+/** "Oct 25 – 31, 2026" for a week, "October 2026" for a month. */
+function periodTitle(period: SteppedPeriod, range: DayRange): string {
+  const from = parseDateString(range.from)
+  if (period === 'month') return from.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).formatRange(
+    from,
+    parseDateString(range.to)
+  )
 }
 
 interface Card {
@@ -106,6 +127,8 @@ export function PipelinePage() {
   const [query, setQuery] = useState('')
   const [period, setPeriod] = useState<Period>(savedPeriod)
   const [customRange, setCustomRange] = useState<DayRange>(savedCustomRange)
+  /** A day in the week/month shown; '' = the current one (follows the date as days pass). */
+  const [anchor, setAnchor] = useState('')
   const [dropTarget, setDropTarget] = useState<string | null>(null)
 
   // Notes aren't part of eventsVersion: reload when the details panel opens or closes too.
@@ -154,9 +177,12 @@ export function PipelinePage() {
     return all
   }, [data, calendars, localColor])
 
+  const today = todayString()
+  const range = periodRange(period, anchor || today, customRange)
+  const showsToday = !anchor || periodRange(period, today, customRange).from === range.from
   const visible = useMemo(() => {
     if (!cards) return null
-    const { from, to } = periodRange(period, customRange)
+    const { from, to } = periodRange(period, anchor || todayString(), customRange)
     const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
     return cards.filter((card) => {
       const day = eventDay(card.event)
@@ -165,7 +191,7 @@ export function PipelinePage() {
       const text = [card.event.title, card.company, card.calendarName, card.note, card.event.location].join(' ').toLowerCase()
       return terms.every((t) => text.includes(t))
     })
-  }, [cards, period, customRange, query])
+  }, [cards, period, anchor, customRange, query, tick])
 
   const updateCustomRange = (change: Partial<DayRange>): void => {
     const next = { ...customRange, ...change }
@@ -215,6 +241,7 @@ export function PipelinePage() {
               const value = e.target.value as Period
               localStorage.setItem(PERIOD_KEY, value)
               setPeriod(value)
+              setAnchor('')
             }}
           >
             {PERIODS.map((p) => (
@@ -223,6 +250,32 @@ export function PipelinePage() {
               </option>
             ))}
           </select>
+          {isStepped(period) && (
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                className="px-1.5!"
+                aria-label={`Previous ${period}`}
+                title={`Previous ${period}`}
+                onClick={() => setAnchor(stepAnchor(period, anchor || today, -1))}
+              >
+                <ChevronLeftIcon />
+              </Button>
+              <Button
+                variant="ghost"
+                className="px-1.5!"
+                aria-label={`Next ${period}`}
+                title={`Next ${period}`}
+                onClick={() => setAnchor(stepAnchor(period, anchor || today, 1))}
+              >
+                <ChevronRightIcon />
+              </Button>
+              <Button disabled={showsToday} onClick={() => setAnchor('')}>
+                Today
+              </Button>
+              <span className="ml-1 min-w-36 text-sm font-medium text-slate-200">{periodTitle(period, range)}</span>
+            </div>
+          )}
           {period === 'custom' && (
             <div className="flex items-center gap-1.5 text-sm text-slate-400">
               <input

@@ -2,6 +2,7 @@ import type { AttendeeStatus, CalendarEvent, EventAttendee, EventSearchResult, R
 import { eventSearchText, findMatches, foldText, guestsText, searchTerms, snippetAround } from '@shared/search'
 import { FOLLOW_UP_ID } from '@shared/eventStatus'
 import { htmlToPlainText } from '@shared/htmlText'
+import { stripNoteImages } from '@shared/noteImages'
 import { getDb } from './connection'
 
 interface EventRow {
@@ -117,7 +118,7 @@ function describeMatch(row: SearchRow, terms: string[]): { matchedIn: SearchMatc
     ['location', row.location],
     ['guests', guestsText(parseAttendees(row.attendees))],
     ['description', htmlToPlainText(row.description)],
-    ['notes', row.note],
+    ['notes', row.note && stripNoteImages(row.note)],
     ['calendar', row.calendar_name]
   ]
   for (const [field, text] of fields) {
@@ -152,7 +153,7 @@ export const eventRepository = {
     const params: string[] = []
     for (const term of terms) {
       const pattern = likePattern(term)
-      const parts = [`e.search_text LIKE ? ESCAPE '\\'`, `(n.content IS NOT NULL AND casefold(n.content) LIKE ? ESCAPE '\\')`]
+      const parts = [`e.search_text LIKE ? ESCAPE '\\'`, `(n.content IS NOT NULL AND casefold(note_text(n.content)) LIKE ? ESCAPE '\\')`]
       params.push(pattern, pattern)
       const calendarIds = calendars.filter((c) => foldText(c.name).includes(term)).map((c) => c.id)
       if (calendarIds.length) {
