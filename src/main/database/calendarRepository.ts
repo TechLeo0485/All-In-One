@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { CalendarSource, CalendarSourceInput } from '@shared/types'
+import { hostOf } from '@shared/sources'
 import { getDb } from './connection'
 
 interface CalendarRow {
@@ -120,6 +121,14 @@ export const calendarRepository = {
   /** Failed sync: keeps last_synced_at so the UI can show "last good sync". */
   setSyncError(id: string, error: string): void {
     getDb().prepare('UPDATE calendars SET last_sync_error = ? WHERE id = ?').run(error, id)
+  },
+
+  /** Removes "Paused until …" (HTTP 429) messages from calendars on these hosts, once their pause is lifted. */
+  clearRateLimitErrors(hosts: string[]): void {
+    const clear = getDb().prepare('UPDATE calendars SET last_sync_error = NULL WHERE id = ?')
+    for (const c of this.list()) {
+      if (c.lastSyncError?.includes('(HTTP 429)') && hosts.includes(hostOf(c.sourceUrl) ?? '')) clear.run(c.id)
+    }
   },
 
   /** Successful sync; `warning` (e.g. "not found in Proton anymore") is still shown. */

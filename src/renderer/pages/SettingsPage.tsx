@@ -786,7 +786,7 @@ export function SettingsPage() {
         <Section title="Sync">
           <Row
             title="Auto-sync link calendars"
-            description="Google, Outlook and other web links (not Proton). Also runs shortly after the app starts."
+            description="Google, Outlook and other web links (not Proton). Off by default: Google may block a computer that checks many links on a timer."
           >
             <select
               className={inputClass}

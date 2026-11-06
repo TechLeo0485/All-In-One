@@ -180,7 +180,7 @@ export const useAppStore = create<AppState>((set, get) => {
     calendars: [],
     protonAccounts: [],
     settings: null,
-    syncStatus: { running: false, syncingIds: [], lastRunAt: null, results: [] },
+    syncStatus: { running: false, syncingIds: [], queuedIds: [], nextFetch: null, lastRunAt: null, results: [] },
     selectedEventId: null,
     focusDate: null,
     eventsVersion: 0,

@@ -579,7 +579,7 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
           {accountSyncing
             ? 'Downloading from Proton…'
             : syncStatus.running
-              ? `Syncing ${syncStatus.syncingIds.length === 1 ? '1 calendar' : `${syncStatus.syncingIds.length} calendars`}…`
+              ? syncLabel(syncStatus.syncingIds.length + syncStatus.queuedIds.length)
               : `Last sync ${formatRelative(syncStatus.lastRunAt)}`}
         </p>
       </div>
@@ -592,4 +592,9 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
       </nav>
     </>
   )
+}
+
+/** Google links are fetched slowly, so the count includes those still waiting their turn. */
+function syncLabel(count: number): string {
+  return count === 0 ? 'Syncing…' : `Syncing ${count === 1 ? '1 calendar' : `${count} calendars`}…`
 }

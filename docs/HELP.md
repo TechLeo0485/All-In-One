@@ -185,10 +185,15 @@ on the calendar in All-In-One.
 
 | Calendar type | When it updates |
 | --- | --- |
-| Google, Outlook (and other web links) | **Automatically**, every 30 minutes by default and shortly after All-In-One starts. |
+| Google, Outlook (and other web links) | **When you click** refresh. You can also turn on automatic syncing (off by default). |
 | Proton (all options) | **Only when you click** refresh, **Sync now** or **Sync all**. |
 
-- Change the automatic interval, or turn it off, in **Settings → Sync → Auto-sync link calendars**.
+- Turn on automatic syncing, or change how often it runs, in **Settings → Sync → Auto-sync link calendars**. With many
+  Google calendars, choose **Every hour** or **Every 3 hours**.
+- **Google calendars sync one at a time**, 15 to 45 seconds apart, so Google doesn't take All-In-One for a bot and block
+  it. With several Google calendars, a full refresh takes a few minutes. **Manage calendars** shows which calendar is
+  next. The calendar that has gone longest without syncing goes first.
+- Clicking a calendar's refresh button again within a minute keeps the events just downloaded.
 - Refresh everything at once with the refresh button next to "Calendars" in the sidebar, or **Refresh calendars** in
   the tray icon menu.
 - No internet? All-In-One keeps showing the events from the last successful sync.
@@ -201,6 +206,7 @@ on the calendar in All-In-One.
 | --- | --- |
 | "Paste the Secret address in iCal format" when adding Google | You copied a different link. Copy **Secret address in iCal format** (see [Google Calendar](#google-calendar)). |
 | A Google event is missing or out of date | Wait. Google can take a few hours to update the link. |
+| "Google is temporarily limiting requests (HTTP 429). Paused until …" | Google is blocking requests from your computer for a while. All-In-One waits until the time shown and keeps showing your saved events. Don't keep clicking refresh, since every attempt makes the block longer. Turning **Auto-sync link calendars** off, or setting it to **Every 3 hours**, helps it not happen again. |
 | "Paste the ICS link from Outlook" when adding Outlook | Copy the **ICS** link from **Publish a calendar** (see [Outlook Calendar](#outlook-calendar)). |
 | Outlook events show only "Busy" | The calendar was published with less than **Can view all details**. Publish it again with full details and add the new link. |
 | "Server responded with HTTP 404" | The link is no longer valid (it was reset or deleted). Copy a new one and edit the calendar in All-In-One. |

@@ -56,7 +56,7 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
     assertFileAllowed(parsed.sourceUrl)
     const calendar = calendarRepository.create(parsed)
     // Fetch the new feed right away; the UI is notified through status events.
-    if (calendar.enabled) void syncService.syncOne(calendar.id)
+    if (calendar.enabled) void syncService.syncOne(calendar.id, { force: true })
     return calendar
   })
   handle(IPC.calendarsUpdate, (_e, id, input) => {
@@ -69,7 +69,7 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
     const calendar = calendarRepository.update(v.id(id), patch)
     const urlChanged = before && patch.sourceUrl !== undefined && patch.sourceUrl !== before.sourceUrl
     // Choosing a new source (e.g. "Update from file") is an explicit request to read it.
-    if (calendar.enabled && urlChanged) void syncService.syncOne(calendar.id)
+    if (calendar.enabled && urlChanged) void syncService.syncOne(calendar.id, { force: true })
     return withEventsChanged(calendar) // enabled / notify affect reminders
   })
   handle(IPC.calendarsRemove, (_e, id) => {

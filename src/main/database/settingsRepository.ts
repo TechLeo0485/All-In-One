@@ -18,7 +18,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   closeToTray: true,
   launchAtStartup: false,
   globalShortcut: DEFAULT_SHORTCUT,
-  autoSyncMinutes: 30,
+  // Off: several Google links fetched on a timer from one PC is what gets it rate limited.
+  autoSyncMinutes: 0,
   eventStatuses: DEFAULT_EVENT_STATUSES,
   importantColor: DEFAULT_IMPORTANT_COLOR,
   theme: DEFAULT_THEME,

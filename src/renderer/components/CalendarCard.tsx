@@ -1,5 +1,6 @@
 import type { CalendarSource } from '@shared/types'
 import { useAppStore } from '../stores/appStore'
+import { useNow } from '../hooks/useNow'
 import { formatRelative } from '../utils/dates'
 import { isFileSource, isGoogleCalendarUrl, isOutlookCalendarUrl, isProtonCalendarUrl } from '@shared/sources'
 import { fileNameFromUrl, filePathFromUrl, maskShareUrl } from '../utils/sources'
@@ -25,6 +26,8 @@ export function CalendarCard({
   // Select only this card's data so a status push doesn't re-render every card.
   // Only this calendar's own sync counts; another calendar syncing must not spin this card.
   const syncing = useAppStore((s) => s.syncStatus.syncingIds.includes(calendar.id))
+  const queued = useAppStore((s) => s.syncStatus.queuedIds.includes(calendar.id))
+  const nextAt = useAppStore((s) => (s.syncStatus.nextFetch?.calendarId === calendar.id ? s.syncStatus.nextFetch.at : null))
   const result = useAppStore((s) => s.syncStatus.results.find((r) => r.calendarId === calendar.id))
   const updateCalendar = useAppStore((s) => s.updateCalendar)
   const removeCalendar = useAppStore((s) => s.removeCalendar)
@@ -92,6 +95,7 @@ export function CalendarCard({
           )}
           {result?.ok && ` · ${result.eventCount} events`}
         </p>
+        {queued && <QueuedNote nextAt={nextAt} />}
         {calendar.lastSyncError && (
           <p className="selectable mt-1 flex items-start gap-1.5 text-xs text-amber-300">
             <AlertIcon size={14} className="shrink-0" />
@@ -112,7 +116,7 @@ export function CalendarCard({
           <Button
             variant="ghost"
             title={isFile ? 'Re-read file' : 'Sync now'}
-            disabled={syncing}
+            disabled={syncing || queued}
             onClick={() => void syncOne(calendar.id)}
           >
             {syncing ? <Spinner /> : <RefreshIcon />}
@@ -140,5 +144,17 @@ export function CalendarCard({
         )}
       </div>
     </li>
+  )
+}
+
+/** Google links are fetched one at a time with a pause between them; shows where this one stands. */
+function QueuedNote({ nextAt }: { nextAt: string | null }) {
+  const now = useNow(1_000)
+  const seconds = nextAt ? Math.max(0, Math.ceil((Date.parse(nextAt) - now) / 1000)) : null
+  return (
+    <p className="mt-1 text-xs text-slate-400">
+      {seconds !== null ? `Next to sync, in ${seconds} s` : 'Waiting its turn to sync'}
+      <span className="text-slate-500"> · links are fetched one at a time so Google doesn't block them</span>
+    </p>
   )
 }

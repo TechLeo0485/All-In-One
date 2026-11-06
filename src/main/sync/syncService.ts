@@ -9,16 +9,23 @@ import { accountRepository } from '../database/accountRepository'
 import { calendarRepository } from '../database/calendarRepository'
 import { eventRepository } from '../database/eventRepository'
 import { fileSourcePath } from '../services/fileSourceService'
-import { hostBackoff } from './hostBackoff'
+import { hostBackoff, hostPacing } from './hostBackoff'
 import { parseIcs } from './icsParser'
 
 const FETCH_TIMEOUT_MS = 30_000
 const MAX_FILE_BYTES = 50 * 1024 * 1024
 /**
  * Pause between two requests to the same server. Several Google accounts still share
- * one IP, and a burst of parallel requests is what triggers HTTP 429.
+ * one IP, and a burst of requests is what triggers HTTP 429.
  */
 const SAME_HOST_GAP_MS = 1_500
+/**
+ * Google links are fetched one at a time, 15 to 45 s apart (random, so the timing does
+ * not look like a script), and never sooner than 15 s after the previous Google request,
+ * also across separate clicks and restarts.
+ */
+const GOOGLE_MIN_GAP_MS = 15_000
+const GOOGLE_RANDOM_GAP_MS = 30_000
 /**
  * Refresh-all and auto-sync skip web links fetched successfully this recently, so
  * repeated clicks keep the cached result instead of sending more requests.
@@ -45,7 +52,7 @@ type StatusListener = (status: SyncStatus) => void
  * that answers "too many requests" is left alone for a while (see hostBackoff).
  */
 class SyncService {
-  private status: SyncStatus = { running: false, syncingIds: [], lastRunAt: null, results: [] }
+  private status: SyncStatus = { running: false, syncingIds: [], queuedIds: [], nextFetch: null, lastRunAt: null, results: [] }
   /** All runs are serialized through this chain so they never write concurrently. */
   private queue: Promise<unknown> = Promise.resolve()
   /** A queued-but-not-started full sync; further syncAll() calls join it. */
@@ -96,13 +103,14 @@ class SyncService {
 
   /**
    * Syncs a single calendar (also allowed when it is disabled, e.g. to test a URL).
-   * Always fetches, since the URL may just have been edited.
+   * A web link fetched under a minute ago keeps its cached result, unless `force`
+   * (a calendar just added or whose link was just changed).
    */
-  syncOne(calendarId: string): Promise<SyncStatus> {
+  syncOne(calendarId: string, { force = false } = {}): Promise<SyncStatus> {
     return this.enqueue(() => {
       const calendar = calendarRepository.get(calendarId)
       if (!calendar) throw new Error('Calendar not found')
-      return this.run([calendar])
+      return this.run([calendar], !force)
     })
   }
 
@@ -119,7 +127,7 @@ class SyncService {
       calendars = calendars.filter((_, i) => !recent[i])
       if (reused.length) console.log(`[sync] ${reused.length} calendar(s) synced under a minute ago, kept cached`)
     }
-    this.setStatus({ ...this.status, running: true, syncingIds: calendars.map((c) => c.id) })
+    this.setStatus({ ...this.status, running: true, syncingIds: [], queuedIds: calendars.map((c) => c.id), nextFetch: null })
     // syncCalendar never throws, so `running` is always reset.
     const results = (await Promise.all(groupByHost(calendars).map((group) => this.syncGroup(group)))).flat()
 
@@ -130,6 +138,8 @@ class SyncService {
     this.setStatus({
       running: false,
       syncingIds: [],
+      queuedIds: [],
+      nextFetch: null,
       lastRunAt: new Date().toISOString(),
       results: [...merged.values()].filter((r) => existingIds.has(r.calendarId))
     })
@@ -143,13 +153,30 @@ class SyncService {
     return this.status.results.find((r) => r.calendarId === calendar.id && r.ok) ?? null
   }
 
-  /** Syncs calendars of one server sequentially, pausing between actual requests. */
+  /**
+   * Syncs calendars of one server sequentially, pausing between actual requests. Once
+   * the server answers "too many requests", the rest are skipped without contacting it.
+   */
   private async syncGroup(calendars: CalendarSource[]): Promise<CalendarSyncResult[]> {
     const results: CalendarSyncResult[] = []
     for (const [i, calendar] of calendars.entries()) {
       const host = hostOf(calendar.sourceUrl)
-      if (i > 0 && host && !hostBackoff.blockedUntil(host)) await delay(SAME_HOST_GAP_MS)
+      if (host && !hostBackoff.blockedUntil(host)) {
+        const gap = requestGap(calendar.sourceUrl, i > 0)
+        // Clamped, so a clock set back cannot leave the run waiting for ages.
+        const wait = Math.min(hostPacing.lastRequestAt(host) + gap - Date.now(), gap)
+        if (wait > 0) {
+          this.patchStatus({ nextFetch: { calendarId: calendar.id, at: new Date(Date.now() + wait).toISOString() } })
+          await delay(wait)
+        }
+      }
+      this.patchStatus({
+        syncingIds: [...this.status.syncingIds, calendar.id],
+        queuedIds: this.status.queuedIds.filter((id) => id !== calendar.id),
+        nextFetch: this.status.nextFetch?.calendarId === calendar.id ? null : this.status.nextFetch
+      })
       results.push(await this.syncCalendar(calendar))
+      this.patchStatus({ syncingIds: this.status.syncingIds.filter((id) => id !== calendar.id) })
     }
     return results
   }
@@ -159,6 +186,7 @@ class SyncService {
     try {
       const blockedUntil = host ? hostBackoff.blockedUntil(host) : null
       if (blockedUntil) throw new Error(rateLimitMessage(calendar.sourceUrl, blockedUntil))
+      if (host) hostPacing.markRequest(host)
       const { text, modifiedAt } = isFileSource(calendar.sourceUrl)
         ? await readIcsFile(calendar.sourceUrl)
         : { text: await fetchIcs(calendar.sourceUrl), modifiedAt: undefined }
@@ -169,15 +197,24 @@ class SyncService {
       if (host) hostBackoff.recordSuccess(host)
       return { calendarId: calendar.id, ok: true, eventCount: events.length, sourceModifiedAt: modifiedAt }
     } catch (err) {
-      const message =
-        err instanceof RateLimitedError && host
-          ? rateLimitMessage(calendar.sourceUrl, hostBackoff.recordLimited(host, err.retryAfterMs))
-          : describeError(err)
+      let message: string
+      if (err instanceof RateLimitedError && host) {
+        const until = hostBackoff.recordLimited(host, err.retryAfterMs)
+        message = rateLimitMessage(calendar.sourceUrl, until)
+        updatePauseMessages(host, message)
+      } else {
+        message = describeError(err)
+      }
       console.error(`[sync] ${calendar.name}: ${message}`)
       // The calendar may have been deleted while we were fetching.
       if (calendarRepository.get(calendar.id)) calendarRepository.setSyncError(calendar.id, message)
       return { calendarId: calendar.id, ok: false, eventCount: 0, error: message }
     }
+  }
+
+  /** Groups run in parallel, so each change is applied to the latest status. */
+  private patchStatus(patch: Partial<SyncStatus>): void {
+    this.setStatus({ ...this.status, ...patch })
   }
 
   private setStatus(status: SyncStatus): void {
@@ -194,13 +231,39 @@ class SyncService {
 }
 
 /**
- * Same-server web links share one group (run sequentially); files and other servers
- * get their own group, so they still sync in parallel.
+ * Minimum time since the previous request to the same server. `inRun`: not the first
+ * calendar of this run, so a full gap applies even right after the previous fetch.
+ */
+function requestGap(url: string, inRun: boolean): number {
+  if (isGoogleCalendarUrl(url)) return inRun ? GOOGLE_MIN_GAP_MS + Math.random() * GOOGLE_RANDOM_GAP_MS : GOOGLE_MIN_GAP_MS
+  return inRun ? SAME_HOST_GAP_MS : 0
+}
+
+/**
+ * The server is paused for all its links, so every calendar already showing a pause
+ * gets the same, current "Paused until" time instead of an older one.
+ */
+function updatePauseMessages(host: string, message: string): void {
+  for (const c of calendarRepository.list()) {
+    if (hostOf(c.sourceUrl) === host && c.lastSyncError?.includes('(HTTP 429)')) {
+      calendarRepository.setSyncError(c.id, message)
+    }
+  }
+}
+
+/** Calendar never synced first, then the longest ago, so every link gets its turn. */
+function oldestSyncFirst(a: CalendarSource, b: CalendarSource): number {
+  return (a.lastSyncedAt ? Date.parse(a.lastSyncedAt) : 0) - (b.lastSyncedAt ? Date.parse(b.lastSyncedAt) : 0)
+}
+
+/**
+ * Same-server web links share one group (run sequentially, longest unsynced first);
+ * files and other servers get their own group, so they still sync in parallel.
  */
 function groupByHost(calendars: CalendarSource[]): CalendarSource[][] {
   const groups: CalendarSource[][] = []
   const byHost = new Map<string, CalendarSource[]>()
-  for (const calendar of calendars) {
+  for (const calendar of [...calendars].sort(oldestSyncFirst)) {
     const host = hostOf(calendar.sourceUrl)
     const group = host ? byHost.get(host) : undefined
     if (group) {

@@ -16,6 +16,7 @@ import { settingsRepository } from './database/settingsRepository'
 import { protonAccountService } from './services/proton/protonAccountService'
 import { registerIpcHandlers } from './ipc/registerHandlers'
 import { syncService } from './sync/syncService'
+import { hostBackoff } from './sync/hostBackoff'
 import { reminderService } from './services/reminderService'
 import { shortcutService } from './services/shortcutService'
 import { autoSyncService } from './services/autoSyncService'
@@ -252,6 +253,9 @@ if (!app.requestSingleInstanceLock()) {
     const unusedImages = noteImageRepository.removeUnused()
     if (unusedImages) console.log(`[notes] removed ${unusedImages} images no note uses any more`)
     registerNoteImageProtocol()
+    // An update is a fresh start: refreshing Google links works right away again.
+    const cleared = hostBackoff.resetOnUpdate(app.getVersion())
+    if (cleared.length) calendarRepository.clearRateLimitErrors(cleared)
 
     registerIpcHandlers({ onSettingsChanged, onEventsChanged: () => reminderService.refresh() })
 

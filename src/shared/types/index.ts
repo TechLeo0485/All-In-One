@@ -203,6 +203,10 @@ export interface SyncStatus {
   running: boolean
   /** Calendars being fetched right now (only these show a spinner) */
   syncingIds: string[]
+  /** Calendars of the current run still waiting their turn (Google links are fetched slowly) */
+  queuedIds: string[]
+  /** The calendar that is fetched next and when, while the run pauses between requests */
+  nextFetch: { calendarId: string; at: string } | null
   lastRunAt: string | null
   results: CalendarSyncResult[]
 }
