@@ -9,10 +9,10 @@ import { accountRepository } from '../database/accountRepository'
 import { calendarRepository } from '../database/calendarRepository'
 import { eventRepository } from '../database/eventRepository'
 import { fileSourcePath } from '../services/fileSourceService'
+import { downloadText, RateLimitedError } from './download'
 import { hostBackoff, hostPacing } from './hostBackoff'
 import { parseIcs } from './icsParser'
 
-const FETCH_TIMEOUT_MS = 30_000
 const MAX_FILE_BYTES = 50 * 1024 * 1024
 /**
  * Pause between two requests to the same server. Several Google accounts still share
@@ -33,7 +33,6 @@ const GOOGLE_RANDOM_GAP_MS = 30_000
 const MIN_REFETCH_MS = 60_000
 /** Cap on a downloaded feed, so a broken or hostile link cannot exhaust memory. */
 const MAX_FEED_BYTES = 50 * 1024 * 1024
-const MAX_REDIRECTS = 5
 
 type StatusListener = (status: SyncStatus) => void
 
@@ -277,98 +276,29 @@ function groupByHost(calendars: CalendarSource[]): CalendarSource[][] {
   return groups
 }
 
-/** HTTP 429 (or 503 with Retry-After): the server wants us to slow down. */
-class RateLimitedError extends Error {
-  constructor(readonly retryAfterMs: number | null) {
-    super('Rate limited')
-  }
-}
-
-/** Retry-After is either delay-seconds or an HTTP date. */
-function parseRetryAfter(value: string | null): number | null {
-  if (!value) return null
-  const seconds = Number(value)
-  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000)
-  const date = Date.parse(value)
-  return Number.isNaN(date) ? null : Math.max(0, date - Date.now())
-}
-
 function rateLimitMessage(url: string, until: number): string {
   const server = isGoogleCalendarUrl(url) ? 'Google' : hostOf(url)
   const time = new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   return `${server} is temporarily limiting requests (HTTP 429). Paused until ${time} to avoid a longer block`
 }
 
-/**
- * Downloads a feed. Redirects are followed by hand: at most MAX_REDIRECTS, and never
- * from https to plain http, which would send the link's secret token unencrypted.
- */
+/** Downloads a web link calendar (see downloadText for proxies, redirects and retries). */
 async function fetchIcs(url: string): Promise<string> {
-  const signal = AbortSignal.timeout(FETCH_TIMEOUT_MS)
-  let current = new URL(normalizeFeedUrl(url))
-  for (let redirects = 0; ; redirects++) {
-    const response = await fetch(current, {
-      signal,
-      redirect: 'manual',
+  const text = await downloadText(normalizeFeedUrl(url), {
+    maxBytes: MAX_FEED_BYTES,
+    headers: {
+      Accept: 'text/calendar, */*;q=0.5',
       // Google writes Meet join instructions into DESCRIPTION, localized per request; without
       // this they can come back in an arbitrary language (e.g. Chinese).
-      headers: {
-        Accept: 'text/calendar, */*;q=0.5',
-        'Accept-Language': 'en-US,en;q=0.9',
-        // Identify as a calendar client rather than an anonymous script.
-        'User-Agent': `${APP_NAME}/${app.getVersion()}`
-      }
-    })
-    const location = response.headers.get('location')
-    if (response.status >= 300 && response.status < 400 && location) {
-      await response.body?.cancel()
-      if (redirects >= MAX_REDIRECTS) throw new Error('The server redirected too many times')
-      const next = new URL(location, current)
-      const allowed = next.protocol === 'https:' || (next.protocol === 'http:' && current.protocol === 'http:')
-      if (!allowed) throw new Error('The server redirected to an insecure address, so it was not followed')
-      current = next
-      continue
+      'Accept-Language': 'en-US,en;q=0.9',
+      // Identify as a calendar client rather than an anonymous script.
+      'User-Agent': `${APP_NAME}/${app.getVersion()}`
     }
-    const retryAfter = response.headers.get('retry-after')
-    if (response.status === 429 || (response.status === 503 && retryAfter)) {
-      await response.body?.cancel()
-      throw new RateLimitedError(parseRetryAfter(retryAfter))
-    }
-    if (!response.ok) {
-      await response.body?.cancel()
-      throw new Error(`Server responded with HTTP ${response.status} ${response.statusText}`.trim())
-    }
-    const text = await readLimited(response)
-    if (!text.includes('BEGIN:VCALENDAR')) {
-      throw new Error('The URL did not return an iCalendar (ICS) file')
-    }
-    return text
+  })
+  if (!text.includes('BEGIN:VCALENDAR')) {
+    throw new Error('The URL did not return an iCalendar (ICS) file')
   }
-}
-
-/** Reads the body as UTF-8, aborting once it exceeds MAX_FEED_BYTES. */
-async function readLimited(response: Response): Promise<string> {
-  const tooLarge = 'The calendar is too large to download (over 50 MB)'
-  if (Number(response.headers.get('content-length')) > MAX_FEED_BYTES) {
-    await response.body?.cancel()
-    throw new Error(tooLarge)
-  }
-  if (!response.body) return ''
-  const reader = response.body.getReader()
-  const chunks: Uint8Array[] = []
-  let total = 0
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    total += value.byteLength
-    if (total > MAX_FEED_BYTES) {
-      await reader.cancel()
-      throw new Error(tooLarge)
-    }
-    chunks.push(value)
-  }
-  // TextDecoder drops a leading BOM, like response.text() did.
-  return new TextDecoder().decode(Buffer.concat(chunks))
+  return text
 }
 
 /** Reads an exported .ics file (file: URL). The file's mtime tells the user how old the snapshot is. */
@@ -394,14 +324,8 @@ async function readIcsFile(url: string): Promise<{ text: string; modifiedAt: str
 }
 
 function describeError(err: unknown): string {
-  if (err instanceof Error) {
-    if (err.name === 'TimeoutError') return 'Request timed out'
-    // fetch() wraps network failures; the cause has the useful detail (DNS, TLS, ...).
-    const cause = (err as Error & { cause?: unknown }).cause
-    if (err.message === 'fetch failed' && cause instanceof Error) return `Network error: ${cause.message}`
-    return err.message
-  }
-  return String(err)
+  // Network failures already carry a readable message (see NetworkError).
+  return err instanceof Error ? err.message : String(err)
 }
 
 export const syncService = new SyncService()

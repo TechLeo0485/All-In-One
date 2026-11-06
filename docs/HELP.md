@@ -210,7 +210,9 @@ on the calendar in All-In-One.
 | "Paste the ICS link from Outlook" when adding Outlook | Copy the **ICS** link from **Publish a calendar** (see [Outlook Calendar](#outlook-calendar)). |
 | Outlook events show only "Busy" | The calendar was published with less than **Can view all details**. Publish it again with full details and add the new link. |
 | "Server responded with HTTP 404" | The link is no longer valid (it was reset or deleted). Copy a new one and edit the calendar in All-In-One. |
-| "Network error" or "Request timed out" | Check your internet connection, then click refresh. |
+| "Request timed out", "The connection was interrupted" or "Couldn't find the server" | Check your internet connection, then click refresh. If you use a VPN, check that it's connected, or switch to another server. |
+| "Couldn't connect through your proxy or VPN" | Your VPN or proxy isn't running or isn't reachable. Start it (or reconnect), then click refresh. All-In-One uses the same proxy settings as your browser. |
+| "Secure connection failed" | A VPN, firewall or antivirus program is interfering with the connection. Try another VPN server, or check the program's settings. |
 | Proton account says "Login needed" | Click **Log in** on the account and sign in again. |
 | Proton account says "Sync failed" | Click **Sync now** again. If it keeps failing, use **Open Proton** → **Download ICS** (see [Option A](#option-a-connect-your-proton-account-recommended)). |
 | Invitations from Proton you declined or haven't answered look like normal events | Click **Edit** on the Proton account and check **Your email** (accounts added before version 1.0.7 need it entered once). |

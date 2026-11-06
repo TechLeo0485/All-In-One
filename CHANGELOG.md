@@ -9,7 +9,8 @@ How to use this file:
 - Write for users: what they can now do, or what works better. Not file names or code.
 -->
 
-## Unreleased
+## 1.1.2
+- Calendar links now download more reliably behind a VPN or proxy (for example Astrill): All-In-One uses your computer's proxy settings like your browser does. Slow connections get more time, a dropped connection is tried once more, and errors now say when your VPN or proxy is the likely cause.
 - Google calendars are now much less likely to be blocked ("Google is temporarily limiting requests"). When you refresh, Google links are downloaded one at a time, 15 to 45 seconds apart, starting with the one that has gone longest without syncing, so every calendar gets its turn. Waiting calendars show when they're next on **Manage calendars**.
 - **Auto-sync link calendars** is now off by default, and was turned off once on this update. Click refresh when you want new events, or turn it back on in **Settings → Sync**. When it's on, restarting the app no longer starts an extra sync.
 - Clicking a calendar's refresh button again within a minute keeps the events just downloaded instead of asking Google again. While Google is pausing requests, all your Google calendars now show the same "Paused until" time, and that pause now lasts at most 2 hours instead of up to 6. Installing an update also ends any pause, so you can refresh your Google calendars right away.
