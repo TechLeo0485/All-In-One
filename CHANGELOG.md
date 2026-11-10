@@ -9,6 +9,15 @@ How to use this file:
 - Write for users: what they can now do, or what works better. Not file names or code.
 -->
 
+## 1.2.0
+- New **Teamwork** page in the sidebar, for members of a Teamwork workspace. Sign in with your Teamwork account, then pick, for each of your calendars, which profile to share it with. Only shared calendars are sent to Teamwork, where their events become that profile's interviews. Calendars you don't share, your calendar links and your Proton logins never leave your computer.
+- A shared calendar is sent again every time it syncs: when you click its refresh button, refresh everything, when auto-sync runs, or after a Proton export. **Sync shared calendars** on the Teamwork page sends them all at once. To stop sharing, set the calendar back to **Not shared**.
+- You can also share single events without sharing their calendar: open an event and pick **Share with** and a profile under **Teamwork** in its details card. The Teamwork page lists them under **Shared one by one**, where **Stop sharing** takes one back. A shared event follows its calendar: when the invitation moves or is cancelled, Teamwork gets the change at the next sync.
+- New **Teamwork** calendar in the sidebar: interviews assigned to you on Teamwork appear on your calendar, read-only, with company, role, round and caller in their details and **Open on Teamwork**. Owners and the admin (or anyone the admin allows) see every workspace interview there. It updates by itself the moment something changes on Teamwork, without refreshing, and a desktop notification tells you when an interview is assigned to you.
+- When an interview came from one of your own shared calendars or events, it isn't shown twice: your own event shows the Teamwork details instead.
+- Shared calendars are only sent when something in them actually changed, so syncing uses less of your connection.
+- The Teamwork page also lists your workspace's interviews from yesterday to two weeks ahead, with company, role, round, profile and caller, as your role in the workspace lets you see them. **Join** opens the meeting and **Open** shows the interview on the Teamwork website.
+
 ## 1.1.2
 - Calendar links now download more reliably behind a VPN or proxy (for example Astrill): All-In-One uses your computer's proxy settings like your browser does. Slow connections get more time, a dropped connection is tried once more, and errors now say when your VPN or proxy is the likely cause.
 - Google calendars are now much less likely to be blocked ("Google is temporarily limiting requests"). When you refresh, Google links are downloaded one at a time, 15 to 45 seconds apart, starting with the one that has gone longest without syncing, so every calendar gets its turn. Waiting calendars show when they're next on **Manage calendars**.

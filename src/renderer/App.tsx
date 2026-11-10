@@ -13,6 +13,7 @@ import { HelpDialog } from './components/HelpDialog'
 import { Spinner } from './components/ui'
 import { CalendarPage } from './pages/CalendarPage'
 import { CalendarsPage } from './pages/CalendarsPage'
+import { CallerPage } from './pages/CallerPage'
 import { PipelinePage } from './pages/PipelinePage'
 import { SettingsPage } from './pages/SettingsPage'
 
@@ -53,6 +54,7 @@ export default function App() {
             {view === 'calendar' && <CalendarPage />}
             {view === 'pipeline' && <PipelinePage />}
             {view === 'calendars' && <CalendarsPage />}
+            {view === 'caller' && <CallerPage />}
             {view === 'settings' && <SettingsPage />}
           </ErrorBoundary>
         </main>

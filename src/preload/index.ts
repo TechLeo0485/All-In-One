@@ -93,6 +93,24 @@ const api: CalendarApi = {
       ipcRenderer.on(IPC.protonAccountsChanged, listener)
       return () => ipcRenderer.removeListener(IPC.protonAccountsChanged, listener)
     }
+  },
+  caller: {
+    status: () => ipcRenderer.invoke(IPC.callerStatus),
+    signIn: (serverUrl, email, password) => ipcRenderer.invoke(IPC.callerSignIn, serverUrl, email, password),
+    signOut: () => ipcRenderer.invoke(IPC.callerSignOut),
+    selectWorkspace: (slug) => ipcRenderer.invoke(IPC.callerSelectWorkspace, slug),
+    listShares: () => ipcRenderer.invoke(IPC.callerListShares),
+    share: (localCalendarId, profileId) => ipcRenderer.invoke(IPC.callerShare, localCalendarId, profileId),
+    unshare: (localCalendarId) => ipcRenderer.invoke(IPC.callerUnshare, localCalendarId),
+    syncShared: () => ipcRenderer.invoke(IPC.callerSyncShared),
+    interviews: () => ipcRenderer.invoke(IPC.callerInterviews),
+    eventShare: (eventId) => ipcRenderer.invoke(IPC.callerEventShare, eventId),
+    shareEvent: (eventId, profileId) => ipcRenderer.invoke(IPC.callerShareEvent, eventId, profileId),
+    onChanged: (callback) => {
+      const listener = (): void => callback()
+      ipcRenderer.on(IPC.callerChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.callerChanged, listener)
+    }
   }
 }
 

@@ -7,6 +7,7 @@ import { CalendarSourceDialog } from '../components/CalendarSourceDialog'
 import { ProtonAccountCard } from '../components/ProtonAccountCard'
 import { PlusIcon, RefreshIcon } from '../components/icons'
 import { Button, Spinner } from '../components/ui'
+import { isTeamworkSource } from '@shared/sources'
 
 /**
  * Manage calendars: connected Proton accounts (each with its calendars and its own
@@ -24,7 +25,8 @@ export function CalendarsPage() {
   const busy = running || accounts.some((a) => a.status === 'syncing')
   // Calendars of a removed account (shouldn't happen) stay reachable in the second list.
   const linked = useMemo(
-    () => calendars.filter((c) => !c.accountId || !accounts.some((a) => a.id === c.accountId)),
+    // The Teamwork calendar is managed on the Teamwork page.
+    () => calendars.filter((c) => !isTeamworkSource(c.sourceUrl) && (!c.accountId || !accounts.some((a) => a.id === c.accountId))),
     [calendars, accounts]
   )
   const editCalendar = (calendar: CalendarSource): void => setDialog({ calendar })

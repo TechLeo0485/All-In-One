@@ -16,4 +16,14 @@ export function useSyncSubscription(): void {
   useEffect(() => window.api.notifications.onOpenEvent(openEvent), [openEvent])
   // e.g. a status picked on a "How did it go?" notification
   useEffect(() => window.api.events.onChanged(refreshEvents), [refreshEvents])
+  // Live updates from the Teamwork workspace: the Teamwork calendar and interview details.
+  const loadCalendars = useAppStore((s) => s.loadCalendars)
+  useEffect(
+    () =>
+      window.api.caller.onChanged(() => {
+        void loadCalendars()
+        refreshEvents()
+      }),
+    [loadCalendars, refreshEvents]
+  )
 }

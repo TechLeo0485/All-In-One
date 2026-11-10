@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
-import type { AttendeeStatus, CalendarEvent, EventAttendee } from '@shared/types'
+import type { AttendeeStatus, CalendarEvent, CallerEventShare, EventAttendee } from '@shared/types'
 import { DEFAULT_EVENT_STATUSES, DEFAULT_IMPORTANT_COLOR, findStatus, FOLLOW_UP_ID } from '@shared/eventStatus'
 import { findMeetingUrl } from '@shared/meetingLink'
 import { describeRecurrence } from '@shared/recurrence'
@@ -17,6 +17,7 @@ import {
 } from '../utils/dates'
 import { linkify } from '../utils/linkify'
 import { renderDescription } from '../utils/richText'
+import { errorMessage } from '../utils/errors'
 import { placeNextTo } from '../utils/placement'
 import { BellIcon, ClockIcon, ExternalIcon, LockIcon, MapPinIcon, RepeatIcon, StarIcon, UsersIcon, XIcon } from './icons'
 import { NotesEditor } from './NotesEditor'
@@ -156,6 +157,91 @@ function StatusPicker({ event }: { event: CalendarEvent }) {
         </button>
       </div>
       {current === FOLLOW_UP_ID && <FollowUpReminder key={event.id} event={event} />}
+    </div>
+  )
+}
+
+/**
+ * Shares just this event with a Teamwork profile, without sharing its calendar.
+ * Shown only while signed in to Teamwork (the Teamwork page in the sidebar).
+ */
+function TeamworkShare({ event }: { event: CalendarEvent }) {
+  const [state, setState] = useState<CallerEventShare | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    window.api.caller
+      .eventShare(event.id)
+      .then((s) => alive && setState(s))
+      .catch(() => alive && setState(null))
+    return () => {
+      alive = false
+    }
+  }, [event.id])
+
+  if (!state?.signedIn) return null
+
+  async function pick(profileId: string | null) {
+    setBusy(true)
+    setError(null)
+    try {
+      setState(await window.api.caller.shareEvent(event.id, profileId))
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const info = state.teamwork && (
+    <p className="flex flex-wrap items-center gap-2 text-slate-300">
+      <span className="min-w-0 break-words">{state.teamwork.label}</span>
+      <a href={state.teamwork.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-400 hover:underline">
+        <ExternalIcon size={11} /> Open on Teamwork
+      </a>
+    </p>
+  )
+
+  if (state.fromTeamwork) {
+    return (
+      <div className="space-y-1 pl-6 text-xs">
+        <span className="text-slate-400">From Teamwork{state.workspaceName ? ` · ${state.workspaceName}` : ''} · read-only</span>
+        {info}
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-1 pl-6 text-xs">
+      {info}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-slate-400">Teamwork{state.workspaceName ? ` · ${state.workspaceName}` : ''}</span>
+        {state.calendarSharedWith ? (
+          <span className="text-slate-300">Shared with {state.calendarSharedWith} (whole calendar)</span>
+        ) : (
+          <select
+            className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200"
+            aria-label="Share this event with a profile"
+            value={state.profileId ?? ''}
+            disabled={busy || (state.profiles.length === 0 && !state.profileId)}
+            onChange={(e) => void pick(e.target.value || null)}
+          >
+            <option value="">Not shared</option>
+            {state.profiles.map((p) => (
+              <option key={p.id} value={p.id}>
+                Share with {p.fullName}
+              </option>
+            ))}
+          </select>
+        )}
+        {busy && <Spinner className="text-slate-500" />}
+      </div>
+      {state.profiles.length === 0 && !state.calendarSharedWith && !state.error && (
+        <p className="text-slate-500">You don&apos;t work any profile in this workspace yet.</p>
+      )}
+      {(error ?? state.error) && <p className="text-red-300">{error ?? state.error}</p>}
     </div>
   )
 }
@@ -458,6 +544,7 @@ export function EventDetailsPanel() {
             {event.attendees.length > 0 && <GuestList key={event.id} attendees={event.attendees} />}
             <ImportantToggle event={event} />
             <StatusPicker event={event} />
+            {!event.isLocalEvent && <TeamworkShare key={event.id} event={event} />}
           </section>
 
           {/* Notes sit right under the event summary so they're visible without scrolling past long descriptions. */}

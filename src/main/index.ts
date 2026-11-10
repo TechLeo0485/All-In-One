@@ -15,6 +15,7 @@ import { noteImageRepository } from './database/noteImageRepository'
 import { settingsRepository } from './database/settingsRepository'
 import { protonAccountService } from './services/proton/protonAccountService'
 import { registerIpcHandlers } from './ipc/registerHandlers'
+import { callerService } from './services/caller/callerService'
 import { syncService } from './sync/syncService'
 import { hostBackoff } from './sync/hostBackoff'
 import { reminderService } from './services/reminderService'
@@ -271,6 +272,9 @@ if (!app.requestSingleInstanceLock()) {
       sendToRenderer(IPC.syncStatusChanged, status)
       if (!status.running) reminderService.refresh() // also updates the tray
     })
+
+    // Teamwork: the live connection keeps the Teamwork calendar current (no polling).
+    callerService.startLive()
 
     trayService.create({
       show: () => showWindow(),

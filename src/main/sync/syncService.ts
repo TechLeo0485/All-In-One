@@ -4,7 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { app } from 'electron'
 import { APP_NAME } from '@shared/brand'
 import type { CalendarSource, CalendarSyncResult, SyncStatus } from '@shared/types'
-import { hostOf, isAutoSyncSource, isFileSource, isGoogleCalendarUrl, normalizeFeedUrl } from '@shared/sources'
+import { hostOf, isAutoSyncSource, isFileSource, isGoogleCalendarUrl, isTeamworkSource, normalizeFeedUrl } from '@shared/sources'
 import { accountRepository } from '../database/accountRepository'
 import { calendarRepository } from '../database/calendarRepository'
 import { eventRepository } from '../database/eventRepository'
@@ -35,6 +35,8 @@ const MIN_REFETCH_MS = 60_000
 const MAX_FEED_BYTES = 50 * 1024 * 1024
 
 type StatusListener = (status: SyncStatus) => void
+/** Told about every calendar that synced successfully, with the ICS text it read. */
+type SyncedListener = (calendar: CalendarSource, ics: string) => void
 
 /**
  * Read-only sync of ICS feeds into the local SQLite cache. Nothing is ever written
@@ -57,6 +59,7 @@ class SyncService {
   /** A queued-but-not-started full sync; further syncAll() calls join it. */
   private pendingFull: Promise<SyncStatus> | null = null
   private listeners = new Set<StatusListener>()
+  private syncedListeners = new Set<SyncedListener>()
   /** Warnings that survive a successful read (e.g. "not found in Proton anymore"). */
   private warnings = new Map<string, string>()
 
@@ -72,6 +75,12 @@ class SyncService {
   onStatusChange(listener: StatusListener): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
+  }
+
+  /** Every successful sync of a calendar (manual, all, auto or a Proton export), with its ICS text. */
+  onCalendarSynced(listener: SyncedListener): () => void {
+    this.syncedListeners.add(listener)
+    return () => this.syncedListeners.delete(listener)
   }
 
   /**
@@ -120,6 +129,8 @@ class SyncService {
   }
 
   private async run(calendars: CalendarSource[], reuseRecent = false): Promise<SyncStatus> {
+    // The Teamwork calendar has no link: the Teamwork connection keeps it current.
+    calendars = calendars.filter((c) => !isTeamworkSource(c.sourceUrl))
     if (reuseRecent) {
       const recent = calendars.map((c) => this.recentResult(c))
       const reused = recent.filter((r) => r !== null)
@@ -194,6 +205,14 @@ class SyncService {
       eventRepository.replaceCalendarEvents(calendar.id, events)
       calendarRepository.setSyncSuccess(calendar.id, this.warnings.get(calendar.id) ?? null)
       if (host) hostBackoff.recordSuccess(host)
+      for (const listener of this.syncedListeners) {
+        // A listener (e.g. sharing to Caller) must never break the sync itself.
+        try {
+          listener(calendar, text)
+        } catch (err) {
+          console.error('[sync] synced listener failed:', err)
+        }
+      }
       return { calendarId: calendar.id, ok: true, eventCount: events.length, sourceModifiedAt: modifiedAt }
     } catch (err) {
       let message: string

@@ -419,4 +419,127 @@ export interface CalendarApi {
     syncAll(): Promise<void>
     onAccountsChanged(callback: (accounts: ProtonAccount[]) => void): () => void
   }
+  caller: {
+    status(): Promise<CallerStatus>
+    signIn(serverUrl: string, email: string, password: string): Promise<CallerStatus>
+    signOut(): Promise<CallerStatus>
+    selectWorkspace(slug: string): Promise<CallerStatus>
+    /** This app's calendars with what each shares in the chosen workspace, and the profiles it can share to. */
+    listShares(): Promise<CallerShares>
+    /** Shares a calendar with a profile; it is uploaded right away and on every later sync. */
+    share(localCalendarId: string, profileId: string): Promise<CallerShares>
+    /** Stops sharing (upcoming interviews nobody worked on are removed in the workspace). */
+    unshare(localCalendarId: string): Promise<CallerShares>
+    /** Syncs every shared calendar now (Proton accounts are exported first); each upload follows. */
+    syncShared(): Promise<CallerSyncResult[]>
+    /** Workspace interviews the member may see, from yesterday to two weeks ahead. */
+    interviews(): Promise<CallerInterview[]>
+    /** Whether one event is shared on its own, and the profiles it can be shared with. */
+    eventShare(eventId: string): Promise<CallerEventShare>
+    /** Shares one event with a profile without sharing its calendar (null: stop sharing it). */
+    shareEvent(eventId: string, profileId: string | null): Promise<CallerEventShare>
+    /** The Teamwork calendar or interview details changed (live update from the workspace). */
+    onChanged(callback: () => void): () => void
+  }
+}
+
+/* ---------- Caller server (interviews of the Caller project) ---------- */
+
+export interface CallerWorkspace {
+  slug: string
+  name: string
+  /** Owners and the admin share calendars with any profile; others with the profiles they work. */
+  canShareAny: boolean
+}
+
+export interface CallerStatus {
+  signedIn: boolean
+  /** Address of the Caller website, e.g. https://caller.example.com */
+  serverUrl: string
+  email: string
+  userName: string
+  workspaces: CallerWorkspace[]
+  workspaceSlug: string | null
+  lastSyncAt: string | null
+}
+
+/** One of this app's calendars, and what it shares in the chosen workspace. */
+export interface CallerShareRow {
+  localCalendarId: string
+  name: string
+  color: string
+  /** Where the calendar comes from: "Proton · Work", a web host, or "File". */
+  source: string
+  /** Why it can't be shared (it is the Teamwork calendar, or a Teamwork feed), or null. */
+  blocked: string | null
+  share: {
+    connectionId: string
+    profileId: string
+    profileName: string
+    lastUploadAt: string | null
+    lastError: string | null
+    eventCount: number | null
+  } | null
+}
+
+export interface CallerProfile {
+  id: string
+  fullName: string
+}
+
+export interface CallerShares {
+  calendars: CallerShareRow[]
+  /** Profiles the member may share to in the chosen workspace. */
+  profiles: CallerProfile[]
+  /** Single events shared without their calendar, per profile. */
+  picks: CallerPick[]
+}
+
+/** Events shared one by one with a profile (sent as one "picked interviews" calendar). */
+export interface CallerPick {
+  profileId: string
+  profileName: string
+  events: Array<{ id: string; title: string; startTime: string; missing: boolean }>
+  lastUploadAt: string | null
+  lastError: string | null
+}
+
+/** One event's sharing state in the chosen workspace. */
+export interface CallerEventShare {
+  signedIn: boolean
+  workspaceName: string | null
+  profiles: CallerProfile[]
+  /** The profile this event is shared with on its own, if any. */
+  profileId: string | null
+  /** Its whole calendar is already shared (then it's on Teamwork already). */
+  calendarSharedWith: string | null
+  /** The event is on the Teamwork calendar (it came from the workspace). */
+  fromTeamwork: boolean
+  /** The workspace's interview behind this event: "Acme – Engineer · Round 2 · Caller: Ann". */
+  teamwork: { label: string; url: string } | null
+  error: string | null
+}
+
+/** A workspace interview, as the member's role and permissions let them see it. */
+export interface CallerInterview {
+  id: string
+  title: string
+  start: string
+  end: string
+  company: string | null
+  role: string | null
+  /** "Round 2 of 3" */
+  round: string | null
+  profile: string | null
+  caller: string | null
+  cancelled: boolean
+  meetingUrl: string | null
+  /** The interview on the Caller website. */
+  url: string
+}
+
+export interface CallerSyncResult {
+  name: string
+  ok: boolean
+  message: string
 }

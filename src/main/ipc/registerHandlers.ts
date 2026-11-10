@@ -11,6 +11,7 @@ import { settingsRepository } from '../database/settingsRepository'
 import { isFileSource } from '@shared/sources'
 import { findStatus } from '@shared/eventStatus'
 import { MAX_NOTE_IMAGE_BYTES, NOTE_IMAGE_TYPES } from '@shared/noteImages'
+import { callerService } from '../services/caller/callerService'
 import { fileSourceService } from '../services/fileSourceService'
 import { protonAccountService } from '../services/proton/protonAccountService'
 import { reminderService } from '../services/reminderService'
@@ -196,4 +197,32 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
   // Don't make the renderer wait for a multi-minute export; progress arrives via push events.
   handle(IPC.protonSyncAccount, (_e, id) => void protonAccountService.sync(v.id(id)))
   handle(IPC.protonSyncAll, () => void protonAccountService.syncAll())
+
+  // Caller server (the renderer never sees the session token)
+  handle(IPC.callerStatus, () => callerService.status())
+  handle(IPC.callerSignIn, (_e, serverUrl, email, password) =>
+    callerService.signIn(
+      v.str(serverUrl, 'Caller address', { required: true, max: 300 }),
+      v.str(email, 'Email', { required: true, max: 254 }),
+      // Passwords are sent as typed (not trimmed).
+      typeof password === 'string' && password.length > 0 && password.length <= 200
+        ? password
+        : (() => {
+            throw new Error('Password is required')
+          })()
+    )
+  )
+  handle(IPC.callerSignOut, () => callerService.signOut())
+  handle(IPC.callerSelectWorkspace, (_e, slug) => callerService.selectWorkspace(v.str(slug, 'Workspace', { required: true, max: 64 })))
+  handle(IPC.callerListShares, () => callerService.listShares())
+  handle(IPC.callerShare, (_e, localCalendarId, profileId) =>
+    callerService.share(v.id(localCalendarId), v.str(profileId, 'Profile', { required: true, max: 64 }))
+  )
+  handle(IPC.callerUnshare, (_e, localCalendarId) => callerService.unshare(v.id(localCalendarId)))
+  handle(IPC.callerSyncShared, () => callerService.syncShared())
+  handle(IPC.callerInterviews, () => callerService.interviews())
+  handle(IPC.callerEventShare, (_e, eventId) => callerService.eventShare(v.id(eventId)))
+  handle(IPC.callerShareEvent, (_e, eventId, profileId) =>
+    callerService.shareEvent(v.id(eventId), profileId === null ? null : v.str(profileId, 'Profile', { required: true, max: 64 }))
+  )
 }

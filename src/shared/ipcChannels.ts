@@ -63,5 +63,18 @@ export const IPC = {
   protonSyncAccount: 'proton:syncAccount',
   protonSyncAll: 'proton:syncAll',
   /** main -> renderer push */
-  protonAccountsChanged: 'proton:accountsChanged'
+  protonAccountsChanged: 'proton:accountsChanged',
+
+  callerStatus: 'caller:status',
+  callerSignIn: 'caller:signIn',
+  callerSignOut: 'caller:signOut',
+  callerSelectWorkspace: 'caller:selectWorkspace',
+  callerListShares: 'caller:listShares',
+  callerShare: 'caller:share',
+  callerUnshare: 'caller:unshare',
+  callerSyncShared: 'caller:syncShared',
+  callerInterviews: 'caller:interviews',
+  callerEventShare: 'caller:eventShare',
+  callerShareEvent: 'caller:shareEvent',
+  callerChanged: 'caller:changed'
 } as const

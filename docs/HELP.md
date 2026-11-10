@@ -5,12 +5,15 @@ All-In-One shows your Google, Outlook and Proton calendars together in one place
 All-In-One only **reads** your calendars. It never changes anything in Google, Outlook or Proton. To add or edit an event in
 those calendars, use Google, Outlook or Proton as usual; the change shows up in All-In-One after the next sync.
 
+Members of a Teamwork workspace can also [share calendars with Teamwork](#sharing-calendars-with-teamwork).
+
 - [Google Calendar](#google-calendar)
 - [Outlook Calendar](#outlook-calendar)
 - [Proton Calendar](#proton-calendar)
   - [Option A: Connect your Proton account (free or paid)](#option-a-connect-your-proton-account-recommended)
   - [Option B: Share link (paid Proton plans)](#option-b-share-link-paid-proton-plans)
   - [Option C: Exported file (free or paid)](#option-c-exported-file)
+- [Sharing calendars with Teamwork](#sharing-calendars-with-teamwork)
 - [How syncing works](#how-syncing-works)
 - [Problems?](#problems)
 
@@ -181,6 +184,38 @@ on the calendar in All-In-One.
 
 ---
 
+## Sharing calendars with Teamwork
+
+If you work in a Teamwork workspace, you can send some of your calendars there. Each shared calendar belongs to one
+profile; its events become that profile's interviews on Teamwork, where company, role and caller are filled in.
+
+1. Click **Teamwork** in the sidebar.
+2. Enter the address you open Teamwork at (for example `http://teamwork.newtech.gg`), your Teamwork email and password,
+   then click **Sign in**.
+3. If you're in several workspaces, choose one at the top right.
+4. Next to each calendar, pick **Share with** and the profile it belongs to. It's sent right away.
+
+### Good to know
+
+- Only shared calendars leave your computer, and only their events (title, time, guests, place and description). Your
+  calendar links, Proton logins and unshared calendars stay in All-In-One.
+- A shared calendar is sent again every time it syncs (its refresh button, refresh everything, auto-sync, or a Proton
+  export). **Sync shared calendars** sends them all now.
+- To share just one event, not its whole calendar, open the event and pick **Share with** under **Teamwork** in its
+  details card. These are listed on the Teamwork page under **Shared one by one**. They're sent again whenever their
+  calendar syncs, so a moved or cancelled invitation follows.
+- You can share only with the profiles you work. Owners and the admin can share with any profile.
+- To stop sharing, pick **Not shared**. Teamwork removes the calendar's upcoming interviews that nobody has worked on yet.
+- **Workspace interviews** at the bottom shows the interviews from yesterday to two weeks ahead that your role lets you see.
+  **Open** shows one on the Teamwork website.
+- The **Teamwork** calendar in the sidebar shows the interviews assigned to you (owners and the admin see all of them).
+  It's read-only and updates by itself whenever something changes on Teamwork; you get a notification when an interview
+  is assigned to you. Interviews that came from your own shared events show their Teamwork details on your event instead.
+- A Teamwork feed added as a link calendar can't be shared back: its interviews are on Teamwork already.
+- Signing out keeps your sharing choices, and removes the Teamwork calendar until you sign in again.
+
+---
+
 ## How syncing works
 
 | Calendar type | When it updates |
@@ -213,6 +248,9 @@ on the calendar in All-In-One.
 | "Request timed out", "The connection was interrupted" or "Couldn't find the server" | Check your internet connection, then click refresh. If you use a VPN, check that it's connected, or switch to another server. |
 | "Couldn't connect through your proxy or VPN" | Your VPN or proxy isn't running or isn't reachable. Start it (or reconnect), then click refresh. All-In-One uses the same proxy settings as your browser. |
 | "Secure connection failed" | A VPN, firewall or antivirus program is interfering with the connection. Try another VPN server, or check the program's settings. |
+| "Missing or null Origin" when signing in to Teamwork | Update All-In-One to 1.2.0 or later, then sign in again. |
+| "You can only share calendars with the profiles you work" | Ask a Teamwork owner to add you to that profile, or share with one of your own profiles. |
+| A shared calendar shows an error on the Teamwork page | Click **Sync shared calendars**. If Teamwork removed the calendar, it goes back to **Not shared**; share it again if you still want to. |
 | Proton account says "Login needed" | Click **Log in** on the account and sign in again. |
 | Proton account says "Sync failed" | Click **Sync now** again. If it keeps failing, use **Open Proton** → **Download ICS** (see [Option A](#option-a-connect-your-proton-account-recommended)). |
 | Invitations from Proton you declined or haven't answered look like normal events | Click **Edit** on the Proton account and check **Your email** (accounts added before version 1.0.7 need it entered once). |

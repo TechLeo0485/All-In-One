@@ -167,3 +167,9 @@ export const MoonIcon = (p: IconProps) => (
     <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
   </Icon>
 )
+export const CloudUploadIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 14.9A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.2" />
+    <path d="M12 12v9M8 16l4-4 4 4" />
+  </Icon>
+)

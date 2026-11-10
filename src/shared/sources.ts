@@ -42,6 +42,16 @@ export function isProtonCalendarUrl(url: string): boolean {
 }
 
 /** Exported .ics files are stored as file: URLs. */
+/**
+ * The Teamwork calendar: interviews from the workspace, kept up to date by the
+ * Teamwork connection (live updates), never by syncing a link.
+ */
+export const TEAMWORK_SOURCE_PREFIX = 'teamwork:'
+
+export function isTeamworkSource(url: string): boolean {
+  return url.startsWith(TEAMWORK_SOURCE_PREFIX)
+}
+
 export function isFileSource(url: string): boolean {
   return url.trim().toLowerCase().startsWith('file:')
 }
