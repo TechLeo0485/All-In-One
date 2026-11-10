@@ -27,7 +27,8 @@ import type {
   SlotLabelContentArg
 } from '@fullcalendar/core'
 import type { EventResizeDoneArg } from '@fullcalendar/interaction'
-import type { AttendeeStatus, CalendarEvent, LocalEventInput } from '@shared/types'
+import type { AttendeeStatus, CalendarEvent, CallerTag, LocalEventInput } from '@shared/types'
+import { CallerTagChip } from '../components/CallerTag'
 import { DEFAULT_EVENT_STATUSES, DEFAULT_IMPORTANT_COLOR, findStatus } from '@shared/eventStatus'
 import { clampHourHeight, DEFAULT_HOUR_HEIGHT, HOUR_HEIGHT_STEP } from '@shared/hourHeight'
 import { LOCAL_EVENTS_KEY, useAppStore, type EventCounts } from '../stores/appStore'
@@ -134,7 +135,8 @@ export function CalendarPage() {
 
   const calendarRef = useRef<FullCalendar>(null)
   const { hourHeight, wrapperRef } = useHourHeight(settings?.hourHeight ?? DEFAULT_HOUR_HEIGHT, calendarRef)
-  const eventContent = useMemo(() => eventContentRenderer(hourHeight), [hourHeight])
+  const callerTags = useCallerTags()
+  const eventContent = useMemo(() => eventContentRenderer(hourHeight, callerTags), [hourHeight, callerTags])
   const filtersRef = useRef({ visibleCalendars, showLocal, localColor })
   const mounted = useRef(false)
 
@@ -551,6 +553,8 @@ function countEvents(events: CalendarEvent[], now: number): Record<string, Event
 const SINGLE_LINE_PX = 45
 /** Under 30px the padding and font shrink too. */
 const TINY_PX = 30
+/** Events shorter than this are always compact, whatever the hour height (as on the Teamwork website). */
+const SHORT_EVENT_MINUTES = 30
 /** From 75px the title may take two lines. */
 const TWO_LINE_TITLE_PX = 75
 
@@ -644,7 +648,8 @@ function eventHeightPx(arg: { event: EventContentArg['event'] }, hourHeight: num
 function timeGridSizeClasses(arg: { event: EventContentArg['event']; view: EventContentArg['view'] }, hourHeight: number): string[] {
   if (!isTimedTimeGridEvent(arg)) return []
   const px = eventHeightPx(arg, hourHeight)
-  if (px < TINY_PX) return ['event-tiny']
+  // As on the website: anything under 30 minutes is a compact line in a small font.
+  if (px < TINY_PX || durationMinutes(arg) < SHORT_EVENT_MINUTES) return ['event-tiny']
   if (px < SINGLE_LINE_PX) return ['event-single-line']
   return []
 }
@@ -654,28 +659,80 @@ function timeGridSizeClasses(arg: { event: EventContentArg['event']; view: Event
  * get one line ("Interview, 9:00am"), longer ones the full range on a second line.
  * Month view keeps FullCalendar's default rendering.
  */
-function eventContentRenderer(hourHeight: number) {
-  return (arg: EventContentArg): ReactElement | true => renderEventContent(arg, hourHeight)
+function eventContentRenderer(hourHeight: number, tags: Record<string, CallerTag>) {
+  return (arg: EventContentArg): ReactElement | true => renderEventContent(arg, hourHeight, tags[arg.event.id])
 }
 
-function renderEventContent(arg: EventContentArg, hourHeight: number): ReactElement | true {
-  if (!isTimedTimeGridEvent(arg)) return true
+/**
+ * Caller tags of the events that are Teamwork interviews (the Teamwork
+ * calendar, and the member's own events that became interviews). Refreshed
+ * whenever Teamwork changes.
+ */
+function useCallerTags(): Record<string, CallerTag> {
+  const [tags, setTags] = useState<Record<string, CallerTag>>({})
+  useEffect(() => {
+    let alive = true
+    const load = (): void => {
+      window.api.caller
+        .tags()
+        .then((t) => alive && setTags(t))
+        .catch(() => undefined)
+    }
+    load()
+    const off = window.api.caller.onChanged(load)
+    return () => {
+      alive = false
+      off()
+    }
+  }, [])
+  return tags
+}
+
+/** "R2" and a lock for later rounds, which stay with the earlier round's caller. */
+function roundText(tag: CallerTag | undefined): string | null {
+  return tag?.round && tag.round > 1 ? `R${tag.round}${tag.locked ? ' 🔒' : ''}` : null
+}
+
+function renderEventContent(arg: EventContentArg, hourHeight: number, tag: CallerTag | undefined): ReactElement | true {
   const { title, start } = arg.event
-  const px = eventHeightPx(arg, hourHeight)
-  if (px < SINGLE_LINE_PX) {
-    const startText = start ? arg.view.calendar.formatDate(start, TIME_FORMAT) : ''
+  if (!isTimedTimeGridEvent(arg)) {
+    if (!tag) return true
+    // Month view and all-day: FullCalendar's look, with the caller at the end.
     return (
-      <div className="truncate">
-        {title ? <span className="event-title font-medium">{title}</span> : null}
-        {title && startText ? ', ' : null}
-        {startText}
+      <div className="flex min-w-0 items-center gap-1 overflow-hidden px-0.5">
+        {arg.timeText ? <span className="shrink-0 opacity-85">{arg.timeText}</span> : null}
+        <span className="event-title min-w-0 flex-1 truncate font-medium">{title}</span>
+        <CallerTagChip tag={tag} compact />
       </div>
     )
   }
+  const px = eventHeightPx(arg, hourHeight)
+  if (px < SINGLE_LINE_PX || durationMinutes(arg) < SHORT_EVENT_MINUTES) {
+    const startText = start ? arg.view.calendar.formatDate(start, TIME_FORMAT) : ''
+    return (
+      <div className="flex min-w-0 items-center gap-1">
+        <span className="min-w-0 flex-1 truncate">
+          {title ? <span className="event-title font-medium">{title}</span> : null}
+          {title && startText ? ', ' : null}
+          {startText}
+        </span>
+        {tag && <CallerTagChip tag={tag} compact />}
+      </div>
+    )
+  }
+  const round = roundText(tag)
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {title && <div className={`event-title font-medium ${px >= TWO_LINE_TITLE_PX ? 'line-clamp-2' : 'truncate'}`}>{title}</div>}
-      <div className="truncate opacity-85">{arg.timeText}</div>
+      <div className="flex min-w-0 items-start gap-1">
+        {title && (
+          <div className={`event-title min-w-0 flex-1 font-medium ${px >= TWO_LINE_TITLE_PX ? 'line-clamp-2' : 'truncate'}`}>{title}</div>
+        )}
+        {tag && <CallerTagChip tag={tag} />}
+      </div>
+      <div className="truncate opacity-85">
+        {arg.timeText}
+        {round ? <span className="ml-1.5 font-semibold">{round}</span> : null}
+      </div>
     </div>
   )
 }

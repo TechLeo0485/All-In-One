@@ -106,6 +106,11 @@ const api: CalendarApi = {
     interviews: () => ipcRenderer.invoke(IPC.callerInterviews),
     eventShare: (eventId) => ipcRenderer.invoke(IPC.callerEventShare, eventId),
     shareEvent: (eventId, profileId) => ipcRenderer.invoke(IPC.callerShareEvent, eventId, profileId),
+    tags: () => ipcRenderer.invoke(IPC.callerTags),
+    downloadResume: (interviewId) => ipcRenderer.invoke(IPC.callerDownloadResume, interviewId),
+    uploadResume: (interviewId) => ipcRenderer.invoke(IPC.callerUploadResume, interviewId),
+    candidates: (interviewId) => ipcRenderer.invoke(IPC.callerCandidates, interviewId),
+    assign: (interviewId, callerId, force) => ipcRenderer.invoke(IPC.callerAssign, interviewId, callerId, force),
     onChanged: (callback) => {
       const listener = (): void => callback()
       ipcRenderer.on(IPC.callerChanged, listener)

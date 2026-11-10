@@ -245,15 +245,23 @@ textarea,
 .fc .fc-timegrid-event.event-single-line .fc-event-main {
   padding: 2px 6px;
 }
+/*
+ * Under 30 minutes (or too short to draw): as on the Teamwork website, no
+ * vertical padding, a 10px font and the line centred in the block, so it fits
+ * even at FullCalendar's minimum height.
+ */
 .fc .fc-timegrid-event.event-tiny .fc-event-main {
-  padding: 0 6px;
-  font-size: 0.7rem;
-  line-height: 1.15;
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 1;
+  height: 100%;
   display: flex;
   align-items: center;
+  overflow: hidden;
 }
 .fc .fc-timegrid-event.event-tiny .fc-event-main > * {
   min-width: 0;
+  flex: 1 1 auto;
 }
 /* Timezone label in the corner of the time axis (Week/Day). */
 .fc .fc-col-header .fc-timegrid-axis-cushion {

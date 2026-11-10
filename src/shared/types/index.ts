@@ -436,6 +436,16 @@ export interface CalendarApi {
     interviews(): Promise<CallerInterview[]>
     /** Whether one event is shared on its own, and the profiles it can be shared with. */
     eventShare(eventId: string): Promise<CallerEventShare>
+    /** Caller tags of the events that are Teamwork interviews. */
+    tags(): Promise<Record<string, CallerTag>>
+    /** Saves the interview's resume where the member picks; the saved path, or null when cancelled. */
+    downloadResume(interviewId: string): Promise<string | null>
+    /** Picks a PDF or Word file and makes it the interview's resume on Teamwork; its name, or null when cancelled. */
+    uploadResume(interviewId: string): Promise<string | null>
+    /** The callers to choose from for an interview, the recommended one first. */
+    candidates(interviewId: string): Promise<CallerCandidate[]>
+    /** Gives the interview to a caller (null: nobody). `force` moves a locked later round (admin). */
+    assign(interviewId: string, callerId: string | null, force: boolean): Promise<CallerAssignResult>
     /** Shares one event with a profile without sharing its calendar (null: stop sharing it). */
     shareEvent(eventId: string, profileId: string | null): Promise<CallerEventShare>
     /** The Teamwork calendar or interview details changed (live update from the workspace). */
@@ -516,8 +526,61 @@ export interface CallerEventShare {
   /** The event is on the Teamwork calendar (it came from the workspace). */
   fromTeamwork: boolean
   /** The workspace's interview behind this event: "Acme – Engineer · Round 2 · Caller: Ann". */
-  teamwork: { label: string; url: string } | null
+  teamwork: { label: string; url: string; interview: TeamworkInterview | null } | null
   error: string | null
+}
+
+/** Who takes a Teamwork interview, as its calendar event shows it. */
+export interface TeamworkCaller {
+  name: string
+  level: number | null
+  color: string
+  /** The signed-in member takes it. */
+  mine: boolean
+}
+
+/** A Teamwork interview's people and resume, for the details card. */
+export interface TeamworkInterview {
+  id: string
+  company: string | null
+  role: string | null
+  /** "Round 2 of 3" */
+  round: string | null
+  /** A later round stays with the earlier round's caller. */
+  locked: boolean
+  profile: string | null
+  bidders: string[]
+  caller: TeamworkCaller | null
+  resume: { filename: string; size: number } | null
+  /** The member may add or replace the resume (owners, the admin, the profile's bidders) once company and role are in. */
+  canUploadResume: boolean
+  /** Company and role are filled in, so a resume can be added. */
+  hasDetails: boolean
+  /** The member may choose the caller (Teamwork's "assign interviews" permission). */
+  canAssign: boolean
+  callerId: string | null
+}
+
+/** A caller to choose from when assigning an interview, as Teamwork recommends them. */
+export interface CallerCandidate {
+  userId: string
+  name: string
+  level: number | null
+  /** free: can take it; busy: has another interview then; unavailable: outside their hours. */
+  status: 'free' | 'busy' | 'unavailable'
+  /** Interviews in the 30 days before and after. */
+  interviewCount: number
+  recommended: boolean
+}
+
+/** Assigning a caller: done, or a locked later round the member may still move after confirming. */
+export type CallerAssignResult = { ok: true } | { ok: false; locked: string }
+
+/** The caller tag on a calendar event that is a Teamwork interview (local event id → tag). */
+export interface CallerTag {
+  caller: TeamworkCaller | null
+  round: number | null
+  locked: boolean
 }
 
 /** A workspace interview, as the member's role and permissions let them see it. */

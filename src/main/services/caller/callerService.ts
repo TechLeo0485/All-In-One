@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
-import { BrowserWindow, Notification, safeStorage, shell } from 'electron'
+import { readFile, stat, writeFile } from 'node:fs/promises'
+import { basename, extname, join } from 'node:path'
+import { app, BrowserWindow, dialog, Notification, safeStorage, shell } from 'electron'
 import { IPC } from '@shared/ipcChannels'
 import { hostOf, isFileSource, isTeamworkSource, TEAMWORK_SOURCE_PREFIX } from '@shared/sources'
 import type {
@@ -13,8 +15,12 @@ import type {
   CallerShareRow,
   CallerShares,
   CallerStatus,
+  CallerAssignResult,
+  CallerCandidate,
   CallerSyncResult,
-  CallerWorkspace
+  CallerTag,
+  CallerWorkspace,
+  TeamworkInterview
 } from '@shared/types'
 import { accountRepository } from '../../database/accountRepository'
 import { calendarRepository } from '../../database/calendarRepository'
@@ -102,6 +108,13 @@ const LIVE_FUTURE_DAYS = 60
 const LIVE_DEBOUNCE_MS = 500
 const LIVE_RETRY_MIN_MS = 2_000
 const LIVE_RETRY_MAX_MS = 60_000
+/** Resumes: PDF or Word, up to 10 MB (as Teamwork allows). */
+const MAX_RESUME_BYTES = 10 * 1024 * 1024
+const RESUME_TYPES: Record<string, string> = {
+  '.pdf': 'application/pdf',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+}
 
 /** An interview as `GET /events/app` returns it (only the fields used here). */
 interface AppInterview {
@@ -124,11 +137,18 @@ interface AppInterview {
       role: string | null
       round: number | null
       rounds: number | null
+      lockedTo: { name: string } | null
+      /** Older Teamwork servers don't send these. */
+      caller?: { userId: string; name: string; level: number | null; color: string } | null
+      bidders?: Array<{ userId: string; name: string }>
+      resume?: { attachmentId: string; filename: string; size: number } | null
+      canManageResume?: boolean
+      canAssign?: boolean
     } | null
   }
 }
 
-type Annotations = Record<string, { label: string; url: string }>
+type Annotations = Record<string, { label: string; url: string; interviewId?: string }>
 
 /** A calendar as Teamwork returns it after an upload. */
 interface ServerCalendar {
@@ -335,8 +355,12 @@ class CallerService {
           `/workspaces/${slug}/events/app?ids=${ids.slice(i, i + 200).join(',')}`
         )
         for (const id of page.removed) this.interviewsById.delete(id)
-        for (const item of page.items) this.interviewsById.set(item.event.id, item)
-        for (const item of page.items) if (assigned.has(item.event.id) && item.assignedToMe) this.notifyAssigned(slug, item)
+        for (const item of page.items) {
+          const before = this.interviewsById.get(item.event.id)
+          this.interviewsById.set(item.event.id, item)
+          if (assigned.has(item.event.id) && item.assignedToMe) this.notifyAssigned(slug, item)
+          else if (before && item.assignedToMe && this.resumeAdded(before, item)) this.notifyResume(item)
+        }
       }
       this.rebuildTeamwork(slug)
     } catch (err) {
@@ -368,6 +392,175 @@ class CallerService {
     return [this.labelOf(i), round, d?.profile?.fullName, caller ? `Caller: ${caller}` : 'No caller yet'].filter(Boolean).join(' · ')
   }
 
+  /** Who takes it: the caller Teamwork names, or the first assignee on older servers. */
+  private callerOf(i: AppInterview): TeamworkInterview['caller'] {
+    const c = i.event.interview?.caller ?? (i.event.assignees[0] ? { ...i.event.assignees[0], level: null, color: '#7c3aed' } : null)
+    return c ? { name: c.name, level: c.level, color: c.color, mine: i.assignedToMe } : null
+  }
+
+  private interviewOf(i: AppInterview): TeamworkInterview {
+    const d = i.event.interview
+    return {
+      id: i.event.id,
+      company: d?.company?.name ?? null,
+      role: d?.role ?? null,
+      round: d?.round ? (d.rounds && d.rounds > 1 ? `Round ${d.round} of ${d.rounds}` : `Round ${d.round}`) : null,
+      locked: Boolean(d?.lockedTo),
+      profile: d?.profile?.fullName ?? null,
+      bidders: (d?.bidders ?? []).map((b) => b.name),
+      caller: this.callerOf(i),
+      resume: d?.resume ? { filename: d.resume.filename, size: d.resume.size } : null,
+      canUploadResume: Boolean(d?.canManageResume),
+      hasDetails: Boolean(d?.company && d.role),
+      canAssign: Boolean(d?.canAssign) && i.event.status !== 'cancelled',
+      callerId: d?.caller?.userId ?? i.event.assignees[0]?.userId ?? null
+    }
+  }
+
+  /** The callers to choose from, as Teamwork's assignment rule ranks them (recommended first). */
+  async candidates(interviewId: string): Promise<CallerCandidate[]> {
+    const slug = this.requireWorkspace()
+    const rec = await this.request<{
+      candidates: Array<{
+        caller: { id: string; name: string; level: number | null }
+        interviewCount: number
+        status: CallerCandidate['status']
+        recommended: boolean
+      }>
+    }>(`/workspaces/${slug}/events/${encodeURIComponent(interviewId)}/recommendation`)
+    const list = rec.candidates.map((c) => ({
+      userId: c.caller.id,
+      name: c.caller.name,
+      level: c.caller.level,
+      status: c.status,
+      interviewCount: c.interviewCount,
+      recommended: c.recommended
+    }))
+    return [...list.filter((c) => c.recommended), ...list.filter((c) => !c.recommended)]
+  }
+
+  /**
+   * Gives the interview to a caller. A later round stays with the earlier
+   * round's caller: others are refused, the admin is asked first (`locked`),
+   * then sends `force`.
+   */
+  async assign(interviewId: string, callerId: string | null, force: boolean): Promise<CallerAssignResult> {
+    const slug = this.requireWorkspace()
+    try {
+      await this.request(`/workspaces/${slug}/events/${encodeURIComponent(interviewId)}/caller`, {
+        method: 'PUT',
+        body: { callerId, force, notify: true }
+      })
+    } catch (err) {
+      if (err instanceof CallerError && err.status === 409) return { ok: false, locked: err.message }
+      throw err
+    }
+    const page = await this.request<{ items: AppInterview[]; removed: string[] }>(
+      `/workspaces/${slug}/events/app?ids=${encodeURIComponent(interviewId)}`
+    )
+    for (const id of page.removed) this.interviewsById.delete(id)
+    for (const item of page.items) this.interviewsById.set(item.event.id, item)
+    this.rebuildTeamwork(slug)
+    return { ok: true }
+  }
+
+  private tagOf(i: AppInterview): CallerTag {
+    return { caller: this.callerOf(i), round: i.event.interview?.round ?? null, locked: Boolean(i.event.interview?.lockedTo) }
+  }
+
+  /** Caller tags of the events that are Teamwork interviews (built with the Teamwork calendar). */
+  private tagsByEvent: Record<string, CallerTag> = {}
+
+  tags(): Record<string, CallerTag> {
+    return this.tagsByEvent
+  }
+
+  private resumeAdded(before: AppInterview, after: AppInterview): boolean {
+    const next = after.event.interview?.resume?.attachmentId
+    return Boolean(next && next !== before.event.interview?.resume?.attachmentId)
+  }
+
+  /**
+   * Picks a PDF or Word file and makes it the interview's resume on Teamwork,
+   * as the website does: an upload target for the profile + company + role,
+   * the file to storage, then attached (the old one is replaced, the caller told).
+   */
+  async uploadResume(interviewId: string): Promise<string | null> {
+    const slug = this.requireWorkspace()
+    const win = BrowserWindow.getFocusedWindow()
+    const options = {
+      title: 'Upload resume',
+      properties: ['openFile' as const],
+      filters: [{ name: 'Resume (PDF or Word)', extensions: ['pdf', 'doc', 'docx'] }]
+    }
+    const picked = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
+    const path = picked.canceled ? undefined : picked.filePaths[0]
+    if (!path) return null
+    const contentType = RESUME_TYPES[extname(path).toLowerCase()]
+    if (!contentType) throw new CallerError('A resume must be a PDF or Word file (.pdf, .doc or .docx).')
+    const { size } = await stat(path)
+    if (size === 0) throw new CallerError('This file is empty.')
+    if (size > MAX_RESUME_BYTES) throw new CallerError('A resume can be at most 10 MB.')
+    const data = await readFile(path)
+    const filename = basename(path).slice(0, 200)
+
+    const { targetId } = await this.request<{ targetId: string }>(`/workspaces/${slug}/events/${interviewId}/resume/slot`, { method: 'POST', body: {} })
+    const ticket = await this.request<{ attachment: { id: string }; upload: { url: string; headers: Record<string, string> } }>(
+      `/workspaces/${slug}/files/uploads`,
+      { method: 'POST', body: { targetType: 'interview_resume', targetId, filename, contentType, size } }
+    )
+    const uploadUrl = /^https?:\/\//i.test(ticket.upload.url) ? ticket.upload.url : `${this.connection().serverUrl}${ticket.upload.url}`
+    let stored: Response
+    try {
+      stored = await fetch(uploadUrl, { method: 'PUT', headers: ticket.upload.headers, body: data, signal: AbortSignal.timeout(5 * 60_000) })
+    } catch {
+      throw new CallerError('The resume could not be uploaded. Check the internet connection.')
+    }
+    if (!stored.ok) throw new CallerError(`Teamwork's file storage refused the upload (${stored.status}).`)
+    await this.request(`/workspaces/${slug}/files/${ticket.attachment.id}/complete`, { method: 'POST', body: {} })
+    await this.request(`/workspaces/${slug}/events/${interviewId}/resume/file`, { method: 'PUT', body: { attachmentId: ticket.attachment.id } })
+
+    // Show it right away; Teamwork's live update follows for everyone else.
+    const page = await this.request<{ items: AppInterview[] }>(`/workspaces/${slug}/events/app?ids=${encodeURIComponent(interviewId)}`)
+    for (const item of page.items) this.interviewsById.set(item.event.id, item)
+    this.rebuildTeamwork(slug)
+    return filename
+  }
+
+  /**
+   * Saves an interview's resume (uploaded on Teamwork by an owner, the admin or a bidder)
+   * where the member picks, Downloads by default, and shows it in its folder.
+   */
+  async downloadResume(interviewId: string): Promise<string | null> {
+    const slug = this.requireWorkspace()
+    let interview = this.interviewsById.get(interviewId)
+    if (!interview?.event.interview?.resume) {
+      const page = await this.request<{ items: AppInterview[] }>(`/workspaces/${slug}/events/app?ids=${encodeURIComponent(interviewId)}`)
+      interview = page.items[0]
+      if (interview) this.interviewsById.set(interview.event.id, interview)
+    }
+    const resume = interview?.event.interview?.resume
+    if (!resume) throw new CallerError('This interview has no resume on Teamwork.')
+    const ticket = await this.request<{ url: string }>(`/workspaces/${slug}/files/${resume.attachmentId}/download`)
+    const url = /^https?:\/\//i.test(ticket.url) ? ticket.url : `${this.connection().serverUrl}${ticket.url}`
+    let response: Response
+    try {
+      response = await fetch(url, { signal: AbortSignal.timeout(5 * 60_000) })
+    } catch {
+      throw new CallerError('The resume could not be downloaded. Check the internet connection.')
+    }
+    if (!response.ok) throw new CallerError(`The resume could not be downloaded (${response.status}).`)
+    const data = Buffer.from(await response.arrayBuffer())
+    const safeName = resume.filename.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 150) || 'resume.pdf'
+    const win = BrowserWindow.getFocusedWindow()
+    const options = { title: 'Save resume', defaultPath: join(app.getPath('downloads'), safeName) }
+    const picked = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options)
+    if (picked.canceled || !picked.filePath) return null
+    await writeFile(picked.filePath, data)
+    shell.showItemInFolder(picked.filePath)
+    return picked.filePath
+  }
+
   private urlOf(slug: string, id: string): string {
     return `${this.connection().serverUrl}/app/${slug}/calendar/${id}`
   }
@@ -384,15 +577,18 @@ class CallerService {
     const ownCalendars = new Map(Object.entries(shares).map(([localId, share]) => [share.connectionId, localId]))
     const ownPicks = new Map(Object.values(picks).map((pick) => [pick.connectionId, pick.eventIds]))
     const annotations: Annotations = {}
+    const tags: Record<string, CallerTag> = {}
     const events: Parameters<typeof eventRepository.replaceCalendarEvents>[1] = []
     for (const i of this.interviewsById.values()) {
       if (i.event.status === 'cancelled') continue
       const own = this.ownEventOf(i, ownCalendars, ownPicks)
       const label = this.detailsOf(i)
       if (own) {
-        annotations[own] = { label, url: this.urlOf(slug, i.event.id) }
+        annotations[own] = { label, url: this.urlOf(slug, i.event.id), interviewId: i.event.id }
+        tags[own] = this.tagOf(i)
         continue
       }
+      tags[makeEventId(calendarId, i.event.id)] = this.tagOf(i)
       const meeting = i.event.meetingUrl ?? ''
       events.push({
         id: makeEventId(calendarId, i.event.id),
@@ -410,6 +606,7 @@ class CallerService {
     eventRepository.replaceCalendarEvents(calendarId, events)
     calendarRepository.setSyncSuccess(calendarId, null)
     settingsRepository.setInternal(ANNOTATIONS_KEY, annotations)
+    this.tagsByEvent = tags
     for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IPC.callerChanged)
   }
 
@@ -460,6 +657,7 @@ class CallerService {
     settingsRepository.setInternal(TEAMWORK_CALENDAR_KEY, null)
     settingsRepository.setInternal(ANNOTATIONS_KEY, {})
     this.interviewsById.clear()
+    this.tagsByEvent = {}
     for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IPC.callerChanged)
   }
 
@@ -469,6 +667,17 @@ class CallerService {
     const when = new Date(i.event.start).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
     const notification = createNotification({ title: 'New interview assigned to you', body: `${this.labelOf(i)} · ${when}` })
     notification.on('click', () => void shell.openExternal(this.urlOf(slug, i.event.id)))
+    notification.show()
+  }
+
+  /** A desktop notification when a resume is added to one of the member's interviews. */
+  private notifyResume(i: AppInterview): void {
+    if (!Notification.isSupported()) return
+    const notification = createNotification({
+      title: 'Resume added',
+      body: `${this.labelOf(i)}: ${i.event.interview?.resume?.filename ?? 'resume'} is ready to download.`
+    })
+    notification.on('click', () => void this.downloadResume(i.event.id).catch(() => undefined))
     notification.show()
   }
 
@@ -840,11 +1049,18 @@ class CallerService {
   private teamworkInfo(slug: string, event: CalendarEvent | null): CallerEventShare['teamwork'] {
     if (!event) return null
     const annotated = this.annotations()[event.id]
-    if (annotated) return annotated
+    if (annotated) {
+      const interview = annotated.interviewId ? this.interviewsById.get(annotated.interviewId) : undefined
+      return { label: annotated.label, url: annotated.url, interview: interview ? this.interviewOf(interview) : null }
+    }
     const calendar = event.calendarId ? calendarRepository.get(event.calendarId) : null
     if (calendar && isTeamworkSource(calendar.sourceUrl) && event.externalId) {
       const interview = this.interviewsById.get(event.externalId)
-      return { label: interview ? this.detailsOf(interview) : event.title, url: this.urlOf(slug, event.externalId) }
+      return {
+        label: interview ? this.detailsOf(interview) : event.title,
+        url: this.urlOf(slug, event.externalId),
+        interview: interview ? this.interviewOf(interview) : null
+      }
     }
     return null
   }

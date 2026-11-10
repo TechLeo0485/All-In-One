@@ -222,6 +222,23 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
   handle(IPC.callerSyncShared, () => callerService.syncShared())
   handle(IPC.callerInterviews, () => callerService.interviews())
   handle(IPC.callerEventShare, (_e, eventId) => callerService.eventShare(v.id(eventId)))
+  handle(IPC.callerTags, () => callerService.tags())
+  handle(IPC.callerDownloadResume, (_e, interviewId) =>
+    callerService.downloadResume(v.str(interviewId, 'Interview', { required: true, max: 64 }))
+  )
+  handle(IPC.callerUploadResume, (_e, interviewId) =>
+    callerService.uploadResume(v.str(interviewId, 'Interview', { required: true, max: 64 }))
+  )
+  handle(IPC.callerCandidates, (_e, interviewId) =>
+    callerService.candidates(v.str(interviewId, 'Interview', { required: true, max: 64 }))
+  )
+  handle(IPC.callerAssign, (_e, interviewId, callerId, force) =>
+    callerService.assign(
+      v.str(interviewId, 'Interview', { required: true, max: 64 }),
+      callerId === null ? null : v.str(callerId, 'Caller', { required: true, max: 64 }),
+      force === true
+    )
+  )
   handle(IPC.callerShareEvent, (_e, eventId, profileId) =>
     callerService.shareEvent(v.id(eventId), profileId === null ? null : v.str(profileId, 'Profile', { required: true, max: 64 }))
   )

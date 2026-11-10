@@ -9,6 +9,14 @@ How to use this file:
 - Write for users: what they can now do, or what works better. Not file names or code.
 -->
 
+## 1.2.1
+- Teamwork interviews now show who takes them: a tag at the end of the event with the caller's first name in their color, **You** when it's yours, or a dashed **Unassigned** when nobody has it yet. Later rounds show "R2 🔒", since they stay with the earlier round's caller.
+- New **Who joins** at the top of a Teamwork interview's details card: the caller, the profile they speak as and its bidders, the company, role and round, then the guests from the invitation.
+- Resumes in **Who joins**: if you shared the interview (you work its profile), or you're an owner or the admin, **Upload resume** adds the resume sent to the company (PDF or Word, up to 10 MB) and **Replace** swaps it. Every round for that company and role uses it. Everyone on the interview can **Download** it to their computer (Downloads by default). When it arrives on an interview assigned to you, a notification tells you; click it to save the file.
+- If your Teamwork role lets you assign interviews, **Assign** or **Change** next to the caller in **Who joins** lets you pick who takes it. Callers are listed as Teamwork ranks them, with ★ on the recommended one, whether they're free then and how many interviews they have. **Unassign** takes it back. A later round stays with the earlier round's caller: only the admin can move it, after confirming. The caller gets a notification.
+- Interviews from calendars or events you shared now show their Teamwork details (caller, round, resume) even when they aren't assigned to you.
+- Events shorter than 30 minutes in Week and Day views now fit their block, like on the Teamwork website: one compact line with the title and start time in a smaller font, centred, at any hour height.
+
 ## 1.2.0
 - New **Teamwork** page in the sidebar, for members of a Teamwork workspace. Sign in with your Teamwork account, then pick, for each of your calendars, which profile to share it with. Only shared calendars are sent to Teamwork, where their events become that profile's interviews. Calendars you don't share, your calendar links and your Proton logins never leave your computer.
 - A shared calendar is sent again every time it syncs: when you click its refresh button, refresh everything, when auto-sync runs, or after a Proton export. **Sync shared calendars** on the Teamwork page sends them all at once. To stop sharing, set the calendar back to **Not shared**.

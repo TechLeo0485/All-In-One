@@ -76,5 +76,10 @@ export const IPC = {
   callerInterviews: 'caller:interviews',
   callerEventShare: 'caller:eventShare',
   callerShareEvent: 'caller:shareEvent',
+  callerTags: 'caller:tags',
+  callerDownloadResume: 'caller:downloadResume',
+  callerUploadResume: 'caller:uploadResume',
+  callerCandidates: 'caller:candidates',
+  callerAssign: 'caller:assign',
   callerChanged: 'caller:changed'
 } as const

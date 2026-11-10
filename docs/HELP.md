@@ -211,6 +211,15 @@ profile; its events become that profile's interviews on Teamwork, where company,
 - The **Teamwork** calendar in the sidebar shows the interviews assigned to you (owners and the admin see all of them).
   It's read-only and updates by itself whenever something changes on Teamwork; you get a notification when an interview
   is assigned to you. Interviews that came from your own shared events show their Teamwork details on your event instead.
+- Each Teamwork interview shows its caller at the end of the event: the caller's first name in their color,
+  **You** for yours, or a dashed **Unassigned**. "R2 🔒" marks a later round, which stays with the earlier round's caller.
+- An interview's details card starts with **Who joins**: the caller, the profile they speak as and its bidders, the
+  company, role and round, and the resume: **Download** saves it on your computer. If you shared the interview (you work
+  its profile), or you're an owner or the admin, **Upload resume** adds it (PDF or Word, up to 10 MB; company and role
+  must be filled in first). Every round for that company and role uses it.
+- If your role lets you assign interviews, click **Assign** (or **Change**) next to the caller in **Who joins**, pick a
+  caller (★ is Teamwork's recommendation) and click **Assign**. A later round stays with the earlier round's caller; only
+  the admin can move it, after confirming.
 - A Teamwork feed added as a link calendar can't be shared back: its interviews are on Teamwork already.
 - Signing out keeps your sharing choices, and removes the Teamwork calendar until you sign in again.
 

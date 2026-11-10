@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
-import type { AttendeeStatus, CalendarEvent, CallerEventShare, EventAttendee } from '@shared/types'
+import type { AttendeeStatus, CalendarEvent, CallerCandidate, CallerEventShare, EventAttendee, TeamworkInterview } from '@shared/types'
 import { DEFAULT_EVENT_STATUSES, DEFAULT_IMPORTANT_COLOR, findStatus, FOLLOW_UP_ID } from '@shared/eventStatus'
 import { findMeetingUrl } from '@shared/meetingLink'
 import { describeRecurrence } from '@shared/recurrence'
@@ -19,7 +19,7 @@ import { linkify } from '../utils/linkify'
 import { renderDescription } from '../utils/richText'
 import { errorMessage } from '../utils/errors'
 import { placeNextTo } from '../utils/placement'
-import { BellIcon, ClockIcon, ExternalIcon, LockIcon, MapPinIcon, RepeatIcon, StarIcon, UsersIcon, XIcon } from './icons'
+import { BellIcon, ClockIcon, CloudUploadIcon, DownloadIcon, ExternalIcon, LockIcon, MapPinIcon, RepeatIcon, StarIcon, UsersIcon, XIcon } from './icons'
 import { NotesEditor } from './NotesEditor'
 import { Button, ColorDot, isModalOpen, Spinner } from './ui'
 
@@ -165,21 +165,17 @@ function StatusPicker({ event }: { event: CalendarEvent }) {
  * Shares just this event with a Teamwork profile, without sharing its calendar.
  * Shown only while signed in to Teamwork (the Teamwork page in the sidebar).
  */
-function TeamworkShare({ event }: { event: CalendarEvent }) {
-  const [state, setState] = useState<CallerEventShare | null>(null)
+function TeamworkShare({
+  event,
+  state,
+  setState
+}: {
+  event: CalendarEvent
+  state: CallerEventShare | null
+  setState: (state: CallerEventShare) => void
+}) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let alive = true
-    window.api.caller
-      .eventShare(event.id)
-      .then((s) => alive && setState(s))
-      .catch(() => alive && setState(null))
-    return () => {
-      alive = false
-    }
-  }, [event.id])
 
   if (!state?.signedIn) return null
 
@@ -242,6 +238,269 @@ function TeamworkShare({ event }: { event: CalendarEvent }) {
         <p className="text-slate-500">You don&apos;t work any profile in this workspace yet.</p>
       )}
       {(error ?? state.error) && <p className="text-red-300">{error ?? state.error}</p>}
+    </div>
+  )
+}
+
+/**
+ * Teamwork details of the selected event, refreshed when Teamwork changes
+ * (a new caller, a resume added). Null for local events and when signed out.
+ */
+function useTeamworkShare(eventId: string | null): [CallerEventShare | null, (state: CallerEventShare) => void] {
+  const [state, setState] = useState<CallerEventShare | null>(null)
+  useEffect(() => {
+    setState(null)
+    if (!eventId) return
+    let alive = true
+    const load = (): void => {
+      window.api.caller
+        .eventShare(eventId)
+        .then((s) => alive && setState(s))
+        .catch(() => alive && setState(null))
+    }
+    load()
+    const off = window.api.caller.onChanged(load)
+    return () => {
+      alive = false
+      off()
+    }
+  }, [eventId])
+  return [state, setState]
+}
+
+const CANDIDATE_STATUS: Record<CallerCandidate['status'], string> = {
+  free: 'free',
+  busy: 'busy then',
+  unavailable: 'outside hours'
+}
+
+/**
+ * Choosing the caller of a Teamwork interview, for members allowed to assign:
+ * the callers as Teamwork ranks them (recommended first, with whether they're
+ * free and how many interviews they have). A later round stays with the
+ * earlier round's caller; the admin is asked before moving it.
+ */
+function CallerPicker({ interview, onDone }: { interview: TeamworkInterview; onDone: () => void }) {
+  const askConfirm = useAppStore((s) => s.askConfirm)
+  const [candidates, setCandidates] = useState<CallerCandidate[] | null>(null)
+  const [choice, setChoice] = useState<string>('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    window.api.caller
+      .candidates(interview.id)
+      .then((list) => {
+        if (!alive) return
+        setCandidates(list)
+        setChoice(list.find((c) => c.recommended)?.userId ?? list[0]?.userId ?? '')
+      })
+      .catch((err) => alive && setError(errorMessage(err)))
+    return () => {
+      alive = false
+    }
+  }, [interview.id])
+
+  async function assign(callerId: string | null) {
+    setBusy(true)
+    setError(null)
+    try {
+      let result = await window.api.caller.assign(interview.id, callerId, false)
+      if (!result.ok) {
+        const ok = await askConfirm({ title: 'Move a later round?', message: result.locked, confirmLabel: 'Move it', danger: true })
+        if (!ok) return
+        result = await window.api.caller.assign(interview.id, callerId, true)
+      }
+      if (result.ok) onDone()
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (error && !candidates) return <p className="text-xs text-red-300">{error}</p>
+  if (!candidates) return <Spinner className="text-slate-500" />
+  if (candidates.length === 0) return <p className="text-xs text-slate-500">No callers in this workspace yet.</p>
+  return (
+    <div className="mt-1 space-y-1.5">
+      <select
+        className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200"
+        aria-label="Caller"
+        value={choice}
+        disabled={busy}
+        onChange={(e) => setChoice(e.target.value)}
+      >
+        {candidates.map((c) => (
+          <option key={c.userId} value={c.userId}>
+            {c.recommended ? '★ ' : ''}
+            {c.name}
+            {c.level ? ` · L${c.level}` : ''} · {CANDIDATE_STATUS[c.status]} · {c.interviewCount} interview{c.interviewCount === 1 ? '' : 's'}
+          </option>
+        ))}
+      </select>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={busy || !choice || choice === interview.callerId}
+          onClick={() => void assign(choice)}
+          className="rounded-md bg-blue-600 px-2.5 py-0.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+        >
+          Assign
+        </button>
+        {interview.callerId && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void assign(null)}
+            className="rounded-md border border-slate-700 px-2.5 py-0.5 text-xs text-slate-300 hover:border-slate-500 disabled:opacity-50"
+          >
+            Unassign
+          </button>
+        )}
+        <button type="button" disabled={busy} onClick={onDone} className={linkClass}>
+          Cancel
+        </button>
+        {busy && <Spinner className="text-slate-500" />}
+      </div>
+      <p className="text-[0.7rem] text-slate-500">★ is Teamwork&apos;s recommendation. The caller gets a notification.</p>
+      {error && <p className="text-xs text-red-300">{error}</p>}
+    </div>
+  )
+}
+
+const formatSize = (bytes: number): string =>
+  bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`
+
+/**
+ * Who is on a Teamwork interview, at the top of the card: the caller (or
+ * "You"), the profile they speak as and its bidders, the round, and the resume
+ * an owner added, to save on this computer.
+ */
+function WhoJoins({ interview }: { interview: TeamworkInterview }) {
+  const [choosing, setChoosing] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
+  const { caller, resume } = interview
+
+  async function download() {
+    setSaving(true)
+    setMessage(null)
+    try {
+      const path = await window.api.caller.downloadResume(interview.id)
+      if (path) setMessage(`Saved to ${path}`)
+    } catch (err) {
+      setMessage(errorMessage(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function upload() {
+    setUploading(true)
+    setMessage(null)
+    try {
+      const name = await window.api.caller.uploadResume(interview.id)
+      if (name) setMessage(`${name} added. The caller can download it now.`)
+    } catch (err) {
+      setMessage(errorMessage(err))
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const uploadButton = interview.canUploadResume && (
+    <button
+      type="button"
+      onClick={() => void upload()}
+      disabled={uploading}
+      className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-2 py-0.5 text-xs text-slate-200 hover:border-slate-500 hover:text-white disabled:opacity-60"
+      title="Add the resume sent to the company (PDF or Word, up to 10 MB)"
+    >
+      {uploading ? <Spinner className="text-slate-400" /> : <CloudUploadIcon size={12} />} {resume ? 'Replace' : 'Upload resume'}
+    </button>
+  )
+
+  return (
+    <div className="space-y-2 pl-6 text-sm">
+      <p className="text-[0.65rem] font-semibold tracking-wide text-slate-500 uppercase">Who joins</p>
+      <dl className="grid grid-cols-[4rem_1fr] gap-x-2 gap-y-1.5">
+        <dt className="text-slate-500">Caller</dt>
+        <dd className="flex min-w-0 items-center gap-1.5">
+          {caller ? (
+            <>
+              <ColorDot color={caller.color} size={10} />
+              <span className="truncate font-medium text-slate-100">{caller.mine ? `You (${caller.name})` : caller.name}</span>
+              {caller.level ? <span className="shrink-0 text-xs text-slate-500">Level {caller.level}</span> : null}
+            </>
+          ) : (
+            <span className="text-amber-300">Nobody yet</span>
+          )}
+          {interview.canAssign && !choosing && (
+            <button type="button" className={`ml-auto shrink-0 ${linkClass}`} onClick={() => setChoosing(true)}>
+              {caller ? 'Change' : 'Assign'}
+            </button>
+          )}
+        </dd>
+        {choosing && (
+          <dd className="col-span-2">
+            <CallerPicker interview={interview} onDone={() => setChoosing(false)} />
+          </dd>
+        )}
+        <dt className="text-slate-500">As</dt>
+        <dd className="min-w-0">
+          <span className="font-medium text-slate-100">{interview.profile ?? 'No profile'}</span>
+          {interview.bidders.length > 0 && (
+            <span className="block text-xs text-slate-500">
+              Bidder{interview.bidders.length > 1 ? 's' : ''}: {interview.bidders.join(', ')}
+            </span>
+          )}
+        </dd>
+        {(interview.company || interview.round) && (
+          <>
+            <dt className="text-slate-500">For</dt>
+            <dd className="min-w-0 text-slate-300">
+              {[interview.company && interview.role ? `${interview.company} – ${interview.role}` : interview.company, interview.round]
+                .filter(Boolean)
+                .join(' · ')}
+              {interview.locked && (
+                <span className="ml-1 inline-flex items-center gap-1 text-xs text-slate-500" title="Stays with the earlier round's caller">
+                  <LockIcon size={11} /> same caller
+                </span>
+              )}
+            </dd>
+          </>
+        )}
+        <dt className="text-slate-500">Resume</dt>
+        <dd className="min-w-0">
+          {resume ? (
+            <span className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void download()}
+                disabled={saving}
+                className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-2 py-0.5 text-xs text-slate-200 hover:border-slate-500 hover:text-white disabled:opacity-60"
+                title={`Save ${resume.filename}`}
+              >
+                {saving ? <Spinner className="text-slate-400" /> : <DownloadIcon size={12} />} Download
+              </button>
+              {uploadButton}
+              <span className="min-w-0 truncate text-xs text-slate-500" title={resume.filename}>
+                {resume.filename} · {formatSize(resume.size)}
+              </span>
+            </span>
+          ) : uploadButton ? (
+            uploadButton
+          ) : (
+            <span className="text-xs text-slate-500">
+              {interview.hasDetails ? 'None added on Teamwork yet' : 'Fill in the company and role on Teamwork first'}
+            </span>
+          )}
+          {message && <span className="selectable mt-1 block text-xs break-all text-slate-400">{message}</span>}
+        </dd>
+      </dl>
     </div>
   )
 }
@@ -409,6 +668,8 @@ export function EventDetailsPanel() {
   const protonAccounts = useAppStore((s) => s.protonAccounts)
   const settings = useAppStore((s) => s.settings)
   const { event, loading, error } = useEventDetails(selectedEventId)
+  const [teamwork, setTeamwork] = useTeamworkShare(event && !event.isLocalEvent ? event.id : null)
+  const teamworkInterview = teamwork?.signedIn ? (teamwork.teamwork?.interview ?? null) : null
   const cardRef = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
 
@@ -540,11 +801,12 @@ export function EventDetailsPanel() {
                 )}
               </p>
             </div>
-            {/* Guests and their replies sit with the summary, above the status. */}
+            {/* Who joins (Teamwork interviews), then the guests and their replies, above the status. */}
+            {teamworkInterview && <WhoJoins key={teamworkInterview.id} interview={teamworkInterview} />}
             {event.attendees.length > 0 && <GuestList key={event.id} attendees={event.attendees} />}
             <ImportantToggle event={event} />
             <StatusPicker event={event} />
-            {!event.isLocalEvent && <TeamworkShare key={event.id} event={event} />}
+            {!event.isLocalEvent && <TeamworkShare key={event.id} event={event} state={teamwork} setState={setTeamwork} />}
           </section>
 
           {/* Notes sit right under the event summary so they're visible without scrolling past long descriptions. */}
