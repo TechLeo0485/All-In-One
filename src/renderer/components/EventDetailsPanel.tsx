@@ -885,12 +885,16 @@ export function EventDetailsPanel() {
                 )}
               </p>
             </div>
-            {/* Who joins (Teamwork interviews), then the guests and their replies, above the status. */}
-            {teamworkInterview && <WhoJoins key={teamworkInterview.id} interview={teamworkInterview} />}
-            {event.attendees.length > 0 && <GuestList key={event.id} attendees={event.attendees} />}
+            {/* Who joins (Teamwork interviews), then the guests and their replies, above the status.
+                Keys reset each part's state per event; siblings need distinct keys, or React can
+                leave stale copies behind (the guest list showed up several times). */}
+            {teamworkInterview && <WhoJoins key={`joins:${teamworkInterview.id}`} interview={teamworkInterview} />}
+            {event.attendees.length > 0 && <GuestList key={`guests:${event.id}`} attendees={event.attendees} />}
             <ImportantToggle event={event} />
             <StatusPicker event={event} />
-            {!event.isLocalEvent && <TeamworkShare key={event.id} event={event} state={teamwork} setState={setTeamwork} />}
+            {!event.isLocalEvent && (
+              <TeamworkShare key={`share:${event.id}`} event={event} state={teamwork} setState={setTeamwork} />
+            )}
           </section>
 
           {/* Notes sit right under the event summary so they're visible without scrolling past long descriptions. */}

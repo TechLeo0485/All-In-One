@@ -9,6 +9,9 @@ How to use this file:
 - Write for users: what they can now do, or what works better. Not file names or code.
 -->
 
+## Unreleased
+- In the event details, guests are listed once: the guest list could appear several times in a row.
+
 ## 1.2.3
 - **Connections**: a new page in the sidebar sends calendars to other platforms that support calendar connections, free Proton accounts included. Paste the connection address and API key the platform gives you. The app tells it which calendars it has, by Proton account; on the platform, choose the ones it should get; **Sync & send** here sends them, and they're sent again whenever they sync with something changed. Calendars a platform didn't choose are never sent to it, and with no connection the app contacts nobody. You can connect several platforms at once.
 
