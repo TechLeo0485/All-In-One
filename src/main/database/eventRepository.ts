@@ -228,6 +228,14 @@ export const eventRepository = {
     return rows.map(toEvent)
   },
 
+  /** Every event of one calendar, as last synced. */
+  listByCalendar(calendarId: string): CalendarEvent[] {
+    const rows = getDb()
+      .prepare(`${SELECT_EVENTS} WHERE e.calendar_id = ? ORDER BY e.start_time`)
+      .all(calendarId) as EventRow[]
+    return rows.map(toEvent)
+  },
+
   get(id: string): CalendarEvent | null {
     const row = getDb().prepare(`${SELECT_EVENTS} WHERE e.id = ?`).get(id) as EventRow | undefined
     return row ? toEvent(row) : null

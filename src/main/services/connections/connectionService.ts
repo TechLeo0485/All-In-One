@@ -3,18 +3,35 @@ import { hostname } from 'node:os'
 import { BrowserWindow, net, Notification, powerMonitor, safeStorage } from 'electron'
 import { IPC } from '@shared/ipcChannels'
 import { hostOf, isFileSource, isTeamworkSource } from '@shared/sources'
-import type { CalendarSource, ConnectionCalendar, ConnectionStatus, ConnectionSyncResult, ConnectionsStatus } from '@shared/types'
+import type { CalendarSource, ConnectionCalendar, ConnectionStatus, ConnectionsStatus } from '@shared/types'
 import { accountRepository } from '../../database/accountRepository'
 import { calendarRepository } from '../../database/calendarRepository'
+import { eventRepository } from '../../database/eventRepository'
 import { settingsRepository } from '../../database/settingsRepository'
 import { syncService } from '../../sync/syncService'
 import { protonAccountService } from '../proton/protonAccountService'
 import { createNotification } from '../windowsIdentity'
+import { buildIcs } from '../caller/icsBuilder'
 
 /**
  * Calendar connections: sends some of this app's calendars to any platform that
  * speaks the calendar connection protocol. A platform gives the user an address
  * and an API key; with those, this app
+ *
+ * What it sends is always built from this app's own copy of the events, so a
+ * calendar can go out at any moment without re-reading its source, and its
+ * event ids stay the same from one copy to the next. Proton is read only when
+ * the user syncs it, or when a platform asks for a fresh copy.
+ *
+ * It keeps every platform up to date by itself - no buttons:
+ *   - a calendar that synced here goes to the platforms that want it;
+ *   - when a platform says what it wants changed ("wanted"), when the app
+ *     starts, connects or reconnects (after sleep, or the network coming
+ *     back), it reconciles: the platform tells it, per calendar, the
+ *     fingerprint of the copy it holds, and only what differs is sent.
+ *
+ * An API key is optional. Without one, the address alone connects this app
+ * once (X-Pair: new) and the platform gives it its own key (X-Connection-Key).
  *
  *   PUT    <address>/catalog              says which calendars it has, grouped by
  *                                         Proton account, and learns which of them
@@ -125,6 +142,8 @@ interface ServerCalendar {
   calendar_id: string
   wanted: boolean
   profile?: string | null
+  /** This app's fingerprint of the copy the platform holds; null or absent: none (or not said). */
+  client_hash?: string | null
 }
 
 /** One copy of a calendar on its way to one platform. */
@@ -157,6 +176,15 @@ class ConnectionError extends Error {
 /** A fingerprint of what the calendar says, not of when it was written out. */
 function fingerprint(ics: string): string {
   return createHash('sha256').update(ics.replace(/^DTSTAMP[^\r\n]*\r?\n/gm, '')).digest('hex')
+}
+
+/** Stored credential: an API key, or "conn:" + the key a platform gave this app when it connected by address. */
+const CONNECTION_KEY_PREFIX = 'conn:'
+
+function authHeaders(credential: string): Record<string, string> {
+  return credential.startsWith(CONNECTION_KEY_PREFIX)
+    ? { 'X-Connection-Key': credential.slice(CONNECTION_KEY_PREFIX.length) }
+    : { 'X-API-Key': credential }
 }
 
 function errorText(err: unknown): string {
@@ -234,13 +262,15 @@ class ConnectionService {
   private requestedAt = new Map<string, number>()
 
   constructor() {
-    // Every successful sync of a calendar goes to the platforms that want it.
-    syncService.onCalendarSynced((calendar, ics) => {
+    // Every successful sync of a calendar goes to the platforms that want it,
+    // built from the events as they now stand here.
+    syncService.onCalendarSynced((calendar) => {
       const connections = this.list()
       if (connections.length === 0) return
       let unknown = false
+      const ics = connections.some((c) => c.wanted[calendar.id]) ? this.icsOf(calendar) : null
       for (const connection of connections) {
-        if (connection.wanted[calendar.id]) void this.upload(connection.id, calendar, ics)
+        if (connection.wanted[calendar.id] && ics) void this.upload(connection.id, calendar, ics)
         else unknown = true
       }
       // Perhaps a calendar a platform has not heard of yet (a new Proton calendar).
@@ -336,14 +366,17 @@ class ConnectionService {
     address: string,
     key: string,
     path: string,
-    init: { method?: string; json?: unknown; ics?: string; timeoutMs?: number; pairNew?: boolean } = {}
+    init: { method?: string; json?: unknown; ics?: string; timeoutMs?: number; pairNew?: boolean; contentHash?: string } = {}
   ): Promise<T> {
     let response: Response
     try {
       response = await fetch(`${address}${path}`, {
         method: init.method ?? 'GET',
         headers: {
-          'X-API-Key': key,
+          // No credential yet: connecting by the address alone (pairNew).
+          ...(key ? authHeaders(key) : {}),
+          // This app's fingerprint of the copy, which the platform tells back.
+          ...(init.contentHash ? { 'X-Content-Hash': init.contentHash } : {}),
           'X-Client-Id': this.clientId(),
           'X-Client-Name': this.clientName(),
           // The user is connecting this app now: pair it, even if the
@@ -416,9 +449,14 @@ class ConnectionService {
   private async tellCatalog(
     address: string,
     key: string,
-    pairNew = false
-  ): Promise<{ wanted: Record<string, string>; account: string }> {
-    const info = await this.request<{ account?: { username?: string }; calendars?: ServerCalendar[] }>(address, key, '/catalog', {
+    pairNew = false,
+    onlyAsk = false
+  ): Promise<{ wanted: Record<string, string>; held: Record<string, string | null>; account: string; connectionKey: string | null }> {
+    const info = await this.request<{
+      account?: { username?: string }
+      calendars?: ServerCalendar[]
+      connection_key?: string
+    }>(address, key, onlyAsk ? '' : '/catalog', onlyAsk ? {} : {
       method: 'PUT',
       json: { calendars: this.catalogOf(address) },
       pairNew
@@ -427,31 +465,97 @@ class ConnectionService {
       throw new ConnectionError('The address answered, but not as a calendar connection. Check that it was copied in full.')
     }
     const wanted: Record<string, string> = {}
-    for (const c of info.calendars) if (c.wanted) wanted[c.calendar_id] = c.profile || 'Wanted'
-    return { wanted, account: info.account?.username ?? '' }
+    // The platform's copy of each wanted calendar, by this app's fingerprint (null: none yet).
+    const held: Record<string, string | null> = {}
+    for (const c of info.calendars) {
+      if (!c.wanted) continue
+      wanted[c.calendar_id] = c.profile || 'Wanted'
+      held[c.calendar_id] = c.client_hash ?? null
+    }
+    return { wanted, held, account: info.account?.username ?? '', connectionKey: info.connection_key ?? null }
+  }
+
+  /** One calendar as .ics, built from this app's own copy of its events; null if there are none here. */
+  private icsOf(calendar: CalendarSource): string | null {
+    const events = eventRepository.listByCalendar(calendar.id).filter((e) => !e.isLocalEvent)
+    return buildIcs(events, calendar.name)
+  }
+
+  /**
+   * Makes the platform hold the latest copy of every calendar it wants: tells
+   * it the list of calendars if that changed (else just asks), learns what it
+   * wants and which copy it holds, and sends whatever differs - from this
+   * app's own copy, without re-reading any source. Runs on connect, at start,
+   * whenever the live connection opens (after sleep or a network outage too),
+   * and when the platform says what it wants changed. One at a time per
+   * connection; asked again meanwhile, it runs once more after.
+   */
+  private async reconcile(id: string): Promise<void> {
+    if (this.reconciling.has(id)) {
+      this.reconcileAgain.add(id)
+      return
+    }
+    this.reconciling.add(id)
+    try {
+      do {
+        this.reconcileAgain.delete(id)
+        const connection = this.all()[id]
+        const key = this.key(id)
+        if (!connection || !key) return
+        const listChanged = connection.catalogHash !== this.catalogHash(connection.address)
+        let told: Awaited<ReturnType<ConnectionService['tellCatalog']>>
+        try {
+          told = await this.tellCatalog(connection.address, key, false, !listChanged)
+        } catch (err) {
+          if (this.endIfGone(id, err)) return
+          this.save(id, { lastError: errorText(err) })
+          this.changed()
+          // Down: try again, more slowly each time - and at once when the network is back.
+          if (!(err instanceof ConnectionError) || err.status === 0 || err.status === 429 || err.status >= 500) {
+            this.scheduleReconcile(id)
+          }
+          return
+        }
+        this.reconcileTries.delete(id)
+        this.save(id, {
+          wanted: told.wanted,
+          account: told.account || connection.account,
+          lastCheckedAt: new Date().toISOString(),
+          lastError: null,
+          ...(listChanged ? { catalogHash: this.catalogHash(connection.address) } : {})
+        })
+        for (const calendarId of Object.keys(this.sentOf(id))) if (!told.wanted[calendarId]) this.saveSent(id, calendarId, null)
+        for (const calendar of this.shareable(connection.address)) {
+          if (!told.wanted[calendar.id]) continue
+          const ics = this.icsOf(calendar)
+          if (!ics) continue
+          if (told.held[calendar.id] === fingerprint(ics)) continue
+          // The platform's copy differs from ours: whatever was recorded as sent, send it.
+          this.saveSent(id, calendar.id, null)
+          void this.upload(id, calendar, ics)
+        }
+        this.changed()
+      } while (this.reconcileAgain.has(id))
+    } finally {
+      this.reconciling.delete(id)
+    }
+  }
+
+  private reconciling = new Set<string>()
+  private reconcileAgain = new Set<string>()
+  private reconcileTries = new Map<string, { tries: number; timer: NodeJS.Timeout }>()
+
+  private scheduleReconcile(id: string): void {
+    const previous = this.reconcileTries.get(id)
+    if (previous) clearTimeout(previous.timer)
+    const tries = (previous?.tries ?? 0) + 1
+    const timer = setTimeout(() => void this.reconcile(id), Math.min(RETRY_MIN_MS * 2 ** (tries - 1), RETRY_MAX_MS))
+    this.reconcileTries.set(id, { tries, timer })
+    this.watchOnline()
   }
 
   private async sendCatalog(id: string): Promise<void> {
-    const connection = this.get(id)
-    const key = this.key(id)
-    if (!key) throw new ConnectionError('The API key for this connection is missing. Remove the connection and add it again.')
-    let told: { wanted: Record<string, string>; account: string }
-    try {
-      told = await this.tellCatalog(connection.address, key)
-    } catch (err) {
-      this.endIfGone(id, err)
-      throw err
-    }
-    const { wanted, account } = told
-    // A calendar no longer wanted starts fresh if it is wanted again.
-    for (const calendarId of Object.keys(this.sentOf(id))) if (!wanted[calendarId]) this.saveSent(id, calendarId, null)
-    this.save(id, {
-      wanted,
-      account: account || connection.account,
-      lastCheckedAt: new Date().toISOString(),
-      lastError: null,
-      catalogHash: this.catalogHash(connection.address)
-    })
+    await this.reconcile(id)
   }
 
   /**
@@ -515,7 +619,7 @@ class ConnectionService {
         connection.address,
         key,
         `/calendars/${encodeURIComponent(calendar.id)}?name=${encodeURIComponent(calendar.name.slice(0, 80))}`,
-        { method: 'PUT', ics, timeoutMs: UPLOAD_TIMEOUT_MS }
+        { method: 'PUT', ics, timeoutMs: UPLOAD_TIMEOUT_MS, contentHash: hash }
       )
     try {
       if (Buffer.byteLength(ics, 'utf8') > MAX_UPLOAD_BYTES) throw new ConnectionError('This calendar is too large to send (8 MB at most)', 413)
@@ -601,7 +705,7 @@ class ConnectionService {
       this.wasOnline = online
       if (back) this.networkBack()
       const liveDown = [...this.live.keys()].some((id) => !this.listening.has(id))
-      if (this.unsent.size === 0 && this.requestRetries.size === 0 && !liveDown && !this.releaseTimer) {
+      if (this.unsent.size === 0 && this.requestRetries.size === 0 && !liveDown && !this.releaseTimer && this.reconcileTries.size === 0) {
         if (this.onlineWatch) clearInterval(this.onlineWatch)
         this.onlineWatch = null
       }
@@ -611,6 +715,10 @@ class ConnectionService {
   /** The network is back, or the computer woke up: do at once what was waiting for it. */
   private networkBack(): void {
     if (this.unsent.size > 0) this.retryUnsent()
+    for (const [id, entry] of [...this.reconcileTries]) {
+      clearTimeout(entry.timer)
+      void this.reconcile(id)
+    }
     if (this.releaseTimer) {
       clearTimeout(this.releaseTimer)
       this.releaseTimer = null
@@ -635,7 +743,10 @@ class ConnectionService {
 
   /** Starts listening on every connection that wants it. Called once the app is up. */
   start(): void {
-    for (const connection of this.list()) this.startLive(connection.id)
+    for (const connection of this.list()) {
+      this.startLive(connection.id)
+      if (connection.listen === false) void this.reconcile(connection.id)
+    }
     // Waking from sleep: connections dropped while asleep, and sends may be waiting.
     powerMonitor.on('resume', () => this.networkBack())
     // Disconnects made while a platform could not be told: tell it now.
@@ -680,7 +791,7 @@ class ConnectionService {
       try {
         const response = await fetch(`${connection.address}/requests`, {
           headers: {
-            'X-API-Key': key,
+            ...authHeaders(key),
             'X-Client-Id': this.clientId(),
             'X-Client-Name': this.clientName(),
             Accept: 'text/event-stream'
@@ -708,8 +819,10 @@ class ConnectionService {
         delay = LIVE_RETRY_MIN_MS
         this.listening.add(id)
         this.changed()
-        // The platform is reachable again: what could not be sent goes now.
+        // The platform is reachable again: what could not be sent goes now,
+        // and anything it wanted meanwhile is caught up.
         if (this.unsent.size > 0) this.retryUnsent()
+        void this.reconcile(id)
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
@@ -752,6 +865,10 @@ class ConnectionService {
         // keep the general reason
       }
       this.endedByPlatform(id, reason)
+      return
+    }
+    if (event === 'wanted') {
+      void this.reconcile(id)
       return
     }
     if (event !== 'sync') return
@@ -843,8 +960,18 @@ class ConnectionService {
       lastError: connection.lastError,
       listen: connection.listen !== false,
       listening: this.listening.has(connection.id),
+      state: this.stateOf(connection.id),
+      lastSentAt: Object.values(sent).reduce<string | null>((latest, s) => (s.at && (!latest || s.at > latest) ? s.at : latest), null),
       groups: [...groups.values()]
     }
+  }
+
+  /** Sending now, waiting for the network, or up to date. */
+  private stateOf(id: string): 'sending' | 'waiting' | 'up-to-date' {
+    const mine = (slot: string): boolean => slot.startsWith(`${id}:`)
+    if ([...this.sending].some(mine) || [...this.waiting.keys()].some(mine) || this.reconciling.has(id)) return 'sending'
+    if ([...this.unsent.keys()].some(mine) || this.reconcileTries.has(id)) return 'waiting'
+    return 'up-to-date'
   }
 
   status(): ConnectionsStatus {
@@ -865,13 +992,18 @@ class ConnectionService {
       throw new ConnectionError('That is not an address. Copy the connection address from the platform.')
     }
     if (!/^https?:$/.test(url.protocol)) throw new ConnectionError('The address must start with https:// or http://')
-    const key = rawKey.trim()
-    if (!key) throw new ConnectionError('Paste the API key from the platform.')
+    const apiKey = rawKey.trim()
     if (this.list().some((c) => c.address === address)) throw new ConnectionError('This address is connected already.')
     if (this.list().length >= MAX_CONNECTIONS) throw new ConnectionError(`At most ${MAX_CONNECTIONS} connections`)
-    // Checks the address and the key, and pairs this app with the address -
-    // anew, if the platform had disconnected it.
-    const { wanted, account } = await this.tellCatalog(address, key, true)
+    // Checks the address (and the key), and pairs this app with the address -
+    // anew, if the platform had disconnected it. Without a key, the platform
+    // gives this app one of its own.
+    const told = await this.tellCatalog(address, apiKey, true)
+    const key = apiKey || (told.connectionKey ? `${CONNECTION_KEY_PREFIX}${told.connectionKey}` : '')
+    if (!key) {
+      throw new ConnectionError('The platform did not give this app a key of its own. Paste an API key from the platform as well.')
+    }
+    const { wanted, account } = told
     this.dropRelease(address)
     const id = randomUUID()
     this.saveKey(id, key)
@@ -888,6 +1020,8 @@ class ConnectionService {
     }
     settingsRepository.setInternal(CONNECTIONS_KEY, all)
     this.startLive(id)
+    // Whatever the platform already wants goes now (and on every reconnect).
+    void this.reconcile(id)
     this.changed()
     return this.status()
   }
@@ -1009,42 +1143,6 @@ class ConnectionService {
       }, Math.min(RETRY_MIN_MS * 2 ** Math.max(tries - 1, 0), RETRY_MAX_MS))
       this.watchOnline()
     }
-  }
-
-  /** Asks the platform again which calendars it wants (after choosing them there). */
-  async refresh(id: string): Promise<ConnectionsStatus> {
-    try {
-      await this.sendCatalog(id)
-    } catch (err) {
-      this.save(id, { lastError: errorText(err) })
-      throw err
-    } finally {
-      this.changed()
-    }
-    return this.status()
-  }
-
-  /** Syncs every calendar the platform wants now (Proton accounts are exported first); each is sent as it arrives. */
-  async syncWanted(id: string): Promise<ConnectionSyncResult[]> {
-    await this.refresh(id)
-    const connection = this.get(id)
-    const calendars = this.shareable(connection.address).filter((c) => connection.wanted[c.id])
-    const accounts = [...new Set(calendars.map((c) => c.accountId).filter((a): a is string => Boolean(a)))]
-    const others = calendars.filter((c) => !c.accountId)
-    await Promise.all([
-      ...accounts.map((a) => protonAccountService.sync(a).catch(() => undefined)),
-      ...others.map((c) => syncService.syncOne(c.id, { force: true }).catch(() => undefined))
-    ])
-    await Promise.all(calendars.map((c) => this.uploads.get(`${id}:${c.id}`)))
-    const sent = this.sentOf(id)
-    return calendars.map((c) => {
-      const last = sent[c.id]
-      const fresh = calendarRepository.get(c.id)
-      if (fresh?.lastSyncError) return { name: c.name, ok: false, message: fresh.lastSyncError }
-      if (last?.error) return { name: c.name, ok: false, message: last.error }
-      if (!last?.at) return { name: c.name, ok: false, message: 'It did not sync here, so nothing was sent' }
-      return { name: c.name, ok: true, message: `${last.eventCount ?? 0} events sent (${connection.wanted[c.id]})` }
-    })
   }
 }
 

@@ -238,31 +238,34 @@ profile; its events become that profile's interviews on Teamwork, where company,
 
 ## Sending calendars to other platforms
 
-Some platforms can receive calendars from an app through a **calendar connection**: they give you a connection
-address and an API key. With those, this app can send them your calendars, including calendars of **free Proton
-accounts**, which have no link a platform could follow on its own. It works with any platform that supports
-calendar connections, and with several at once.
+Some platforms can receive calendars from an app through a **calendar connection**. With one, this app sends them
+your calendars, including calendars of **free Proton accounts**, which have no link a platform could follow on its
+own. It works with any platform that supports calendar connections, and with several at once.
 
-1. On the platform, make a calendar connection and copy its address, and make an API key. (Where exactly depends
-   on the platform; look for "connect an app" near its calendar settings.)
-2. In this app, click **Connections** in the sidebar, paste the address and the key, then click **Connect**.
-3. Back on the platform, this app's calendars are now listed by Proton account. Choose the ones it should get.
-4. Here, click **Sync & send**. From then on a chosen calendar is sent again every time it syncs.
+1. On the platform, make a calendar connection and copy its address. (Where exactly depends on the platform; look for
+   "connect an app" near its calendar settings.)
+2. In this app, click **Connections** in the sidebar, paste the address, then click **Connect**. An API key is
+   optional: without one, the platform gives this app a key of its own.
+3. On the platform, choose which of this app's calendars it gets. It may suggest the right ones.
 
-- Calendars the platform did not choose are never sent to it; it only knows their names.
-- **Check what's wanted** asks the platform again after you change the choice there.
-- Nothing is sent on a timer: only when a chosen calendar syncs with something changed, or when you click a button
-  here. With no connection, the app contacts nobody.
-- One address works with one app. On another computer, make another connection on the platform.
+That's all. From then on, the chosen calendars stay up to date there by themselves:
+
+- A chosen calendar is sent within seconds whenever it syncs here, and right after you choose it on the platform.
+- When the app starts, or the network comes back, it checks with each platform and sends only what it is missing.
+- Proton is read only when you sync it, or when someone on the platform asks for a fresh copy (with **Stay in touch** on).
+- **Stay in touch** keeps one quiet connection open so the platform can reach the app. Off, calendars still go
+  whenever they sync here, and choices made on the platform arrive the next time the app starts.
 - **Disconnect** ends the connection here and on the platform at once (if the network is down, the platform is told as
   soon as it can be). The calendars the platform already has stay there, no longer updated.
-- If the connection is ended on the platform, it disappears here by itself, with a notification saying why. To use it
-  again, connect the app anew.
+- If the connection is ended on the platform, it disappears here by itself, with a notification saying why.
+- One address works with one app. On another computer, make another connection on the platform.
 
 **For developers:** a platform supports this by answering, at the connection address, `PUT /catalog` (JSON
-`{"calendars": [{"id", "name", "group_id", "group_name"}]}`, answering `{"calendars": [{"calendar_id", "wanted"}]}`)
-and `PUT /calendars/<id>` (the calendar as `.ics`). Every request carries `X-API-Key`, `X-Client-Id` and
-`X-Client-Name`.
+`{"calendars": [{"id", "name", "group_id", "group_name"}]}`, answering `{"calendars": [{"calendar_id", "wanted",
+"client_hash"}]}`), `GET /` (the same answer), `PUT /calendars/<id>` (the calendar as `.ics`, with the app's
+fingerprint in `X-Content-Hash`), `DELETE /pairing`, and optionally `GET /requests` (server-sent events: `sync`,
+`wanted`, `disconnected`). Every request carries `X-Client-Id` and `X-Client-Name`, plus `X-API-Key` or the
+`X-Connection-Key` the platform gave the app when it connected with `X-Pair: new` and no key.
 
 ---
 

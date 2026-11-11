@@ -204,13 +204,12 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
   handle(IPC.connectionsConnect, (_e, address, key, name) =>
     connectionService.connect(
       v.str(address, 'Address', { required: true, max: 2000 }),
-      v.str(key, 'API key', { required: true, max: 400 }),
+      // Optional: without one, the address alone connects this app.
+      v.str(key, 'API key', { max: 400 }),
       v.str(name, 'Name', { max: 60 })
     )
   )
   handle(IPC.connectionsDisconnect, (_e, id) => connectionService.disconnect(v.str(id, 'Connection', { required: true, max: 64 })))
-  handle(IPC.connectionsRefresh, (_e, id) => connectionService.refresh(v.str(id, 'Connection', { required: true, max: 64 })))
-  handle(IPC.connectionsSync, (_e, id) => connectionService.syncWanted(v.str(id, 'Connection', { required: true, max: 64 })))
   handle(IPC.connectionsDismissEnded, () => connectionService.dismissEnded())
   handle(IPC.connectionsSetListen, (_e, id, on) =>
     connectionService.setListen(v.str(id, 'Connection', { required: true, max: 64 }), on === true)

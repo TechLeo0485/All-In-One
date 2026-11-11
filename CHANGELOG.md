@@ -2,12 +2,8 @@
 
 <!--
 How to use this file:
-- Write notes for the next release under "## Unreleased" while you work.
-- When you release, rename that heading to the new version (e.g. "## 1.0.7") and bump
-  "version" in package.json to match. The app shows every "## x.y.z" section up to its
-  own version; "Unreleased" is never shown.
-- Write for users: what they can now do, or what works better. Not file names or code.
--->
+- Write notes for the next release under "## Unreleased
+- **Connections**: a new page in the sidebar sends calendars to other platforms that support calendar connections, free Proton accounts included. Paste the connection address the platform gives you (an API key is optional) and choose on the platform which calendars it gets. From then on they stay up to date there by themselves: sent within seconds whenever they sync here or are chosen there, and caught up automatically when the app starts or the network comes back. There's nothing to click to keep them in sync. Proton is still read only when you sync it or the platform asks. Disconnecting on either side disconnects both. You can connect several platforms at once.
 
 ## Unreleased
 - **Connections**: when a platform can't be reached, the message now says why and what to do: a certificate made for another name (and which name to use instead), an expired or untrusted certificate, an `http://` address entered as `https://`, nothing answering on that port, a name that can't be found, or no answer in time.
