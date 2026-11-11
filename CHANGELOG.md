@@ -9,6 +9,9 @@ How to use this file:
 - Write for users: what they can now do, or what works better. Not file names or code.
 -->
 
+## Unreleased
+- **Connections**: when a platform can't be reached, the message now says why and what to do: a certificate made for another name (and which name to use instead), an expired or untrusted certificate, an `http://` address entered as `https://`, nothing answering on that port, a name that can't be found, or no answer in time.
+
 ## 1.2.3
 - **Connections**: a new page in the sidebar sends calendars to other platforms that support calendar connections, free Proton accounts included. Paste the connection address and API key the platform gives you. The app tells it which calendars it has, by Proton account; on the platform, choose the ones it should get; **Sync & send** here sends them, and they're sent again whenever they sync with something changed. Calendars a platform didn't choose are never sent to it, and with no connection the app contacts nobody. You can connect several platforms at once.
 
