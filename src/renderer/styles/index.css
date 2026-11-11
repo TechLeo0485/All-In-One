@@ -559,3 +559,18 @@ textarea,
 .help-markdown hr {
   @apply my-6 border-slate-800;
 }
+
+/* Personal / Team switch (CalendarPage): the current mode looks pressed. */
+.mode-personal .fc .fc-personal-button,
+.mode-team .fc .fc-team-button {
+  background-color: var(--fc-button-active-bg-color);
+  border-color: var(--fc-button-active-border-color);
+  color: white;
+}
+/* Team + Day: Teamwork's board replaces the time grid; the toolbar stays for dates and views. */
+.team-day .fc .fc-view-harness {
+  display: none;
+}
+.team-day .fc .fc-header-toolbar {
+  margin-bottom: 0.75rem;
+}

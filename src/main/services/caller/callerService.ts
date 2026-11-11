@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { readFile, stat, writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
-import { app, BrowserWindow, dialog, Notification, safeStorage, shell } from 'electron'
+import { app, BrowserWindow, dialog, net, Notification, powerMonitor, safeStorage, shell } from 'electron'
 import { IPC } from '@shared/ipcChannels'
 import { hostOf, isFileSource, isTeamworkSource, TEAMWORK_SOURCE_PREFIX } from '@shared/sources'
 import type {
@@ -15,6 +15,9 @@ import type {
   CallerShares,
   CallerStatus,
   CallerAssignResult,
+  CallerQueued,
+  TeamBoard,
+  TeamBoardCaller,
   CallerCandidate,
   CallerSyncResult,
   CallerTag,
@@ -96,6 +99,8 @@ interface StoredPick {
 type PicksByWorkspace = Record<string, Record<string, StoredPick>>
 
 const PICKS_KEY = 'caller.picks'
+/** Other accounts that used this computer: their shares, picks and waiting changes, by user id. */
+const ACCOUNT_STASH_KEY = 'caller.accountStash'
 /** The Teamwork calendar of this app: workspace and local calendar id. */
 /** Before 1.2.2: one Teamwork calendar. Removed on the first rebuild. */
 const TEAMWORK_CALENDAR_KEY = 'caller.teamworkCalendar'
@@ -106,6 +111,34 @@ const UNASSIGNED_COLOR = '#94a3b8'
 type TeamworkCalendars = { slug: string; byCaller: Record<string, string> }
 /** Teamwork details of the member's own events: local event id → label and link. */
 const ANNOTATIONS_KEY = 'caller.annotations'
+/** Done while offline, waiting to be sent (in order). */
+const QUEUE_KEY = 'caller.queue'
+/** The last interviews, busy time and colors Teamwork sent: shown while offline and right after a restart. */
+const CACHE_KEY = 'caller.cache'
+/** When this app was last connected, per workspace: what Teamwork told the member after that is summed up on reconnect. */
+const ONLINE_UNTIL_KEY = 'caller.onlineUntil'
+/** Missed notifications older than this aren't summed up. */
+const MISSED_DAYS = 7
+
+/** Something done while offline. `base` is what it was when done: sent only if Teamwork still says so. */
+interface QueuedAction extends CallerQueued {
+  slug: string
+  base: string
+  callerId?: string | null
+  url?: string | null
+  path?: string
+  calendarId?: string
+  color?: string
+}
+
+interface Cache {
+  slug: string
+  savedAt: string
+  items: AppInterview[]
+  busy: MemberBusy[]
+  unassignedColor: string
+  callers?: Array<{ userId: string; name: string; level: number | null; color: string }>
+}
 /** Busy time sent last, per workspace: skip sending when nothing changed. */
 const BUSY_HASH_KEY = 'caller.busyHash'
 /** Busy time sent and shown: yesterday to 60 days ahead (the server keeps 90). */
@@ -135,6 +168,13 @@ const LIVE_FUTURE_DAYS = 60
 const LIVE_DEBOUNCE_MS = 500
 const LIVE_RETRY_MIN_MS = 2_000
 const LIVE_RETRY_MAX_MS = 60_000
+/** While waiting to reconnect: how often the operating system is asked whether the network is back. */
+const NETWORK_CHECK_MS = 3_000
+/** Teamwork pings every 25 s: this long without a byte, the stream is dead. */
+const STREAM_SILENCE_MS = 70_000
+/** Something didn't get through while connected: checked again after this, doubling, up to the longest. */
+const RECHECK_MIN_MS = 30_000
+const RECHECK_MAX_MS = 10 * 60_000
 /** Resumes: PDF or Word, up to 10 MB (as Teamwork allows). */
 const MAX_RESUME_BYTES = 10 * 1024 * 1024
 const RESUME_TYPES: Record<string, string> = {
@@ -164,7 +204,7 @@ interface AppInterview {
       role: string | null
       round: number | null
       rounds: number | null
-      lockedTo: { name: string } | null
+      lockedTo: { userId: string; name: string } | null
       /** Older Teamwork servers don't send these. */
       caller?: { userId: string; name: string; level: number | null; color: string } | null
       bidders?: Array<{ userId: string; name: string }>
@@ -192,7 +232,9 @@ const EMPTY: Connection = { serverUrl: '', email: '', userName: '', userId: '', 
 class CallerError extends Error {
   constructor(
     message: string,
-    readonly status = 0
+    readonly status = 0,
+    /** Teamwork could not be reached at all (no answer): what was being done can wait and go later. */
+    readonly network = false
   ) {
     super(message)
     this.name = 'CallerError'
@@ -267,12 +309,37 @@ class CallerService {
    * Changes the Teamwork color behind one of the Teamwork calendars: the
    * caller's member color, or the workspace's Unassigned color. Everyone sees it.
    */
-  async setColor(calendarId: string, color: string): Promise<void> {
+  async setColor(calendarId: string, color: string): Promise<{ queued: boolean }> {
     const slug = this.requireWorkspace()
     if (!/^#[0-9a-f]{6}$/i.test(color)) throw new CallerError('Pick a color.')
     const stored = settingsRepository.getInternal<TeamworkCalendars | null>(TEAMWORK_CALENDARS_KEY, null)
     const key = Object.entries(stored?.slug === slug ? stored.byCaller : {}).find(([, id]) => id === calendarId)?.[0]
     if (!key) throw new CallerError('This is not a Teamwork calendar.')
+    const queue = (): { queued: boolean } => {
+      const name = (calendarRepository.get(calendarId)?.name ?? 'Teamwork').replace(/^Teamwork · /, '')
+      this.enqueue({
+        slug,
+        kind: 'color',
+        label: `Color of ${name}`,
+        interviewId: null,
+        calendarId,
+        color: color.toLowerCase(),
+        base: (calendarRepository.get(calendarId)?.color ?? '').toLowerCase()
+      })
+      return { queued: true }
+    }
+    if (!this.liveUp) return queue()
+    try {
+      await this.sendColor(slug, key, color)
+    } catch (err) {
+      if (err instanceof CallerError && err.network) return queue()
+      throw err
+    }
+    await this.refreshInterviews(slug)
+    return { queued: false }
+  }
+
+  private async sendColor(slug: string, key: string, color: string): Promise<void> {
     try {
       if (key === UNASSIGNED) {
         await this.request(`/workspaces/${slug}/calendar/colors`, { method: 'PUT', body: { unassigned: color.toLowerCase() } })
@@ -285,15 +352,23 @@ class CallerService {
       }
       throw err
     }
-    await this.refreshInterviews(slug)
   }
 
   /** What this member may do here, and the workspace's Unassigned color (read on every full load). */
   private async refreshWorkspaceInfo(slug: string): Promise<void> {
-    const [ctx, colors] = await Promise.all([
+    const [ctx, colors, members] = await Promise.all([
       this.request<{ membership: { permissions: string[] } }>(`/workspaces/${slug}`),
-      this.request<{ unassigned: string }>(`/workspaces/${slug}/calendar/colors`).catch(() => null)
+      this.request<{ unassigned: string }>(`/workspaces/${slug}/calendar/colors`).catch(() => null),
+      // The Team view's columns: every caller, with level and color (members who may list members).
+      this.request<Array<{ userId: string; name: string; roles: string[]; callerLevel: number | null; status: string; color: string }>>(
+        `/workspaces/${slug}/members`
+      ).catch(() => null)
     ])
+    if (members) {
+      this.callers = members
+        .filter((m) => m.status === 'active' && m.roles.includes('caller'))
+        .map((m) => ({ userId: m.userId, name: m.name, level: m.callerLevel ?? null, color: m.color }))
+    }
     if (colors?.unassigned && /^#[0-9a-f]{6}$/i.test(colors.unassigned)) this.unassignedColor = colors.unassigned
     const can = canSetColors(ctx.membership.permissions)
     const c = this.connection()
@@ -308,7 +383,11 @@ class CallerService {
     if (this.busyTimer) clearTimeout(this.busyTimer)
     this.busyTimer = setTimeout(() => {
       this.busyTimer = null
-      void this.sendBusy().catch((err) => console.warn('[teamwork] busy time not sent:', errorText(err)))
+      void this.sendBusy().catch((err) => {
+        console.warn('[teamwork] busy time not sent:', errorText(err))
+        const slug = this.connection().workspaceSlug
+        if (slug && this.liveUp) this.scheduleRecheck(slug)
+      })
     }, BUSY_DEBOUNCE_MS)
   }
 
@@ -336,15 +415,15 @@ class CallerService {
       .sort((a, b) => a.start.localeCompare(b.start))
   }
 
-  /** Sends the member's busy time to the chosen workspace (only when it changed). */
-  private async sendBusy(): Promise<void> {
+  /** Sends the member's busy time to the chosen workspace (only when it changed, unless `force`). */
+  private async sendBusy(force = false): Promise<void> {
     const slug = this.connection().workspaceSlug
     if (!slug || !this.token()) return
     const blocks = this.busyBlocks(slug)
     const hash = fingerprint(JSON.stringify(blocks))
     const sent = settingsRepository.getInternal<Record<string, string>>(BUSY_HASH_KEY, {})
-    if (sent[slug] === hash) return
-    await this.request(`/workspaces/${slug}/calendar/busy`, { method: 'PUT', body: { blocks } })
+    if (!force && sent[slug] === hash) return
+    await this.request(`/workspaces/${slug}/calendar/busy`, { method: 'PUT', body: { blocks, hash } })
     settingsRepository.setInternal(BUSY_HASH_KEY, { ...sent, [slug]: hash })
   }
 
@@ -377,10 +456,36 @@ class CallerService {
    * Teamwork calendar is filled once, then only what Teamwork says changed is
    * fetched. Reconnects by itself, catching up on what it missed.
    */
+  /** The stream to Teamwork is open right now. */
+  private liveUp = false
+  private lastCheckedAt: string | null = null
+  /** Wakes the retry wait at once (network back, computer awake). */
+  private wakeRetry: (() => void) | null = null
+  private powerHooked = false
+
+  private setLiveUp(up: boolean): void {
+    if (this.liveUp === up) return
+    const slug = this.connection().workspaceSlug
+    if (!up && slug) this.markOnline(slug)
+    this.liveUp = up
+    this.notifyChanged()
+  }
+
+  private notifyChanged(): void {
+    for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IPC.callerChanged)
+  }
+
   startLive(): void {
+    if (!this.powerHooked) {
+      this.powerHooked = true
+      // Waking from sleep: the stream died meanwhile; reconnect at once instead of waiting out the backoff.
+      powerMonitor.on('resume', () => this.wakeRetry?.())
+    }
     if (this.live) return
     const c = this.connection()
     if (!c.serverUrl || !this.token() || !c.workspaceSlug) return
+    // Until Teamwork answers (or while it can't be reached): what it said last time.
+    if (this.interviewsById.size === 0) this.loadCache(c.workspaceSlug)
     const abort = new AbortController()
     this.live = abort
     void this.runLive(c.workspaceSlug, abort.signal)
@@ -389,6 +494,8 @@ class CallerService {
   stopLive(): void {
     this.live?.abort()
     this.live = null
+    this.clearRecheck()
+    this.setLiveUp(false)
     if (this.pendingTimer) clearTimeout(this.pendingTimer)
     this.pendingTimer = null
     this.pendingIds.clear()
@@ -402,14 +509,31 @@ class CallerService {
     this.startLive()
   }
 
+  /**
+   * Holds the live stream open and, every time it opens (sign-in, another
+   * workspace, a dropped connection, waking up, the network back), checks
+   * everything against Teamwork: reloads the interviews and busy time, and
+   * sends again whatever Teamwork doesn't hold in its latest copy. Between
+   * opens, only what Teamwork says changed is fetched. No polling.
+   */
   private async runLive(slug: string, signal: AbortSignal): Promise<void> {
     let delay = LIVE_RETRY_MIN_MS
-    await this.refreshInterviews(slug).catch((err) => console.warn('[teamwork] first load failed:', errorText(err)))
-    this.scheduleBusy()
+    let loaded = false
     while (!signal.aborted) {
       const { serverUrl } = this.connection()
       const token = this.token()
       if (!serverUrl || !token) break
+      // This connection only: ended by the watchdog when it goes quiet, or with the whole loop.
+      const attempt = new AbortController()
+      const endAttempt = (): void => attempt.abort()
+      signal.addEventListener('abort', endAttempt)
+      let lastByteAt = Date.now()
+      // Teamwork sends something at least every 25 s. Silence for longer means the
+      // connection died without either side being told (sleep, a network switch):
+      // reconnect, catching up on what was missed, instead of waiting forever.
+      const watchdog = setInterval(() => {
+        if (Date.now() - lastByteAt > STREAM_SILENCE_MS) attempt.abort()
+      }, 10_000)
       try {
         const response = await fetch(`${serverUrl}/api/workspaces/${slug}/stream`, {
           headers: {
@@ -418,7 +542,7 @@ class CallerService {
             Accept: 'text/event-stream',
             ...(this.lastEventId ? { 'Last-Event-ID': this.lastEventId } : {})
           },
-          signal
+          signal: attempt.signal
         })
         if (response.status === 401) {
           this.saveToken(null)
@@ -426,12 +550,16 @@ class CallerService {
         }
         if (!response.ok || !response.body) throw new Error(`Teamwork answered ${response.status}`)
         delay = LIVE_RETRY_MIN_MS
+        this.setLiveUp(true)
+        loaded = true
+        void this.reconcile(slug)
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
         for (;;) {
           const { value, done } = await reader.read()
           if (done) break
+          lastByteAt = Date.now()
           buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
           let end: number
           while ((end = buffer.indexOf('\n\n')) >= 0) {
@@ -441,16 +569,28 @@ class CallerService {
         }
       } catch (err) {
         if (signal.aborted) break
-        console.warn('[teamwork] live connection dropped:', errorText(err))
+        console.warn('[teamwork] live connection dropped:', attempt.signal.aborted ? 'it went quiet' : errorText(err))
+      } finally {
+        clearInterval(watchdog)
+        signal.removeEventListener('abort', endAttempt)
       }
+      this.setLiveUp(false)
       if (signal.aborted) break
-      await new Promise((resolve) => setTimeout(resolve, delay))
+      // No stream yet (Teamwork down, or an older server): still show what can be loaded.
+      if (!loaded) {
+        loaded = true
+        await this.refreshInterviews(slug).catch((err) => console.warn('[teamwork] first load failed:', errorText(err)))
+      }
+      await this.waitToRetry(delay, signal)
       delay = Math.min(delay * 2, LIVE_RETRY_MAX_MS)
     }
   }
 
   /** One Server-Sent Events message: `id:`, `event:` and `data:` lines. */
+  private onlineMarkedAt = 0
+
   private onLiveMessage(slug: string, block: string): void {
+    if (Date.now() - this.onlineMarkedAt > 60_000) this.markOnline(slug)
     let event = 'message'
     let data = ''
     for (const line of block.split('\n')) {
@@ -459,7 +599,8 @@ class CallerService {
       else if (line.startsWith('data:')) data += line.slice(5).trim()
     }
     if (event === 'resync') {
-      void this.refreshInterviews(slug).catch((err) => console.warn('[teamwork] resync failed:', errorText(err)))
+      // Teamwork restarted, or this app missed more than it keeps: check everything.
+      void this.reconcile(slug)
       return
     }
     if (event === 'colors.changed') {
@@ -489,6 +630,305 @@ class CallerService {
       return
     }
     if (!this.pendingTimer) this.pendingTimer = setTimeout(() => void this.flushLive(slug), LIVE_DEBOUNCE_MS)
+  }
+
+  /**
+   * Waits before reconnecting; ends early when the computer wakes or the
+   * network comes back (the operating system is asked every few seconds,
+   * no request is made).
+   */
+  private waitToRetry(delay: number, signal: AbortSignal): Promise<void> {
+    return new Promise((resolve) => {
+      let wasOnline = net.isOnline()
+      const done = (): void => {
+        clearTimeout(timer)
+        clearInterval(watch)
+        signal.removeEventListener('abort', done)
+        if (this.wakeRetry === done) this.wakeRetry = null
+        resolve()
+      }
+      const timer = setTimeout(done, delay)
+      const watch = setInterval(() => {
+        const online = net.isOnline()
+        if (online && !wasOnline) done()
+        wasOnline = online
+      }, NETWORK_CHECK_MS)
+      signal.addEventListener('abort', done)
+      this.wakeRetry = done
+    })
+  }
+
+  private reconciling = false
+  private reconcileAgain = false
+  private recheckTimer: NodeJS.Timeout | null = null
+  private recheckTries = 0
+
+  /**
+   * While connected, something didn't get through (a send failed, an upload
+   * erred): the full check runs again after a wait that doubles each time.
+   * A reconnect runs it at once anyway.
+   */
+  private scheduleRecheck(slug: string, soon = false): void {
+    if (this.recheckTimer) clearTimeout(this.recheckTimer)
+    const delay = soon ? 5_000 : Math.min(RECHECK_MIN_MS * 2 ** this.recheckTries, RECHECK_MAX_MS)
+    if (!soon) this.recheckTries++
+    this.recheckTimer = setTimeout(() => {
+      this.recheckTimer = null
+      if (this.liveUp && this.connection().workspaceSlug === slug) void this.reconcile(slug)
+    }, delay)
+  }
+
+  private clearRecheck(): void {
+    if (this.recheckTimer) clearTimeout(this.recheckTimer)
+    this.recheckTimer = null
+    this.recheckTries = 0
+  }
+
+  /**
+   * Checks everything against Teamwork: the interviews and busy time shown
+   * here, and what Teamwork holds of this member's shared calendars, picked
+   * events and busy time (by the fingerprint the app sent with each). What
+   * Teamwork doesn't hold in its latest copy is sent again. One at a time;
+   * asked again meanwhile, it runs once more after.
+   */
+  private async reconcile(slug: string): Promise<void> {
+    if (this.reconciling) {
+      this.reconcileAgain = true
+      return
+    }
+    this.reconciling = true
+    try {
+      do {
+        this.reconcileAgain = false
+        let ok = true
+        const step = (what: string) => (err: unknown) => {
+          ok = false
+          console.warn(`[teamwork] ${what}:`, errorText(err))
+        }
+        await this.refreshInterviews(slug).catch(step('reload failed'))
+        await this.notifyMissed(slug).catch(step('missed notifications not read'))
+        if (!(await this.flushQueue(slug))) ok = false
+        await this.reconcileUploads(slug).catch(step('check of shared calendars failed'))
+        await this.reconcileBusy(slug).catch(step('check of busy time failed'))
+        this.lastCheckedAt = new Date().toISOString()
+        if (ok) this.markOnline(slug)
+        this.notifyChanged()
+        // Something didn't get through: try again in a while (sooner when the connection reopens).
+        if (ok) this.clearRecheck()
+        else this.scheduleRecheck(slug)
+      } while (this.reconcileAgain && this.connection().workspaceSlug === slug)
+    } finally {
+      this.reconciling = false
+    }
+  }
+
+  /** Shared calendars and picks Teamwork doesn't hold in the copy last sent: sent again. */
+  private async reconcileUploads(slug: string): Promise<void> {
+    const shares = this.allShares()[slug] ?? {}
+    const picks = this.allPicks()[slug] ?? {}
+    if (Object.keys(shares).length === 0 && Object.keys(picks).length === 0) return
+    const userId = this.connection().userId
+    const server = await this.request<Array<{ id: string; provider: string; sharedBy: { id: string } | null; clientHash?: string | null }>>(
+      `/workspaces/${slug}/calendar/connections`
+    )
+    const byId = new Map(server.filter((c) => c.provider === 'desktop' && c.sharedBy?.id === userId).map((c) => [c.id, c]))
+    const resync: CalendarSource[] = []
+    for (const [localId, share] of Object.entries(shares)) {
+      // Not listed: probably removed on the website. Only a definite "not found" when sending
+      // (uploadShared) stops sharing here, so a short or failed list never drops a share.
+      const held = byId.get(share.connectionId)
+      if (held?.clientHash && held.clientHash === share.lastHash && !share.lastError) continue
+      const calendar = calendarRepository.get(localId)
+      if (!calendar) continue
+      // Teamwork's copy differs: whatever was recorded as sent, sync and send it.
+      this.saveShare(slug, localId, { ...share, lastHash: null })
+      resync.push(calendar)
+    }
+    if (resync.length) await this.syncLocal(resync).catch((err) => console.warn('[teamwork] resync failed:', errorText(err)))
+    for (const [profileId, pick] of Object.entries(picks)) {
+      const held = byId.get(pick.connectionId)
+      if (held?.clientHash && held.clientHash === pick.lastHash && !pick.lastError) continue
+      this.savePick(slug, profileId, { ...pick, lastHash: null })
+      await this.uploadPick(slug, profileId)
+    }
+  }
+
+  /** Busy time Teamwork doesn't hold in its latest copy: sent again. */
+  private async reconcileBusy(slug: string): Promise<void> {
+    const held = await this.request<{ hash: string | null }>(`/workspaces/${slug}/calendar/busy/mine`)
+    const hash = fingerprint(JSON.stringify(this.busyBlocks(slug)))
+    if (held.hash === hash) return
+    await this.sendBusy(true)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Offline: what Teamwork said last (cache), what was done here (queue), what was missed
+
+  private cachedAt: string | null = null
+  private cacheTimer: NodeJS.Timeout | null = null
+
+  /** Saves Teamwork's state shortly after it changes (several changes, one write). */
+  private scheduleCacheSave(slug: string): void {
+    if (this.cacheTimer) clearTimeout(this.cacheTimer)
+    this.cacheTimer = setTimeout(() => {
+      this.cacheTimer = null
+      if (this.connection().workspaceSlug !== slug || this.interviewsById.size === 0) return
+      const cache: Cache = {
+        slug,
+        savedAt: new Date().toISOString(),
+        items: [...this.interviewsById.values()],
+        busy: this.busyMembers,
+        unassignedColor: this.unassignedColor,
+        callers: this.callers
+      }
+      settingsRepository.setInternal(CACHE_KEY, cache)
+      this.cachedAt = cache.savedAt
+    }, 1_000)
+  }
+
+  /** Shows what Teamwork said last time, until it answers again. */
+  private loadCache(slug: string): void {
+    const cache = settingsRepository.getInternal<Cache | null>(CACHE_KEY, null)
+    if (!cache || cache.slug !== slug) return
+    this.interviewsById = new Map(cache.items.map((i) => [i.event.id, i]))
+    this.busyMembers = cache.busy ?? []
+    if (cache.unassignedColor) this.unassignedColor = cache.unassignedColor
+    if (cache.callers) this.callers = cache.callers
+    this.cachedAt = cache.savedAt
+    this.rebuildTeamwork(slug)
+  }
+
+  private queue(): QueuedAction[] {
+    return settingsRepository.getInternal<QueuedAction[] | null>(QUEUE_KEY, null) ?? []
+  }
+
+  private saveQueue(list: QueuedAction[]): void {
+    settingsRepository.setInternal(QUEUE_KEY, list)
+    this.notifyChanged()
+  }
+
+  private enqueue(action: Omit<QueuedAction, 'id' | 'createdAt'>): void {
+    this.saveQueue([...this.queue(), { ...action, id: randomUUID(), createdAt: new Date().toISOString() }])
+    // Connected but the send didn't get through: don't wait for the next reconnect.
+    if (this.liveUp) this.scheduleRecheck(action.slug, true)
+  }
+
+  cancelQueued(id: string): CallerStatus {
+    this.saveQueue(this.queue().filter((q) => q.id !== id))
+    return this.status()
+  }
+
+  /** What Teamwork says now for what an action changes; null when the interview is gone. */
+  private currentOf(a: Pick<QueuedAction, 'kind' | 'interviewId' | 'calendarId'>): string | null {
+    if (a.kind === 'color') return a.calendarId ? (calendarRepository.get(a.calendarId)?.color ?? '').toLowerCase() : null
+    const i = a.interviewId ? this.interviewsById.get(a.interviewId) : undefined
+    if (!i) return null
+    const d = i.event.interview
+    if (a.kind === 'assign') return d?.caller?.userId ?? i.event.assignees[0]?.userId ?? ''
+    if (a.kind === 'link') return d?.link?.url ?? ''
+    return d?.resume?.attachmentId ?? ''
+  }
+
+  /**
+   * Sends what was done here while offline, in order. Each goes only if
+   * Teamwork still says what it said when it was done; if someone changed it
+   * meanwhile, it isn't overwritten: it's dropped and the member is told.
+   * Teamwork unreachable again: the rest waits for the next connection.
+   */
+  private async flushQueue(slug: string): Promise<boolean> {
+    for (const a of this.queue().filter((q) => q.slug === slug)) {
+      if (!this.queue().some((q) => q.id === a.id)) continue // cancelled meanwhile
+      const now = this.currentOf(a)
+      // Already so on Teamwork (it got through before the app could note it, e.g. a crash): done.
+      if (now !== null && this.alreadyDone(a, now)) {
+        this.saveQueue(this.queue().filter((q) => q.id !== a.id))
+        continue
+      }
+      if (now === null) {
+        this.dropQueued(a, a.kind === 'color' ? 'that calendar is gone.' : 'the interview is no longer on Teamwork.')
+        continue
+      }
+      if (now !== a.base) {
+        this.dropQueued(a, 'someone changed it on Teamwork meanwhile, so it was not overwritten.')
+        continue
+      }
+      try {
+        if (a.kind === 'assign') {
+          const result = await this.sendAssign(slug, a.interviewId!, a.callerId ?? null, false)
+          if (!result.ok) {
+            this.dropQueued(a, `${result.locked} Do it again now that you're online.`)
+            continue
+          }
+        } else if (a.kind === 'link') {
+          await this.sendLink(slug, a.interviewId!, a.url ?? null)
+        } else if (a.kind === 'resume') {
+          await this.sendResume(slug, a.interviewId!, a.path!)
+        } else {
+          const stored = settingsRepository.getInternal<TeamworkCalendars | null>(TEAMWORK_CALENDARS_KEY, null)
+          const key = Object.entries(stored?.slug === slug ? stored.byCaller : {}).find(([, id]) => id === a.calendarId)?.[0]
+          if (!key) {
+            this.dropQueued(a, 'that calendar is gone.')
+            continue
+          }
+          await this.sendColor(slug, key, a.color!)
+          await this.refreshInterviews(slug)
+        }
+        this.saveQueue(this.queue().filter((q) => q.id !== a.id))
+      } catch (err) {
+        // Unreachable again: the rest waits, in order, for the next try.
+        if (err instanceof CallerError && err.network) return false
+        this.dropQueued(a, errorText(err))
+      }
+    }
+    return true
+  }
+
+  /** Teamwork already says what the action would make it say. */
+  private alreadyDone(a: QueuedAction, now: string): boolean {
+    if (a.kind === 'assign') return now === (a.callerId ?? '')
+    if (a.kind === 'link') return now === (a.url ?? '')
+    if (a.kind === 'color') return now === (a.color ?? '').toLowerCase()
+    return false
+  }
+
+  private dropQueued(a: QueuedAction, reason: string): void {
+    this.saveQueue(this.queue().filter((q) => q.id !== a.id))
+    if (!Notification.isSupported()) return
+    createNotification({ title: 'Not sent to Teamwork', body: `${a.label}: ${reason}` }).show()
+  }
+
+  private markOnline(slug: string): void {
+    this.onlineMarkedAt = Date.now()
+    const all = settingsRepository.getInternal<Record<string, string> | null>(ONLINE_UNTIL_KEY, null) ?? {}
+    settingsRepository.setInternal(ONLINE_UNTIL_KEY, { ...all, [slug]: new Date().toISOString() })
+  }
+
+  /**
+   * After being away: one desktop notification summing up what Teamwork told
+   * the member meanwhile (unread, from the last week). Clicking opens them.
+   */
+  private async notifyMissed(slug: string): Promise<void> {
+    const since = (settingsRepository.getInternal<Record<string, string> | null>(ONLINE_UNTIL_KEY, null) ?? {})[slug]
+    if (!since) return
+    const cutoff = Math.max(Date.parse(since), Date.now() - MISSED_DAYS * DAY_MS)
+    const page = await this.request<{ items: Array<{ type: string; readAt: string | null; createdAt: string }> }>(
+      `/workspaces/${slug}/notifications?unread=true&limit=50`
+    )
+    const missed = page.items.filter((n) => !n.readAt && Date.parse(n.createdAt) > cutoff)
+    if (missed.length === 0 || !Notification.isSupported()) return
+    const count = (pick: (type: string) => boolean): number => missed.filter((n) => pick(n.type)).length
+    const assigned = count((t) => t === 'interview.assigned' || t === 'event.assigned')
+    const updates = count((t) => t === 'interview.changed' || t.startsWith('event.'))
+    const others = missed.length - assigned - updates
+    const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
+    const parts = [
+      assigned ? `${plural(assigned, 'interview', 'interviews')} assigned to you` : '',
+      updates ? plural(updates, 'interview update', 'interview updates') : '',
+      others ? plural(others, 'other notification', 'other notifications') : ''
+    ].filter(Boolean)
+    const notification = createNotification({ title: 'While you were away', body: `${parts.join(', ')}.` })
+    notification.on('click', () => void shell.openExternal(`${this.connection().serverUrl}/app/${slug}/notifications`))
+    notification.show()
   }
 
   /** Fetches just the interviews Teamwork said changed. */
@@ -568,21 +1008,31 @@ class CallerService {
         d?.link && /^https?:\/\//i.test(d.link.url) ? { url: d.link.url, site: d.link.site, sharedBy: d.link.sharedBy } : null,
       canUploadResume: Boolean(d?.canManageResume),
       canAssign: Boolean(d?.canAssign) && i.event.status !== 'cancelled',
-      callerId: d?.caller?.userId ?? i.event.assignees[0]?.userId ?? null
+      callerId: d?.caller?.userId ?? i.event.assignees[0]?.userId ?? null,
+      pending: this.queue()
+        .filter((q) => q.interviewId === i.event.id)
+        .map((q) => q.label)
     }
   }
 
   /** The callers to choose from, as Teamwork's assignment rule ranks them (recommended first). */
   async candidates(interviewId: string): Promise<CallerCandidate[]> {
     const slug = this.requireWorkspace()
-    const rec = await this.request<{
+    if (!this.liveUp) return this.offlineCandidates()
+    let rec: {
       candidates: Array<{
         caller: { id: string; name: string; level: number | null }
         interviewCount: number
         status: CallerCandidate['status']
         recommended: boolean
       }>
-    }>(`/workspaces/${slug}/events/${encodeURIComponent(interviewId)}/recommendation`)
+    }
+    try {
+      rec = await this.fetchCandidates(slug, interviewId)
+    } catch (err) {
+      if (err instanceof CallerError && err.network) return this.offlineCandidates()
+      throw err
+    }
     const list = rec.candidates.map((c) => ({
       userId: c.caller.id,
       name: c.caller.name,
@@ -594,6 +1044,40 @@ class CallerService {
     return [...list.filter((c) => c.recommended), ...list.filter((c) => !c.recommended)]
   }
 
+  /** Offline: the callers this app knows from Teamwork's last state, without Teamwork's ranking. */
+  private offlineCandidates(): CallerCandidate[] {
+    const counts = new Map<string, number>()
+    for (const i of this.interviewsById.values()) {
+      const id = i.event.interview?.caller?.userId ?? i.event.assignees[0]?.userId
+      if (id) counts.set(id, (counts.get(id) ?? 0) + 1)
+    }
+    return [...this.knownCallers()]
+      .map(([userId, name]) => ({ userId, name, level: null, status: 'unknown' as const, interviewCount: counts.get(userId) ?? 0, recommended: false }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  /** Callers (and members with busy time) this app knows: id → name. */
+  private knownCallers(): Map<string, string> {
+    const known = new Map<string, string>()
+    for (const i of this.interviewsById.values()) {
+      const c = i.event.interview?.caller ?? i.event.assignees[0]
+      if (c) known.set(c.userId, c.name)
+    }
+    for (const m of this.busyMembers) known.set(m.userId, m.name)
+    return known
+  }
+
+  private fetchCandidates(slug: string, interviewId: string) {
+    return this.request<{
+      candidates: Array<{
+        caller: { id: string; name: string; level: number | null }
+        interviewCount: number
+        status: CallerCandidate['status']
+        recommended: boolean
+      }>
+    }>(`/workspaces/${slug}/events/${encodeURIComponent(interviewId)}/recommendation`)
+  }
+
   /**
    * Gives the interview to a caller. A later round stays with the earlier
    * round's caller: others are refused, the admin is asked first (`locked`),
@@ -601,6 +1085,29 @@ class CallerService {
    */
   async assign(interviewId: string, callerId: string | null, force: boolean): Promise<CallerAssignResult> {
     const slug = this.requireWorkspace()
+    const queue = (): CallerAssignResult => {
+      const i = this.interviewsById.get(interviewId)
+      const who = callerId ? (this.knownCallers().get(callerId) ?? 'a caller') : null
+      this.enqueue({
+        slug,
+        kind: 'assign',
+        label: `${who ? `Assign ${who}` : 'Unassign'} → ${i ? this.labelOf(i) : 'interview'}`,
+        interviewId,
+        callerId,
+        base: this.currentOf({ kind: 'assign', interviewId }) ?? ''
+      })
+      return { ok: true, queued: true }
+    }
+    if (!this.liveUp) return queue()
+    try {
+      return await this.sendAssign(slug, interviewId, callerId, force)
+    } catch (err) {
+      if (err instanceof CallerError && err.network) return queue()
+      throw err
+    }
+  }
+
+  private async sendAssign(slug: string, interviewId: string, callerId: string | null, force: boolean): Promise<CallerAssignResult> {
     try {
       await this.request(`/workspaces/${slug}/events/${encodeURIComponent(interviewId)}/caller`, {
         method: 'PUT',
@@ -623,6 +1130,75 @@ class CallerService {
     return { caller: this.callerOf(i), round: i.event.interview?.round ?? null, locked: Boolean(i.event.interview?.lockedTo) }
   }
 
+  /** Every caller of the workspace (from the members list), for the Team view's columns. */
+  private callers: Array<{ userId: string; name: string; level: number | null; color: string }> = []
+  /** Interview id → the event in this app that shows it. */
+  private eventIdByInterview: Record<string, string> = {}
+
+  /**
+   * The Team view's Day board, as on the Teamwork website: every caller (by
+   * level) with their interviews of the day, and the ones nobody has yet.
+   * Members who can't list members see the callers this app knows from the
+   * interviews instead.
+   */
+  teamBoard(from: string, to: string): TeamBoard {
+    const c = this.connection()
+    const signedIn = Boolean(c.serverUrl && this.token() && c.workspaceSlug)
+    const start = Date.parse(from)
+    const end = Date.parse(to)
+    const myId = c.userId
+    const queued = new Set(this.queue().map((q) => q.interviewId).filter(Boolean))
+    const cards = [...this.interviewsById.values()]
+      .filter((i) => Date.parse(i.event.start) < end && Date.parse(i.event.end) > start)
+      .sort((a, b) => a.event.start.localeCompare(b.event.start))
+      .map((i) => {
+        const d = i.event.interview
+        const round = d?.round ? `R${d.round}` : null
+        const eventId = this.eventIdByInterview[i.event.id] ?? null
+        return {
+          interviewId: i.event.id,
+          eventId,
+          company: d?.company?.name ?? null,
+          status: eventId ? (eventRepository.get(eventId)?.status ?? null) : null,
+          start: i.event.start,
+          end: i.event.end,
+          title: this.labelOf(i),
+          profile: d?.profile?.fullName ?? null,
+          round,
+          lockedTo: d?.lockedTo ? { userId: d.lockedTo.userId, name: d.lockedTo.name } : null,
+          callerId: d?.caller?.userId ?? i.event.assignees[0]?.userId ?? null,
+          needsDetails: !(d?.company && d.role),
+          cancelled: i.event.status === 'cancelled',
+          canAssign: Boolean(d?.canAssign) && i.event.status !== 'cancelled',
+          pending: queued.has(i.event.id)
+        }
+      })
+    // Callers: the workspace's (with levels), else the ones these interviews name.
+    const byId = new Map<string, TeamBoardCaller>()
+    for (const k of this.callers) byId.set(k.userId, { ...k, mine: k.userId === myId })
+    if (byId.size === 0) {
+      for (const i of this.interviewsById.values()) {
+        const k = i.event.interview?.caller
+        if (k && !byId.has(k.userId)) byId.set(k.userId, { userId: k.userId, name: k.name, level: k.level, color: k.color, mine: k.userId === myId })
+      }
+    }
+    // An interview's caller who isn't listed (no longer a caller) still gets a column.
+    for (const card of cards) {
+      if (!card.callerId || byId.has(card.callerId)) continue
+      const i = this.interviewsById.get(card.interviewId)
+      const k = i?.event.interview?.caller ?? i?.event.assignees[0]
+      if (k) byId.set(card.callerId, { userId: card.callerId, name: k.name, level: (k as { level?: number | null }).level ?? null, color: (k as { color?: string }).color ?? UNASSIGNED_COLOR, mine: card.callerId === myId })
+    }
+    return {
+      signedIn,
+      callers: [...byId.values()].sort((a, b) => (a.level ?? 99) - (b.level ?? 99) || a.name.localeCompare(b.name)),
+      cards,
+      canAssign: cards.some((x) => x.canAssign),
+      unassignedColor: this.unassignedColor,
+      offlineSince: this.liveUp ? null : this.cachedAt
+    }
+  }
+
   /** Caller tags of the events that are Teamwork interviews (built with the Teamwork calendar). */
   private tagsByEvent: Record<string, CallerTag> = {}
 
@@ -636,16 +1212,36 @@ class CallerService {
   }
 
   /** Shares one link on the interview for everyone on it, or removes it (null). */
-  async shareLink(interviewId: string, url: string | null): Promise<void> {
+  async shareLink(interviewId: string, url: string | null): Promise<{ queued: boolean }> {
     const slug = this.requireWorkspace()
-    const path = `/workspaces/${slug}/events/${encodeURIComponent(interviewId)}/link`
-    if (url === null) {
-      await this.request(path, { method: 'DELETE' })
-    } else {
-      const link = url.trim()
-      if (!/^https?:\/\/\S+$/i.test(link)) throw new CallerError('Paste a link that starts with https://')
-      await this.request(path, { method: 'PUT', body: { url: link } })
+    const link = url === null ? null : url.trim()
+    if (link !== null && !/^https?:\/\/\S+$/i.test(link)) throw new CallerError('Paste a link that starts with https://')
+    const queue = (): { queued: boolean } => {
+      const i = this.interviewsById.get(interviewId)
+      this.enqueue({
+        slug,
+        kind: 'link',
+        label: `${link ? 'Share a link' : 'Remove the link'} → ${i ? this.labelOf(i) : 'interview'}`,
+        interviewId,
+        url: link,
+        base: this.currentOf({ kind: 'link', interviewId }) ?? ''
+      })
+      return { queued: true }
     }
+    if (!this.liveUp) return queue()
+    try {
+      await this.sendLink(slug, interviewId, link)
+    } catch (err) {
+      if (err instanceof CallerError && err.network) return queue()
+      throw err
+    }
+    return { queued: false }
+  }
+
+  private async sendLink(slug: string, interviewId: string, link: string | null): Promise<void> {
+    const path = `/workspaces/${slug}/events/${encodeURIComponent(interviewId)}/link`
+    if (link === null) await this.request(path, { method: 'DELETE' })
+    else await this.request(path, { method: 'PUT', body: { url: link } })
     await this.refreshInterview(slug, interviewId)
   }
 
@@ -661,7 +1257,7 @@ class CallerService {
    * as the website does: an upload target for the profile + company + role,
    * the file to storage, then attached (the old one is replaced, the caller told).
    */
-  async uploadResume(interviewId: string): Promise<string | null> {
+  async uploadResume(interviewId: string): Promise<{ name: string; queued: boolean } | null> {
     const slug = this.requireWorkspace()
     const win = BrowserWindow.getFocusedWindow()
     const options = {
@@ -677,7 +1273,40 @@ class CallerService {
     const { size } = await stat(path)
     if (size === 0) throw new CallerError('This file is empty.')
     if (size > MAX_RESUME_BYTES) throw new CallerError('A resume can be at most 10 MB.')
-    const data = await readFile(path)
+    const filename = basename(path).slice(0, 200)
+    const queue = (): { name: string; queued: boolean } => {
+      const i = this.interviewsById.get(interviewId)
+      this.enqueue({
+        slug,
+        kind: 'resume',
+        label: `Resume ${filename} → ${i ? this.labelOf(i) : 'interview'}`,
+        interviewId,
+        path,
+        base: this.currentOf({ kind: 'resume', interviewId }) ?? ''
+      })
+      return { name: filename, queued: true }
+    }
+    if (!this.liveUp) return queue()
+    try {
+      await this.sendResume(slug, interviewId, path)
+    } catch (err) {
+      if (err instanceof CallerError && err.network) return queue()
+      throw err
+    }
+    return { name: filename, queued: false }
+  }
+
+  /** Uploads a resume file from this computer and makes it the interview's resume. */
+  private async sendResume(slug: string, interviewId: string, path: string): Promise<void> {
+    const contentType = RESUME_TYPES[extname(path).toLowerCase()]
+    if (!contentType) throw new CallerError('A resume must be a PDF or Word file (.pdf, .doc or .docx).')
+    let data: Buffer
+    try {
+      data = await readFile(path)
+    } catch {
+      throw new CallerError('The file is no longer where it was picked from.')
+    }
+    const size = data.length
     const filename = basename(path).slice(0, 200)
 
     const { targetId } = await this.request<{ targetId: string }>(`/workspaces/${slug}/events/${interviewId}/resume/slot`, { method: 'POST', body: {} })
@@ -690,13 +1319,12 @@ class CallerService {
     try {
       stored = await fetch(uploadUrl, { method: 'PUT', headers: ticket.upload.headers, body: data, signal: AbortSignal.timeout(5 * 60_000) })
     } catch {
-      throw new CallerError('The resume could not be uploaded. Check the internet connection.')
+      throw new CallerError('The resume could not be uploaded. Check the internet connection.', 0, true)
     }
     if (!stored.ok) throw new CallerError(`Teamwork's file storage refused the upload (${stored.status}).`)
     await this.request(`/workspaces/${slug}/files/${ticket.attachment.id}/complete`, { method: 'POST', body: {} })
     await this.request(`/workspaces/${slug}/events/${interviewId}/resume/file`, { method: 'PUT', body: { attachmentId: ticket.attachment.id } })
     await this.refreshInterview(slug, interviewId)
-    return filename
   }
 
   /**
@@ -751,6 +1379,7 @@ class CallerService {
     const ownPicks = new Map(Object.values(picks).map((pick) => [pick.connectionId, pick.eventIds]))
     const annotations: Annotations = {}
     const tags: Record<string, CallerTag> = {}
+    const eventIds: Record<string, string> = {}
     type Row = Parameters<typeof eventRepository.replaceCalendarEvents>[1][number]
     const groups = new Map<
       string,
@@ -763,6 +1392,7 @@ class CallerService {
       if (own) {
         annotations[own] = { label, url: this.urlOf(slug, i.event.id), interviewId: i.event.id }
         tags[own] = this.tagOf(i)
+        eventIds[i.event.id] = own
         continue
       }
       const caller = this.callerOf(i)
@@ -820,7 +1450,11 @@ class CallerService {
     const calendarIds = this.teamworkCalendars(slug, groups)
     for (const [key, group] of groups) {
       const calendarId = calendarIds.get(key)!
-      for (const r of group.rows) if (r.tag) tags[makeEventId(calendarId, r.key)] = r.tag
+      for (const r of group.rows) {
+        if (!r.tag) continue
+        tags[makeEventId(calendarId, r.key)] = r.tag
+        eventIds[r.key] = makeEventId(calendarId, r.key)
+      }
       eventRepository.replaceCalendarEvents(
         calendarId,
         group.rows.map(({ key: rowKey, row }) => ({ ...row, id: makeEventId(calendarId, rowKey) }))
@@ -829,6 +1463,8 @@ class CallerService {
     }
     settingsRepository.setInternal(ANNOTATIONS_KEY, annotations)
     this.tagsByEvent = tags
+    this.eventIdByInterview = eventIds
+    this.scheduleCacheSave(slug)
     for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IPC.callerChanged)
   }
 
@@ -912,6 +1548,9 @@ class CallerService {
     this.interviewsById.clear()
     this.busyMembers = []
     this.tagsByEvent = {}
+    settingsRepository.setInternal(CACHE_KEY, null)
+    settingsRepository.setInternal(QUEUE_KEY, [])
+    this.cachedAt = null
     for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IPC.callerChanged)
   }
 
@@ -1009,7 +1648,7 @@ class CallerService {
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
       })
     } catch {
-      throw new CallerError('Teamwork could not be reached. Check the internet connection and the address.')
+      throw new CallerError('Teamwork could not be reached. Check the internet connection and the address.', 0, true)
     }
     if (response.status === 401) {
       this.saveToken(null)
@@ -1041,7 +1680,13 @@ class CallerService {
       workspaces: c.workspaces,
       workspaceSlug: c.workspaceSlug,
       lastSyncAt: c.lastSyncAt,
-      signedIn: Boolean(c.serverUrl && this.token())
+      signedIn: Boolean(c.serverUrl && this.token()),
+      live: this.liveUp ? 'connected' : this.live ? 'connecting' : 'off',
+      lastCheckedAt: this.lastCheckedAt,
+      queue: this.queue()
+        .filter((q) => q.slug === c.workspaceSlug)
+        .map(({ id, kind, label, createdAt, interviewId }) => ({ id, kind, label, createdAt, interviewId })),
+      cachedAt: this.liveUp ? null : this.cachedAt
     }
   }
 
@@ -1081,6 +1726,10 @@ class CallerService {
       })
     }
     if (workspaces.length === 0) throw new CallerError('This account is not a member of any workspace yet.')
+    // Another account on this computer: its sharing, picks and waiting changes are set aside (and come
+    // back when it signs in again); nothing of one account is shown to, or sent as, the other.
+    const before = this.connection().userId
+    if (before && before !== me.user.id) this.switchAccount(before, me.user.id)
     this.saveToken(token)
     const previous = this.connection().workspaceSlug
     this.saveConnection({
@@ -1092,6 +1741,30 @@ class CallerService {
     })
     this.restartLive()
     return this.status()
+  }
+
+  /**
+   * Another account signs in here: the previous one's shares, picks and waiting
+   * changes are kept aside under its id, the new one's (if it used this computer
+   * before) come back, and everything cached from Teamwork is dropped.
+   */
+  private switchAccount(from: string, to: string): void {
+    type Stash = { shares: SharesByWorkspace; picks: PicksByWorkspace; queue: QueuedAction[] }
+    const stash = settingsRepository.getInternal<Record<string, Stash> | null>(ACCOUNT_STASH_KEY, null) ?? {}
+    stash[from] = { shares: this.allShares(), picks: this.allPicks(), queue: this.queue() }
+    const theirs = stash[to]
+    delete stash[to]
+    settingsRepository.setInternal(ACCOUNT_STASH_KEY, stash)
+    settingsRepository.setInternal(SHARES_KEY, theirs?.shares ?? {})
+    settingsRepository.setInternal(PICKS_KEY, theirs?.picks ?? {})
+    settingsRepository.setInternal(QUEUE_KEY, theirs?.queue ?? [])
+    settingsRepository.setInternal(CACHE_KEY, null)
+    settingsRepository.setInternal(ONLINE_UNTIL_KEY, {})
+    settingsRepository.setInternal(BUSY_HASH_KEY, {})
+    this.cachedAt = null
+    this.busyMembers = []
+    this.callers = []
+    this.interviewsById.clear()
   }
 
   /** Signs out. Shares are kept, so signing in again resumes them. */
@@ -1308,7 +1981,12 @@ class CallerService {
     const annotated = this.annotations()[event.id]
     if (annotated) {
       const interview = annotated.interviewId ? this.interviewsById.get(annotated.interviewId) : undefined
-      return { label: annotated.label, url: annotated.url, interview: interview ? this.interviewOf(interview) : null }
+      return {
+        label: annotated.label,
+        url: annotated.url,
+        interview: interview ? this.interviewOf(interview) : null,
+        offlineSince: this.liveUp ? null : this.cachedAt
+      }
     }
     const calendar = event.calendarId ? calendarRepository.get(event.calendarId) : null
     // Another member's busy time: nothing on Teamwork to show.
@@ -1318,7 +1996,8 @@ class CallerService {
       return {
         label: interview ? this.detailsOf(interview) : event.title,
         url: this.urlOf(slug, event.externalId),
-        interview: interview ? this.interviewOf(interview) : null
+        interview: interview ? this.interviewOf(interview) : null,
+        offlineSince: this.liveUp ? null : this.cachedAt
       }
     }
     return null
@@ -1401,7 +2080,7 @@ class CallerService {
       try {
         const result = await this.request<ServerCalendar>(`/workspaces/${slug}/calendar/connections/${pick.connectionId}/ics`, {
           method: 'POST',
-          body: { ics, fileName: 'picked-interviews.ics' }
+          body: { ics, fileName: 'picked-interviews.ics', hash }
         })
         this.savePick(slug, profileId, {
           ...pick,
@@ -1418,6 +2097,7 @@ class CallerService {
           return
         }
         this.savePick(slug, profileId, { ...pick, lastError: err instanceof Error ? err.message : String(err) })
+        if (this.liveUp) this.scheduleRecheck(slug)
       }
     })
     const settled = run.catch(() => undefined)
@@ -1451,7 +2131,7 @@ class CallerService {
           if (Buffer.byteLength(ics, 'utf8') > MAX_UPLOAD_BYTES) throw new CallerError('This calendar is too large to share (8 MB at most)')
           const result = await this.request<ServerCalendar>(`/workspaces/${slug}/calendar/connections/${share.connectionId}/ics`, {
             method: 'POST',
-            body: { ics, fileName: calendar.name }
+            body: { ics, fileName: calendar.name, hash }
           })
           this.saveShare(slug, calendar.id, {
             ...share,
@@ -1468,6 +2148,7 @@ class CallerService {
             continue
           }
           this.saveShare(slug, calendar.id, { ...share, lastError: err instanceof Error ? err.message : String(err) })
+          if (this.liveUp) this.scheduleRecheck(slug)
         }
       }
     })

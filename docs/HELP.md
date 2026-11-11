@@ -190,11 +190,28 @@ on the calendar in All-In-One.
 If you work in a Teamwork workspace, you can send some of your calendars there. Each shared calendar belongs to one
 profile; its events become that profile's interviews on Teamwork, where company, role and caller are filled in.
 
-1. Click **Teamwork** in the sidebar.
-2. Enter the address you open Teamwork at (for example `http://teamwork.newtech.gg`), your Teamwork email and password,
-   then click **Sign in**.
-3. If you're in several workspaces, choose one at the top right.
+1. Click **Connections** in the sidebar. Teamwork has its own card at the top; other platforms are under **Pool**.
+2. In the **Teamwork** card, enter the address you open Teamwork at (for example `http://teamwork.newtech.gg`), your
+   Teamwork email and password, then click **Sign in**.
+3. If you're in several workspaces, pick one under **Workspace**. The card then says **● Connected**.
 4. Next to each calendar, pick **Share with** and the profile it belongs to. It's sent right away.
+
+Every time the connection is made (signing in, picking a workspace, the app starting, the network coming back, the
+computer waking up), the app checks everything against Teamwork: it reloads the interviews and busy time, and sends again
+any shared calendar, picked event or busy time Teamwork doesn't have in its latest copy. Between connections it only
+listens for changes; nothing polls. **Disconnect** signs out of Teamwork here; your sharing choices are kept.
+
+**Personal and Team views.** Once Teamwork is connected, the Day view's toolbar has a **Personal / Team** switch.
+Personal is your own calendar. In Team, the **Day** view shows the team's day as on the Teamwork website: one column per
+caller on a shared time axis (**Unassigned** first), each interview where it falls, and a red line at the current time.
+The header says how many interviews each caller has, or "Free all day". Drag a card to another caller to reassign it; a later round asks before it moves. Click a card for its
+details. The app remembers which one you used.
+
+Offline, the app shows what Teamwork had when it was last reached. What you do meanwhile (assign a caller, share a link,
+upload a resume, change a color) waits under **Waiting to send** in the Teamwork card and goes the moment Teamwork is
+back, in order. If someone changed the same thing on Teamwork meanwhile, yours isn't sent (nothing is overwritten) and
+a notification says so. **Cancel** drops a waiting item. After being away, one notification sums up what Teamwork told
+you meanwhile; click it to open your notifications on Teamwork.
 
 ### Good to know
 
@@ -205,7 +222,7 @@ profile; its events become that profile's interviews on Teamwork, where company,
 - A shared calendar is sent again every time it syncs (its refresh button, refresh everything, auto-sync, or a Proton
   export). **Sync shared calendars** sends them all now.
 - To share just one event, not its whole calendar, open the event and pick **Share with** under **Teamwork** in its
-  details card. These are listed on the Teamwork page under **Shared one by one**. They're sent again whenever their
+  details card. These are listed in the Teamwork card under **Shared one by one**. They're sent again whenever their
   calendar syncs, so a moved or cancelled invitation follows.
 - You can share only with the profiles you work. Owners and the admin can share with any profile.
 - To stop sharing with a profile, pick **Busy time only**. Teamwork removes the calendar's upcoming interviews that
@@ -303,7 +320,7 @@ fingerprint in `X-Content-Hash`), `DELETE /pairing`, and optionally `GET /reques
 | "Secure connection failed" | A VPN, firewall or antivirus program is interfering with the connection. Try another VPN server, or check the program's settings. |
 | "Missing or null Origin" when signing in to Teamwork | Update All-In-One to 1.2.0 or later, then sign in again. |
 | "You can only share calendars with the profiles you work" | Ask a Teamwork owner to add you to that profile, or share with one of your own profiles. |
-| A shared calendar shows an error on the Teamwork page | Click **Sync shared calendars**. If Teamwork removed the calendar, it goes back to **Busy time only**; share it again if you still want to. |
+| A shared calendar shows an error in the Teamwork card (Connections) | Click **Sync shared calendars**. If Teamwork removed the calendar, it goes back to **Busy time only**; share it again if you still want to. |
 | Proton account says "Login needed" | Click **Log in** on the account and sign in again. |
 | Proton account says "Sync failed" | Click **Sync now** again. If it keeps failing, use **Open Proton** → **Download ICS** (see [Option A](#option-a-connect-your-proton-account-recommended)). |
 | Invitations from Proton you declined or haven't answered look like normal events | Click **Edit** on the Proton account and check **Your email** (accounts added before version 1.0.7 need it entered once). |

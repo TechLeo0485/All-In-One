@@ -439,11 +439,15 @@ export interface CalendarApi {
     /** Saves the interview's resume where the member picks; the saved path, or null when cancelled. */
     downloadResume(interviewId: string): Promise<string | null>
     /** Shares one link on the Teamwork interview for everyone on it, or removes it (null). */
-    shareLink(interviewId: string, url: string | null): Promise<void>
+    shareLink(interviewId: string, url: string | null): Promise<{ queued: boolean }>
     /** Changes the Teamwork color of a caller's (or the Unassigned) Teamwork calendar, for everyone. */
-    setColor(calendarId: string, color: string): Promise<void>
+    setColor(calendarId: string, color: string): Promise<{ queued: boolean }>
+    /** The Team view's Day board for the interviews between `from` and `to` (ISO). */
+    teamBoard(from: string, to: string): Promise<TeamBoard>
+    /** Drops something waiting to be sent to Teamwork (made while offline). */
+    cancelQueued(id: string): Promise<CallerStatus>
     /** Picks a PDF or Word file and makes it the interview's resume on Teamwork; its name, or null when cancelled. */
-    uploadResume(interviewId: string): Promise<string | null>
+    uploadResume(interviewId: string): Promise<{ name: string; queued: boolean } | null>
     /** The callers to choose from for an interview, the recommended one first. */
     candidates(interviewId: string): Promise<CallerCandidate[]>
     /** Gives the interview to a caller (null: nobody). `force` moves a locked later round (admin). */
@@ -531,6 +535,69 @@ export interface CallerStatus {
   workspaces: CallerWorkspace[]
   workspaceSlug: string | null
   lastSyncAt: string | null
+  /** The live connection to Teamwork: open, opening (or waiting to retry), or not running (signed out). */
+  live: 'connected' | 'connecting' | 'off'
+  /** When this app last checked everything against Teamwork (on every connect). */
+  lastCheckedAt: string | null
+  /** Done here while offline: sent, in order, once Teamwork is reachable (if nothing changed there meanwhile). */
+  queue: CallerQueued[]
+  /** Not connected: what's shown is Teamwork's state saved at this time. */
+  cachedAt: string | null
+}
+
+/** A caller column on the Team view's Day board. */
+export interface TeamBoardCaller {
+  userId: string
+  name: string
+  /** Caller level (columns are grouped by it); null: not set. */
+  level: number | null
+  color: string
+  mine: boolean
+}
+
+/** One interview on the Team view's Day board. */
+export interface TeamBoardCard {
+  interviewId: string
+  /** The event in this app to open its details (its own shared event, or the Teamwork calendar's copy). */
+  eventId: string | null
+  start: string
+  end: string
+  title: string
+  company: string | null
+  profile: string | null
+  round: string | null
+  /** The status picked for it in this app (Settings → statuses), shown in its corner. */
+  status: string | null
+  /** A later round stays with this caller (the earlier round's). */
+  lockedTo: { userId: string; name: string } | null
+  callerId: string | null
+  needsDetails: boolean
+  cancelled: boolean
+  canAssign: boolean
+  /** Changes made here while offline, waiting to be sent. */
+  pending: boolean
+}
+
+/** The Team view's Day board: callers by level and the interviews of the day. */
+export interface TeamBoard {
+  signedIn: boolean
+  callers: TeamBoardCaller[]
+  cards: TeamBoardCard[]
+  canAssign: boolean
+  /** Color of the Unassigned column (the workspace's). */
+  unassignedColor: string
+  /** Not connected: as Teamwork had it at this time. */
+  offlineSince: string | null
+}
+
+/** Something done in the app while offline, waiting to be sent to Teamwork. */
+export interface CallerQueued {
+  id: string
+  kind: 'assign' | 'link' | 'resume' | 'color'
+  /** "Assign Ann → Acme – Frontend" */
+  label: string
+  createdAt: string
+  interviewId: string | null
 }
 
 /** One of this app's calendars, and what it shares in the chosen workspace. */
@@ -586,7 +653,13 @@ export interface CallerEventShare {
   /** The event is on the Teamwork calendar (it came from the workspace). */
   fromTeamwork: boolean
   /** The workspace's interview behind this event: "Acme – Engineer · Round 2 · Caller: Ann". */
-  teamwork: { label: string; url: string; interview: TeamworkInterview | null } | null
+  teamwork: {
+    label: string
+    url: string
+    interview: TeamworkInterview | null
+    /** Not connected: these details are as Teamwork had them at this time. */
+    offlineSince: string | null
+  } | null
   error: string | null
 }
 
@@ -619,6 +692,8 @@ export interface TeamworkInterview {
   /** The member may choose the caller (Teamwork's "assign interviews" permission). */
   canAssign: boolean
   callerId: string | null
+  /** Changes to this interview made here while offline, waiting to be sent. */
+  pending: string[]
 }
 
 /** A caller to choose from when assigning an interview, as Teamwork recommends them. */
@@ -626,15 +701,15 @@ export interface CallerCandidate {
   userId: string
   name: string
   level: number | null
-  /** free: can take it; busy: has another interview then; unavailable: outside their hours. */
-  status: 'free' | 'busy' | 'unavailable'
+  /** free: can take it; busy: has another interview then; unavailable: outside their hours; unknown: offline. */
+  status: 'free' | 'busy' | 'unavailable' | 'unknown'
   /** Interviews in the 30 days before and after. */
   interviewCount: number
   recommended: boolean
 }
 
 /** Assigning a caller: done, or a locked later round the member may still move after confirming. */
-export type CallerAssignResult = { ok: true } | { ok: false; locked: string }
+export type CallerAssignResult = { ok: true; queued?: boolean } | { ok: false; locked: string }
 
 /** The caller tag on a calendar event that is a Teamwork interview (local event id → tag). */
 export interface CallerTag {

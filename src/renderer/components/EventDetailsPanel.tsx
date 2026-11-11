@@ -271,7 +271,8 @@ function useTeamworkShare(eventId: string | null): [CallerEventShare | null, (st
 const CANDIDATE_STATUS: Record<CallerCandidate['status'], string> = {
   free: 'free',
   busy: 'busy then',
-  unavailable: 'outside hours'
+  unavailable: 'outside hours',
+  unknown: 'offline'
 }
 
 /**
@@ -280,7 +281,7 @@ const CANDIDATE_STATUS: Record<CallerCandidate['status'], string> = {
  * free and how many interviews they have). A later round stays with the
  * earlier round's caller; the admin is asked before moving it.
  */
-function CallerPicker({ interview, onDone }: { interview: TeamworkInterview; onDone: () => void }) {
+function CallerPicker({ interview, onDone }: { interview: TeamworkInterview; onDone: (queued?: boolean) => void }) {
   const askConfirm = useAppStore((s) => s.askConfirm)
   const [candidates, setCandidates] = useState<CallerCandidate[] | null>(null)
   const [choice, setChoice] = useState<string>('')
@@ -294,7 +295,8 @@ function CallerPicker({ interview, onDone }: { interview: TeamworkInterview; onD
       .then((list) => {
         if (!alive) return
         setCandidates(list)
-        setChoice(list.find((c) => c.recommended)?.userId ?? list[0]?.userId ?? '')
+        // Teamwork's recommendation, or nobody: never just the first name in the list.
+        setChoice(list.find((c) => c.recommended)?.userId ?? '')
       })
       .catch((err) => alive && setError(errorMessage(err)))
     return () => {
@@ -312,7 +314,7 @@ function CallerPicker({ interview, onDone }: { interview: TeamworkInterview; onD
         if (!ok) return
         result = await window.api.caller.assign(interview.id, callerId, true)
       }
-      if (result.ok) onDone()
+      if (result.ok) onDone(result.queued)
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -332,6 +334,11 @@ function CallerPicker({ interview, onDone }: { interview: TeamworkInterview; onD
         disabled={busy}
         onChange={(e) => setChoice(e.target.value)}
       >
+        {!candidates.some((c) => c.recommended) && (
+          <option value="" disabled>
+            No recommendation: pick a caller
+          </option>
+        )}
         {candidates.map((c) => (
           <option key={c.userId} value={c.userId}>
             {c.recommended ? '★ ' : ''}
@@ -359,7 +366,7 @@ function CallerPicker({ interview, onDone }: { interview: TeamworkInterview; onD
             Unassign
           </button>
         )}
-        <button type="button" disabled={busy} onClick={onDone} className={linkClass}>
+        <button type="button" disabled={busy} onClick={() => onDone()} className={linkClass}>
           Cancel
         </button>
         {busy && <Spinner className="text-slate-500" />}
@@ -378,7 +385,7 @@ const formatSize = (bytes: number): string =>
  * "You"), the profile they speak as and its bidders, the round, and the resume
  * an owner added, to save on this computer.
  */
-function WhoJoins({ interview }: { interview: TeamworkInterview }) {
+function WhoJoins({ interview, offlineSince }: { interview: TeamworkInterview; offlineSince: string | null }) {
   const [choosing, setChoosing] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -406,8 +413,14 @@ function WhoJoins({ interview }: { interview: TeamworkInterview }) {
     setUploading(true)
     setMessage(null)
     try {
-      const name = await window.api.caller.uploadResume(interview.id)
-      if (name) setMessage(`${name} added. The caller can download it now.`)
+      const result = await window.api.caller.uploadResume(interview.id)
+      if (result) {
+        setMessage(
+          result.queued
+            ? `You're offline: ${result.name} is saved here and sent to Teamwork when you're back.`
+            : `${result.name} added. The caller can download it now.`
+        )
+      }
     } catch (err) {
       setMessage(errorMessage(err))
     } finally {
@@ -419,10 +432,16 @@ function WhoJoins({ interview }: { interview: TeamworkInterview }) {
     setLinkBusy(true)
     setMessage(null)
     try {
-      await window.api.caller.shareLink(interview.id, url)
+      const result = await window.api.caller.shareLink(interview.id, url)
       setEditingLink(false)
       setLinkDraft('')
-      setMessage(url ? 'Link shared with everyone on this interview.' : 'Link removed.')
+      setMessage(
+        result.queued
+          ? "You're offline: this is saved here and sent to Teamwork when you're back."
+          : url
+            ? 'Link shared with everyone on this interview.'
+            : 'Link removed.'
+      )
     } catch (err) {
       setMessage(errorMessage(err))
     } finally {
@@ -447,6 +466,19 @@ function WhoJoins({ interview }: { interview: TeamworkInterview }) {
   return (
     <div className="space-y-2 pl-6 text-sm">
       <p className="text-[0.65rem] font-semibold tracking-wide text-slate-500 uppercase">Who joins</p>
+      {offlineSince && (
+        <p className="text-xs text-amber-300/90">
+          Offline: as Teamwork had it at{' '}
+          {new Date(offlineSince).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}.
+        </p>
+      )}
+      {interview.pending.length > 0 && (
+        <ul className="space-y-0.5 text-xs text-sky-300">
+          {interview.pending.map((label) => (
+            <li key={label}>⏳ Waiting to send: {label}</li>
+          ))}
+        </ul>
+      )}
       <dl className="grid grid-cols-[4rem_1fr] gap-x-2 gap-y-1.5">
         <dt className="text-slate-500">Caller</dt>
         <dd className="flex min-w-0 items-center gap-1.5">
@@ -467,7 +499,13 @@ function WhoJoins({ interview }: { interview: TeamworkInterview }) {
         </dd>
         {choosing && (
           <dd className="col-span-2">
-            <CallerPicker interview={interview} onDone={() => setChoosing(false)} />
+            <CallerPicker
+              interview={interview}
+              onDone={(queued) => {
+                setChoosing(false)
+                if (queued) setMessage("You're offline: the caller is saved here and sent to Teamwork when you're back.")
+              }}
+            />
           </dd>
         )}
         <dt className="text-slate-500">As</dt>
@@ -888,7 +926,13 @@ export function EventDetailsPanel() {
             {/* Who joins (Teamwork interviews), then the guests and their replies, above the status.
                 Keys reset each part's state per event; siblings need distinct keys, or React can
                 leave stale copies behind (the guest list showed up several times). */}
-            {teamworkInterview && <WhoJoins key={`joins:${teamworkInterview.id}`} interview={teamworkInterview} />}
+            {teamworkInterview && (
+              <WhoJoins
+                key={`joins:${teamworkInterview.id}`}
+                interview={teamworkInterview}
+                offlineSince={teamwork?.teamwork?.offlineSince ?? null}
+              />
+            )}
             {event.attendees.length > 0 && <GuestList key={`guests:${event.id}`} attendees={event.attendees} />}
             <ImportantToggle event={event} />
             <StatusPicker event={event} />

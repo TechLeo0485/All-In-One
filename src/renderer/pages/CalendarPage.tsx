@@ -29,6 +29,7 @@ import type {
 import type { EventResizeDoneArg } from '@fullcalendar/interaction'
 import type { AttendeeStatus, CalendarEvent, CallerTag, LocalEventInput } from '@shared/types'
 import { CallerTagChip } from '../components/CallerTag'
+import { TeamDayBoard } from '../components/TeamDayBoard'
 import { DEFAULT_EVENT_STATUSES, DEFAULT_IMPORTANT_COLOR, findStatus } from '@shared/eventStatus'
 import { clampHourHeight, DEFAULT_HOUR_HEIGHT, HOUR_HEIGHT_STEP } from '@shared/hourHeight'
 import { LOCAL_EVENTS_KEY, useAppStore, type EventCounts } from '../stores/appStore'
@@ -67,9 +68,21 @@ export function CalendarPage() {
   const [pickerOpen, setPickerOpen] = useState(false)
   // The period itself (not the extra days a month grid shows), for the sidebar's event counts.
   const [period, setPeriod] = useState<Period | null>(null)
+  const [viewType, setViewType] = useState(initialView)
+  // Personal: this app's calendars, as always. Team: the Day view is Teamwork's board of the team's day.
+  const teamworkSignedIn = useTeamworkSignedIn()
+  const [mode, setMode] = useState<'personal' | 'team'>(() => (localStorage.getItem(MODE_STORAGE_KEY) === 'team' ? 'team' : 'personal'))
+  const pickMode = useCallback((next: 'personal' | 'team') => {
+    localStorage.setItem(MODE_STORAGE_KEY, next)
+    setMode(next)
+  }, [])
+  // The switch shows only in the Day view, when connected to Teamwork; Week and Month are the same in both.
+  const showSwitch = teamworkSignedIn && viewType === 'timeGridDay'
+  const teamDay = showSwitch && mode === 'team'
   const closePicker = useCallback(() => setPickerOpen(false), [])
   const onDatesSet = (arg: DatesSetArg): void => {
     localStorage.setItem(VIEW_STORAGE_KEY, arg.view.type)
+    setViewType(arg.view.type)
     // FullCalendar gives instants (midnight in the primary zone); the picker wants calendar days.
     setRange({ start: parseDateString(zonedDateString(arg.view.currentStart)), end: parseDateString(zonedDateString(arg.view.currentEnd)) })
     setPeriod({
@@ -314,7 +327,9 @@ export function CalendarPage() {
         ref={wrapperRef}
         // A size container: the toolbar and date picker adapt to the calendar's own width (index.css).
         // has-selection: the other events dim while an event's details are open (index.css).
-        className={`@container relative h-full rounded-xl border border-slate-800 bg-slate-900 p-3 shadow-sm lg:p-4 ${selectedEventId ? 'has-selection' : ''}`}
+        className={`@container relative h-full rounded-xl border border-slate-800 bg-slate-900 p-3 shadow-sm lg:p-4 ${selectedEventId ? 'has-selection' : ''} ${
+          showSwitch ? `mode-${mode}` : ''
+        } ${teamDay ? 'team-day flex flex-col' : ''}`}
         style={{ '--hour-height': `${hourHeight}px` } as CSSProperties}
         onClick={onTitleActivate}
         onKeyDown={onTitleActivate}
@@ -344,9 +359,17 @@ export function CalendarPage() {
           datesSet={onDatesSet}
           eventDrop={(arg) => void onEventChange(arg)}
           eventResize={(arg) => void onEventChange(arg)}
-          headerToolbar={HEADER_TOOLBAR}
+          headerToolbar={showSwitch ? TEAM_HEADER_TOOLBAR : HEADER_TOOLBAR}
+          customButtons={{
+            personal: { text: 'Personal', hint: 'Your calendars', click: () => pickMode('personal') },
+            team: { text: 'Team', hint: "The team's day by caller, as on Teamwork (Day view)", click: () => pickMode('team') }
+          }}
           buttonText={BUTTON_TEXT}
-          height="100%"
+          height={teamDay ? 'auto' : '100%'}
+          // FullCalendar stretches short events to 15px by default, so a 10-minute event looked
+          // like 15 minutes. Every event is now exactly as tall as its time; hovering a block too
+          // small to read shows its preview.
+          eventMinHeight={1}
           events={fetchEvents}
           eventsSet={tryReveal}
           eventClick={onEventClick}
@@ -376,6 +399,7 @@ export function CalendarPage() {
             ...(arg.event.extendedProps.important === true ? [IMPORTANT_CLASS] : [])
           ]}
         />
+        {teamDay && period && <TeamDayBoard from={period.start} to={period.end} timeZone={timeZone === 'local' ? undefined : timeZone} hourHeight={hourHeight} />}
       </div>
     </div>
   )
@@ -384,6 +408,9 @@ export function CalendarPage() {
 // Kept outside the component: FullCalendar re-applies options whose identity changes.
 const PLUGINS = [dayGridPlugin, timeGridPlugin, interactionPlugin, intlTimeZonePlugin]
 const HEADER_TOOLBAR = { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' }
+/** Day view, connected to Teamwork: the Personal / Team switch next to the views. */
+const TEAM_HEADER_TOOLBAR = { ...HEADER_TOOLBAR, right: 'personal,team dayGridMonth,timeGridWeek,timeGridDay' }
+const MODE_STORAGE_KEY = 'calendar.mode'
 const BUTTON_TEXT = { today: 'Today', month: 'Month', week: 'Week', day: 'Day' }
 const TIME_FORMAT = { hour: 'numeric', minute: '2-digit', meridiem: 'short' } as const
 
@@ -751,6 +778,27 @@ const REVEAL_TIMEOUT_MS = 5000
 const VIEW_STORAGE_KEY = 'calendar.view'
 const TITLE_SELECTOR = '.fc-toolbar-title'
 const VIEWS = ['dayGridMonth', 'timeGridWeek', 'timeGridDay']
+
+/** Whether the app is signed in to a Teamwork workspace (the Team view needs it). */
+function useTeamworkSignedIn(): boolean {
+  const [signedIn, setSignedIn] = useState(false)
+  useEffect(() => {
+    let alive = true
+    const load = (): void => {
+      void window.api.caller
+        .status()
+        .then((s) => alive && setSignedIn(s.signedIn && Boolean(s.workspaceSlug)))
+        .catch(() => undefined)
+    }
+    load()
+    const off = window.api.caller.onChanged(load)
+    return () => {
+      alive = false
+      off()
+    }
+  }, [])
+  return signedIn
+}
 
 /** Restores the last used Month/Week/Day view. */
 function initialView(): string {

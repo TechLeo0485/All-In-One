@@ -249,6 +249,10 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
       v.str(color, 'Color', { required: true, max: 7 })
     )
   )
+  handle(IPC.callerTeamBoard, (_e, from, to) =>
+    callerService.teamBoard(v.str(from, 'From', { required: true, max: 40 }), v.str(to, 'To', { required: true, max: 40 }))
+  )
+  handle(IPC.callerCancelQueued, (_e, id) => callerService.cancelQueued(v.str(id, 'Item', { required: true, max: 64 })))
   handle(IPC.callerShareLink, (_e, interviewId, url) =>
     callerService.shareLink(
       v.str(interviewId, 'Interview', { required: true, max: 64 }),

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ConnectionStatus, ConnectionsStatus } from '@shared/types'
+import { LinkIcon } from '../components/icons'
 import { Button, ColorDot, Field, Spinner, TextInput } from '../components/ui'
 import { errorMessage } from '../utils/errors'
+import { TeamworkConnection } from './CallerPage'
 
 /** "3 min ago", "2 h ago", "5 d ago". */
 function ago(iso: string | null): string {
@@ -47,9 +49,24 @@ export function ConnectionsPage() {
           <div className="min-w-0 max-w-2xl">
             <h1 className="text-xl font-semibold">Connections</h1>
             <p className="mt-1 text-sm text-slate-400">
-              Send calendars to other platforms, free Proton accounts included. Paste the connection address the platform
-              gives you; there, choose which calendars it gets. They stay up to date there by themselves. Links, Proton
-              logins and files stay on this computer.
+              Where your calendars go. Each card connects on its own and keeps itself up to date: whenever a calendar changes
+              here, and every time a connection is made again, what&apos;s there is checked and brought up to date.
+            </p>
+          </div>
+        </div>
+
+        <div className="mb-8">
+          <TeamworkConnection />
+        </div>
+
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 max-w-2xl">
+            <h2 className="flex items-center gap-2 text-base font-semibold">
+              <LinkIcon size={16} /> Pool
+            </h2>
+            <p className="mt-0.5 text-xs text-slate-400">
+              Other platforms that support calendar connections, free Proton accounts included. Paste the connection address
+              the platform gives you; there, choose which calendars it gets. Links, Proton logins and files stay on this computer.
             </p>
           </div>
           {status && !none && !adding && (

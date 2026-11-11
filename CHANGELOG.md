@@ -2,14 +2,25 @@
 
 <!--
 How to use this file:
-- Write notes for the next release under "## Unreleased
-- **Connections**: a new page in the sidebar sends calendars to other platforms that support calendar connections, free Proton accounts included. Paste the connection address the platform gives you (an API key is optional) and choose on the platform which calendars it gets. From then on they stay up to date there by themselves: sent within seconds whenever they sync here or are chosen there, and caught up automatically when the app starts or the network comes back. There's nothing to click to keep them in sync. Proton is still read only when you sync it or the platform asks. Disconnecting on either side disconnects both. You can connect several platforms at once.
+- Write notes for the next release under "## Unreleased" while you work.
+- When you release, rename that heading to the new version (e.g. "## 1.0.7") and bump
+  "version" in package.json to match. The app shows every "## x.y.z" section up to its
+  own version; "Unreleased" is never shown.
+- Write for users: what they can now do, or what works better. Not file names or code.
+-->
 
-## Unreleased
-- **Connections**: when a platform can't be reached, the message now says why and what to do: a certificate made for another name (and which name to use instead), an expired or untrusted certificate, an `http://` address entered as `https://`, nothing answering on that port, a name that can't be found, or no answer in time.
-
-## Unreleased
+## 1.2.4
+- **Personal / Team** switch in the calendar's toolbar, in the Day view once you're connected to Teamwork. **Personal** is your calendar as always. In **Team**, the Day view becomes the team's day as on the Teamwork website: a column per caller (their initials in their color, their name, and how many interviews they have or "Free all day") on one time axis, with each interview where it falls and a red line at the current time; **Unassigned** comes first. Interviews show their round (R1, R2), a corner in their status color and an amber dot when company and role are missing. Drag a card onto another caller to give it to them (a later round asks first; offline, the move waits and goes when Teamwork is back). Click a card for its details. Week and Month look the same in both.
+- **Connections** now has two cards: **Teamwork** (sign in, pick the workspace, connected) and **Pool**, the other platforms that support calendar connections. The separate Teamwork page is gone.
+- Teamwork stays in step on its own: every time the connection is made (sign-in, another workspace, the app starting, the network coming back, waking from sleep) the app checks everything against Teamwork, reloads interviews and busy time, and sends again any shared calendar, picked event or busy time Teamwork doesn't have in its latest copy. The Teamwork card shows whether it's connected and when it last checked. Still nothing polls: between connections the app only listens.
+- Teamwork works offline too. The app keeps what Teamwork said last, so interviews, Who joins and caller tags still show after a restart or without a network ("Offline: as Teamwork had it at 10:42"). Assigning a caller, sharing a link, uploading a resume or changing a color while offline is saved as **Waiting to send** and sent in order the moment Teamwork is back; if someone changed the same thing there meanwhile, it isn't overwritten and you're told. Waiting items can be cancelled in the Teamwork card. And after being away, one notification sums up what you missed: "While you were away: 2 interviews assigned to you, 1 interview update".
+- Nothing gets lost between the app and Teamwork: a connection that dies silently (sleep, switching networks) is noticed within about a minute and reopened, catching up on what was missed; anything that didn't get through while connected is tried again by itself; and a change already applied on Teamwork is never sent twice. Disconnecting with changes still waiting asks first.
+- **Pool** keeps platforms up to date by themselves: calendars are sent within seconds whenever they sync here or are chosen there, and caught up automatically when the app starts or the network comes back. There's nothing to click to keep them in sync. Proton is still read only when you sync it or the platform asks. An API key is optional, and disconnecting on either side disconnects both.
+- When a platform under **Pool** can't be reached, the message now says why and what to do: a certificate made for another name (and which name to use instead), an expired or untrusted certificate, an `http://` address entered as `https://`, nothing answering on that port, a name that can't be found, or no answer in time.
+- When Teamwork has no recommended caller (nobody free at that time), **Assign** no longer preselects the first caller in the list: pick one yourself.
+- Signing in to Teamwork with another account on the same computer keeps each account's sharing, picked events and waiting changes apart: the previous account's are set aside and come back when it signs in again, and nothing of one account is shown to or sent as the other.
 - In the event details, guests are listed once: the guest list could appear several times in a row.
+- In Week and Day views, every event is now exactly as tall as its time: a 10-minute event no longer looks like 15 minutes. Hover a block too small to read to see its details.
 
 ## 1.2.3
 - **Connections**: a new page in the sidebar sends calendars to other platforms that support calendar connections, free Proton accounts included. Paste the connection address and API key the platform gives you. The app tells it which calendars it has, by Proton account; on the platform, choose the ones it should get; **Sync & send** here sends them, and they're sent again whenever they sync with something changed. Calendars a platform didn't choose are never sent to it, and with no connection the app contacts nobody. You can connect several platforms at once.
