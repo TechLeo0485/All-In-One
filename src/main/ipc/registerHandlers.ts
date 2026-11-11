@@ -211,6 +211,7 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
   handle(IPC.connectionsDisconnect, (_e, id) => connectionService.disconnect(v.str(id, 'Connection', { required: true, max: 64 })))
   handle(IPC.connectionsRefresh, (_e, id) => connectionService.refresh(v.str(id, 'Connection', { required: true, max: 64 })))
   handle(IPC.connectionsSync, (_e, id) => connectionService.syncWanted(v.str(id, 'Connection', { required: true, max: 64 })))
+  handle(IPC.connectionsDismissEnded, () => connectionService.dismissEnded())
   handle(IPC.connectionsSetListen, (_e, id, on) =>
     connectionService.setListen(v.str(id, 'Connection', { required: true, max: 64 }), on === true)
   )

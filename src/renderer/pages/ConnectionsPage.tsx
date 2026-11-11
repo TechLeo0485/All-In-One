@@ -58,6 +58,23 @@ export function ConnectionsPage() {
           <Spinner />
         ) : (
           <div className="space-y-6">
+            {status.ended.length > 0 && (
+              <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    {status.ended.map((e) => (
+                      <p key={`${e.name}-${e.at}`} className="text-amber-200">
+                        <span className="font-medium">{e.name}</span> was disconnected: {e.reason}
+                      </p>
+                    ))}
+                    <p className="text-xs text-slate-400">To connect it again, make it a connection on the platform and add it here.</p>
+                  </div>
+                  <Button variant="ghost" onClick={() => void window.api.connections.dismissEnded().then(setStatus)}>
+                    Dismiss
+                  </Button>
+                </div>
+              </div>
+            )}
             {(adding || none) && (
               <Connect
                 onDone={(s) => {
@@ -208,7 +225,7 @@ function ConnectionCard({ connection, clientName, onStatus, onError }: {
           <Button variant="primary" onClick={() => void sync()} disabled={working !== null || wanted.length === 0} title="Sync the wanted calendars now and send them">
             {working === 'sync' && <Spinner />} Sync &amp; send
           </Button>
-          <Button variant="ghost" onClick={() => void disconnect()} disabled={working !== null} title="Forget this address and key. What the platform already has stays there">
+          <Button variant="ghost" onClick={() => void disconnect()} disabled={working !== null} title="Disconnect here and on the platform. The calendars it already has stay there, no longer updated">
             Disconnect
           </Button>
         </div>

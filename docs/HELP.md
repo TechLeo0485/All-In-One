@@ -254,7 +254,10 @@ calendar connections, and with several at once.
 - Nothing is sent on a timer: only when a chosen calendar syncs with something changed, or when you click a button
   here. With no connection, the app contacts nobody.
 - One address works with one app. On another computer, make another connection on the platform.
-- **Disconnect** forgets the address and key here. What the platform already has stays until you remove it there.
+- **Disconnect** ends the connection here and on the platform at once (if the network is down, the platform is told as
+  soon as it can be). The calendars the platform already has stay there, no longer updated.
+- If the connection is ended on the platform, it disappears here by itself, with a notification saying why. To use it
+  again, connect the app anew.
 
 **For developers:** a platform supports this by answering, at the connection address, `PUT /catalog` (JSON
 `{"calendars": [{"id", "name", "group_id", "group_name"}]}`, answering `{"calendars": [{"calendar_id", "wanted"}]}`)

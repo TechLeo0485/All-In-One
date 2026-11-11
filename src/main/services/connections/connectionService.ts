@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { hostname } from 'node:os'
-import { BrowserWindow, net, powerMonitor, safeStorage } from 'electron'
+import { BrowserWindow, net, Notification, powerMonitor, safeStorage } from 'electron'
 import { IPC } from '@shared/ipcChannels'
 import { hostOf, isFileSource, isTeamworkSource } from '@shared/sources'
 import type { CalendarSource, ConnectionCalendar, ConnectionStatus, ConnectionSyncResult, ConnectionsStatus } from '@shared/types'
@@ -9,6 +9,7 @@ import { calendarRepository } from '../../database/calendarRepository'
 import { settingsRepository } from '../../database/settingsRepository'
 import { syncService } from '../../sync/syncService'
 import { protonAccountService } from '../proton/protonAccountService'
+import { createNotification } from '../windowsIdentity'
 
 /**
  * Calendar connections: sends some of this app's calendars to any platform that
@@ -45,6 +46,13 @@ import { protonAccountService } from '../proton/protonAccountService'
  * is back online or wakes up. Checking for "online" asks the operating system,
  * not the network.
  *
+ * A connection ended on one side ends on the other. Ended on the platform, it
+ * is dropped here as soon as the platform says so - over the live connection
+ * ("disconnected"), or by answering a request 410 (this app was disconnected),
+ * 404 (the address is gone) or 401 (the key no longer works) - and the user is
+ * told. Disconnected here, the platform is told (DELETE <address>/pairing);
+ * when the network is down, that is retried until it gets through.
+ *
  * Listening for sync requests is one idle connection per platform, held only
  * while that platform is connected and only while its "Let it ask for a sync"
  * switch is on; the platform sends a few bytes every half minute to keep it
@@ -60,6 +68,12 @@ const KEYS_KEY = 'connections.keys'
 const CLIENT_ID_KEY = 'connections.clientId'
 /** What was sent last: connection id → calendar id → what. An unchanged calendar isn't sent again. */
 const SENT_KEY = 'connections.sent'
+/** Connections the platform ended, to tell the user on the page until they dismiss it. */
+const ENDED_KEY = 'connections.ended'
+/** Disconnected here while the platform could not be told: told when the network allows. */
+const RELEASES_KEY = 'connections.releases'
+/** Answers that mean the platform no longer has this connection for this app. */
+const ENDED_STATUSES = new Set([401, 404, 410])
 const REQUEST_TIMEOUT_MS = 60_000
 const UPLOAD_TIMEOUT_MS = 5 * 60_000
 /** Largest calendar file sent. */
@@ -122,6 +136,13 @@ interface Outgoing {
   tries: number
 }
 
+/** Disconnected here; the platform still has to be told. The key is encrypted as the others. */
+interface PendingRelease {
+  address: string
+  key: string
+  tries: number
+}
+
 class ConnectionError extends Error {
   constructor(
     message: string,
@@ -140,6 +161,20 @@ function fingerprint(ics: string): string {
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
+}
+
+/** A connection the platform ended, as the page tells the user. */
+interface EndedNotice {
+  name: string
+  reason: string
+  at: string
+}
+
+/** Why the platform no longer has this connection, from its answer. */
+function endedReason(status: number, detail: string): string {
+  if (status === 410) return detail || 'This app was disconnected on the platform.'
+  if (status === 404) return 'The connection was removed on the platform, or given a new address.'
+  return 'The platform no longer accepts the API key: it was revoked or deleted there.'
 }
 
 /**
@@ -301,7 +336,7 @@ class ConnectionService {
     address: string,
     key: string,
     path: string,
-    init: { method?: string; json?: unknown; ics?: string; timeoutMs?: number } = {}
+    init: { method?: string; json?: unknown; ics?: string; timeoutMs?: number; pairNew?: boolean } = {}
   ): Promise<T> {
     let response: Response
     try {
@@ -311,6 +346,9 @@ class ConnectionService {
           'X-API-Key': key,
           'X-Client-Id': this.clientId(),
           'X-Client-Name': this.clientName(),
+          // The user is connecting this app now: pair it, even if the
+          // platform disconnected it before.
+          ...(init.pairNew ? { 'X-Pair': 'new' } : {}),
           Accept: 'application/json',
           ...(init.json !== undefined ? { 'Content-Type': 'application/json' } : {}),
           ...(init.ics !== undefined ? { 'Content-Type': 'text/calendar; charset=utf-8' } : {})
@@ -375,10 +413,15 @@ class ConnectionService {
   }
 
   /** Tells a platform what this app has; answers what it wants and whose account the key is. */
-  private async tellCatalog(address: string, key: string): Promise<{ wanted: Record<string, string>; account: string }> {
+  private async tellCatalog(
+    address: string,
+    key: string,
+    pairNew = false
+  ): Promise<{ wanted: Record<string, string>; account: string }> {
     const info = await this.request<{ account?: { username?: string }; calendars?: ServerCalendar[] }>(address, key, '/catalog', {
       method: 'PUT',
-      json: { calendars: this.catalogOf(address) }
+      json: { calendars: this.catalogOf(address) },
+      pairNew
     })
     if (!Array.isArray(info.calendars)) {
       throw new ConnectionError('The address answered, but not as a calendar connection. Check that it was copied in full.')
@@ -392,7 +435,14 @@ class ConnectionService {
     const connection = this.get(id)
     const key = this.key(id)
     if (!key) throw new ConnectionError('The API key for this connection is missing. Remove the connection and add it again.')
-    const { wanted, account } = await this.tellCatalog(connection.address, key)
+    let told: { wanted: Record<string, string>; account: string }
+    try {
+      told = await this.tellCatalog(connection.address, key)
+    } catch (err) {
+      this.endIfGone(id, err)
+      throw err
+    }
+    const { wanted, account } = told
     // A calendar no longer wanted starts fresh if it is wanted again.
     for (const calendarId of Object.keys(this.sentOf(id))) if (!wanted[calendarId]) this.saveSent(id, calendarId, null)
     this.save(id, {
@@ -493,6 +543,7 @@ class ConnectionService {
         })
       }
     } catch (err) {
+      if (this.endIfGone(id, err)) return
       // The network or the platform is down (unreachable, 5xx, still busy): this
       // copy is kept and tried again, unless a newer one is already waiting.
       const down = !(err instanceof ConnectionError) || err.status === 0 || err.status === 429 || err.status >= 500
@@ -550,7 +601,7 @@ class ConnectionService {
       this.wasOnline = online
       if (back) this.networkBack()
       const liveDown = [...this.live.keys()].some((id) => !this.listening.has(id))
-      if (this.unsent.size === 0 && this.requestRetries.size === 0 && !liveDown) {
+      if (this.unsent.size === 0 && this.requestRetries.size === 0 && !liveDown && !this.releaseTimer) {
         if (this.onlineWatch) clearInterval(this.onlineWatch)
         this.onlineWatch = null
       }
@@ -560,6 +611,11 @@ class ConnectionService {
   /** The network is back, or the computer woke up: do at once what was waiting for it. */
   private networkBack(): void {
     if (this.unsent.size > 0) this.retryUnsent()
+    if (this.releaseTimer) {
+      clearTimeout(this.releaseTimer)
+      this.releaseTimer = null
+    }
+    void this.sendReleases()
     for (const [id, retry] of [...this.requestRetries]) {
       clearTimeout(retry.timer)
       this.requestRetries.delete(id)
@@ -582,6 +638,8 @@ class ConnectionService {
     for (const connection of this.list()) this.startLive(connection.id)
     // Waking from sleep: connections dropped while asleep, and sends may be waiting.
     powerMonitor.on('resume', () => this.networkBack())
+    // Disconnects made while a platform could not be told: tell it now.
+    void this.sendReleases()
   }
 
   /** Ends every live connection (the app is quitting). */
@@ -589,6 +647,8 @@ class ConnectionService {
     for (const id of [...this.live.keys()]) this.stopLive(id)
     if (this.retryTimer) clearTimeout(this.retryTimer)
     if (this.onlineWatch) clearInterval(this.onlineWatch)
+    if (this.releaseTimer) clearTimeout(this.releaseTimer)
+    this.releaseTimer = null
     for (const retry of this.requestRetries.values()) clearTimeout(retry.timer)
     this.retryTimer = this.onlineWatch = null
     this.requestRetries.clear()
@@ -629,7 +689,21 @@ class ConnectionService {
         })
         // No such stream on this platform, or the key or address no longer works:
         // nothing to gain from asking again. (Check what's wanted reports the reason.)
-        if ([401, 403, 404, 405, 409, 501].includes(response.status)) return
+        // Ended on the platform: drop it here too.
+        if (ENDED_STATUSES.has(response.status)) {
+          let detail = ''
+          try {
+            const body = (await response.json()) as { detail?: unknown }
+            if (typeof body.detail === 'string') detail = body.detail
+          } catch {
+            // the status says enough
+          }
+          this.endedByPlatform(id, endedReason(response.status, detail))
+          return
+        }
+        // No such stream on this platform, or another app holds the address:
+        // nothing to gain from asking again. (Check what's wanted reports the reason.)
+        if ([403, 405, 409, 501].includes(response.status)) return
         if (!response.ok || !response.body) throw new Error(`The platform answered ${response.status}`)
         delay = LIVE_RETRY_MIN_MS
         this.listening.add(id)
@@ -668,6 +742,17 @@ class ConnectionService {
     for (const line of block.split('\n')) {
       if (line.startsWith('event:')) event = line.slice(6).trim()
       else if (line.startsWith('data:')) data += line.slice(5).trim()
+    }
+    if (event === 'disconnected') {
+      let reason = 'The connection was ended on the platform.'
+      try {
+        const said = (JSON.parse(data) as { reason?: unknown }).reason
+        if (typeof said === 'string' && said) reason = said.endsWith('.') ? said : `${said}.`
+      } catch {
+        // keep the general reason
+      }
+      this.endedByPlatform(id, reason)
+      return
     }
     if (event !== 'sync') return
     let calendarIds: unknown
@@ -763,7 +848,11 @@ class ConnectionService {
   }
 
   status(): ConnectionsStatus {
-    return { clientName: this.clientName(), connections: this.list().map((c) => this.statusOf(c)) }
+    return {
+      clientName: this.clientName(),
+      connections: this.list().map((c) => this.statusOf(c)),
+      ended: settingsRepository.getInternal<EndedNotice[] | null>(ENDED_KEY, null) ?? []
+    }
   }
 
   /** Pairs this app with a platform's connection address, using an API key made there. */
@@ -780,8 +869,10 @@ class ConnectionService {
     if (!key) throw new ConnectionError('Paste the API key from the platform.')
     if (this.list().some((c) => c.address === address)) throw new ConnectionError('This address is connected already.')
     if (this.list().length >= MAX_CONNECTIONS) throw new ConnectionError(`At most ${MAX_CONNECTIONS} connections`)
-    // Checks the address and the key, and pairs this app with the address.
-    const { wanted, account } = await this.tellCatalog(address, key)
+    // Checks the address and the key, and pairs this app with the address -
+    // anew, if the platform had disconnected it.
+    const { wanted, account } = await this.tellCatalog(address, key, true)
+    this.dropRelease(address)
     const id = randomUUID()
     this.saveKey(id, key)
     const all = this.all()
@@ -801,14 +892,123 @@ class ConnectionService {
     return this.status()
   }
 
-  /** Forgets the address and the key. What the platform already has stays there until it is removed there. */
+  /**
+   * Disconnects here and tells the platform, which lets go of this app at once
+   * (what it already has stays there). The network down: it is told later.
+   */
   disconnect(id: string): ConnectionsStatus {
+    const connection = this.all()[id]
+    const key = this.key(id)
+    this.forget(id)
+    if (connection && key) {
+      this.queueRelease({ address: connection.address, key, tries: 0 })
+      void this.sendReleases()
+    }
+    return this.status()
+  }
+
+  /** Drops a connection here: its live connection, key, state and anything waiting to go. */
+  private forget(id: string): void {
     this.stopLive(id)
+    for (const slot of [...this.waiting.keys(), ...this.unsent.keys()]) {
+      if (slot.startsWith(`${id}:`)) {
+        this.waiting.delete(slot)
+        this.unsent.delete(slot)
+      }
+    }
+    const retry = this.requestRetries.get(id)
+    if (retry) clearTimeout(retry.timer)
+    this.requestRetries.delete(id)
     this.saveKey(id, null)
     this.save(id, null)
     this.saveSent(id, null, null)
     this.changed()
+  }
+
+  /** The platform ended this connection: drop it here too, and tell the user. */
+  private endedByPlatform(id: string, reason: string): void {
+    const connection = this.all()[id]
+    if (!connection) return
+    this.forget(id)
+    const ended = settingsRepository.getInternal<EndedNotice[] | null>(ENDED_KEY, null) ?? []
+    ended.unshift({ name: connection.name, reason, at: new Date().toISOString() })
+    settingsRepository.setInternal(ENDED_KEY, ended.slice(0, 10))
+    this.changed()
+    if (Notification.isSupported()) {
+      createNotification({ title: `${connection.name} was disconnected`, body: reason }).show()
+    }
+  }
+
+  /** An answer that means the platform no longer has this connection: it ends here. True if so. */
+  private endIfGone(id: string, err: unknown): boolean {
+    if (!(err instanceof ConnectionError) || !ENDED_STATUSES.has(err.status)) return false
+    this.endedByPlatform(id, endedReason(err.status, err.message))
+    return true
+  }
+
+  /** The user read the notices about connections the platform ended. */
+  dismissEnded(): ConnectionsStatus {
+    settingsRepository.setInternal(ENDED_KEY, [])
+    this.changed()
     return this.status()
+  }
+
+  // Telling platforms about disconnects made here while they could not be reached.
+
+  private releases(): PendingRelease[] {
+    return (settingsRepository.getInternal<PendingRelease[] | null>(RELEASES_KEY, null) ?? []).map((r) => {
+      try {
+        return { ...r, key: safeStorage.decryptString(Buffer.from(r.key, 'base64')) }
+      } catch {
+        return { ...r, key: '' }
+      }
+    }).filter((r) => r.key)
+  }
+
+  private saveReleases(list: PendingRelease[]): void {
+    settingsRepository.setInternal(
+      RELEASES_KEY,
+      safeStorage.isEncryptionAvailable()
+        ? list.map((r) => ({ ...r, key: safeStorage.encryptString(r.key).toString('base64') }))
+        : []
+    )
+  }
+
+  private queueRelease(release: PendingRelease): void {
+    this.saveReleases([...this.releases().filter((r) => r.address !== release.address), release])
+  }
+
+  private dropRelease(address: string): void {
+    const list = this.releases()
+    if (list.some((r) => r.address === address)) this.saveReleases(list.filter((r) => r.address !== address))
+  }
+
+  private releaseTimer: NodeJS.Timeout | null = null
+
+  /** Tells each platform still waiting that this app disconnected; retries the ones it can't reach. */
+  private async sendReleases(): Promise<void> {
+    const list = this.releases()
+    if (list.length === 0) return
+    const left: PendingRelease[] = []
+    for (const release of list) {
+      try {
+        await this.request(release.address, release.key, '/pairing', { method: 'DELETE' })
+      } catch (err) {
+        // Down, or busy: try again. Anything else (gone, refused) means there is
+        // nothing left to release.
+        const down = !(err instanceof ConnectionError) || err.status === 0 || err.status === 429 || err.status >= 500
+        if (down) left.push({ ...release, tries: release.tries + 1 })
+      }
+    }
+    this.saveReleases(left)
+    if (left.length > 0 && !this.releaseTimer) {
+      const tries = Math.min(...left.map((r) => r.tries))
+      this.releaseTimer = setTimeout(() => {
+        this.releaseTimer = null
+        void this.sendReleases()
+      }, Math.min(RETRY_MIN_MS * 2 ** Math.max(tries - 1, 0), RETRY_MAX_MS))
+      this.watchOnline()
+    }
   }
 
   /** Asks the platform again which calendars it wants (after choosing them there). */

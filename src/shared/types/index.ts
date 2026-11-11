@@ -464,6 +464,8 @@ export interface CalendarApi {
     sync(id: string): Promise<ConnectionSyncResult[]>
     /** Whether the platform may ask this app for a fresh copy (one idle connection while on). */
     setListen(id: string, on: boolean): Promise<ConnectionsStatus>
+    /** Clears the notices about connections the platform ended. */
+    dismissEnded(): Promise<ConnectionsStatus>
     /** A calendar was sent, or what a platform wants changed. */
     onChanged(callback: () => void): () => void
   }
@@ -504,6 +506,8 @@ export interface ConnectionsStatus {
   /** What platforms call this app. */
   clientName: string
   connections: ConnectionStatus[]
+  /** Connections the platform ended (and that were dropped here), newest first, until dismissed. */
+  ended: { name: string; reason: string; at: string }[]
 }
 
 export interface ConnectionSyncResult {
