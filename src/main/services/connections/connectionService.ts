@@ -142,6 +142,39 @@ function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+/**
+ * Why a request got no answer at all, in words that say what to do: Node's
+ * fetch only says "fetch failed" and keeps the reason in `cause`.
+ */
+function unreachable(err: unknown, address: string): string {
+  const cause = (err as {
+    cause?: { code?: string; message?: string; cert?: { subjectaltname?: string; subject?: { CN?: string } } }
+  } | null)?.cause
+  const code = cause?.code ?? (err as { name?: string } | null)?.name ?? ''
+  if (code === 'ERR_TLS_CERT_ALTNAME_INVALID') {
+    // The certificate comes with the error: its names ("DNS:app.example.com, ..."),
+    // else its common name. (The message lists only the kind matched: for an IP
+    // address, the certificate's IP entries - usually none.)
+    const name = /DNS:([^\s,]+)/.exec(cause?.cert?.subjectaltname ?? '')?.[1] ?? cause?.cert?.subject?.CN
+    return name
+      ? `The platform's certificate is for ${name}, not for ${hostOf(address) ?? 'this address'}. Use ${name} in the address instead.`
+      : "The platform's certificate is not for this address. Use the name the platform is reached by, not its IP address."
+  }
+  if (code === 'CERT_HAS_EXPIRED') return "The platform's certificate has expired. Ask whoever runs it to renew it."
+  if (/SELF_SIGNED|UNABLE_TO_VERIFY|UNABLE_TO_GET_ISSUER/.test(code)) {
+    return "The platform's certificate is not trusted (self-signed or incomplete). It needs a certificate from a known authority."
+  }
+  if (code === 'ERR_SSL_WRONG_VERSION_NUMBER' || code === 'EPROTO') {
+    return 'The platform does not answer https on this port. Check whether the address should start with http://.'
+  }
+  if (code === 'ECONNREFUSED') return 'Nothing answered on that port: the platform is not running there, or the port is wrong.'
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'That name was not found. Check the address, and the internet connection.'
+  if (code === 'TimeoutError' || code === 'AbortError' || code === 'ETIMEDOUT' || code === 'UND_ERR_CONNECT_TIMEOUT') {
+    return 'The platform did not answer in time. Check the address and the internet connection.'
+  }
+  return `The platform could not be reached${code ? ` (${code})` : ''}. Check the address and the internet connection.`
+}
+
 class ConnectionService {
   /** The send under way per connection and calendar; whoever waits for a calendar to go waits on this. */
   private uploads = new Map<string, Promise<void>>()
@@ -285,8 +318,8 @@ class ConnectionService {
         body: init.json !== undefined ? JSON.stringify(init.json) : init.ics,
         signal: AbortSignal.timeout(init.timeoutMs ?? REQUEST_TIMEOUT_MS)
       })
-    } catch {
-      throw new ConnectionError('The platform could not be reached. Check the address and the internet connection.')
+    } catch (err) {
+      throw new ConnectionError(unreachable(err, address))
     }
     if (!response.ok) {
       let detail = ''
