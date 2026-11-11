@@ -82,5 +82,12 @@ export const IPC = {
   callerSetColor: 'caller:setColor',
   callerCandidates: 'caller:candidates',
   callerAssign: 'caller:assign',
-  callerChanged: 'caller:changed'
+  callerChanged: 'caller:changed',
+  connectionsStatus: 'connections:status',
+  connectionsConnect: 'connections:connect',
+  connectionsDisconnect: 'connections:disconnect',
+  connectionsRefresh: 'connections:refresh',
+  connectionsSync: 'connections:sync',
+  connectionsSetListen: 'connections:setListen',
+  connectionsChanged: 'connections:changed'
 } as const
