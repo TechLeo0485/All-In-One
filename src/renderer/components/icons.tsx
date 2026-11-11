@@ -173,6 +173,20 @@ export const DownloadIcon = (p: IconProps) => (
     <path d="M7 10l5 5 5-5M12 15V3" />
   </Icon>
 )
+export const LinkIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+  </Icon>
+)
+export const PaletteIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 22a10 10 0 1 1 10-10c0 2.8-2.2 4-4 4h-1.5a1.5 1.5 0 0 0-1.1 2.5c.4.5.6 1 .6 1.5 0 1.1-.9 2-2 2Z" />
+    <circle cx="7.5" cy="11.5" r="1" />
+    <circle cx="10.5" cy="7.5" r="1" />
+    <circle cx="15.5" cy="8.5" r="1" />
+  </Icon>
+)
 export const CloudUploadIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M4 14.9A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.2" />

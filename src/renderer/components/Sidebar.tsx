@@ -3,6 +3,7 @@ import { LOCAL_EVENTS_KEY, useAppStore, type EventCounts, type PeriodStats, type
 import { formatAge, formatRelative } from '../utils/dates'
 import { isProtonStale } from '../utils/proton'
 import { DEFAULT_EVENT_STATUSES } from '@shared/eventStatus'
+import { isTeamworkSource } from '@shared/sources'
 import type { EventStatusDef, ProtonAccount } from '@shared/types'
 import { useNow } from '../hooks/useNow'
 import { useMediaQuery } from '../hooks/useMediaQuery'
@@ -15,6 +16,7 @@ import {
   EyeOffIcon,
   KanbanIcon,
   LayersIcon,
+  PaletteIcon,
   PanelLeftIcon,
   PlusIcon,
   RefreshIcon,
@@ -23,6 +25,7 @@ import {
 } from './icons'
 import { Button, ColorDot, Spinner } from './ui'
 import { AppLogo } from './AppLogo'
+import { TeamworkColorDialog } from './TeamworkColorDialog'
 import { SearchBox } from './SearchBox'
 import { APP_NAME } from '@shared/brand'
 
@@ -36,10 +39,15 @@ function CalendarRow({
   syncing = false,
   syncTitle,
   counts,
-  flashKey
+  flashKey,
+  onColor,
+  colorTitle
 }: {
   name: string
   color: string
+  /** Teamwork calendars: changes the caller's color on Teamwork (for members allowed to). */
+  onColor?: () => void
+  colorTitle?: string
   visible: boolean
   error?: string | null
   onToggle: () => void
@@ -96,6 +104,11 @@ function CalendarRow({
       <button onClick={onToggle} title={visible ? `Hide ${name}` : `Show ${name}`} className={`${iconButton} ${onHover}`}>
         {visible ? <EyeIcon size={14} /> : <EyeOffIcon size={14} />}
       </button>
+      {onColor && (
+        <button onClick={onColor} title={colorTitle ?? `Color for ${name}`} aria-label={colorTitle ?? `Color for ${name}`} className={`${iconButton} ${onHover}`}>
+          <PaletteIcon size={14} />
+        </button>
+      )}
       {onSync && (
         <button
           onClick={onSync}
@@ -249,6 +262,38 @@ const COLLAPSED_KEY = 'sidebar.collapsed'
  * Narrow window: always the rail; expanding it slides the full sidebar over the
  * calendar until something is picked, Escape or a click outside.
  */
+/** "Teamwork · Ann (you)" → "Ann". */
+function teamworkPerson(calendarName: string): string {
+  return calendarName.replace(/^Teamwork · /, '').replace(/ \(you\)$/, '')
+}
+
+/** Whether the signed-in member may change Teamwork colors (owners, the admin, calendar managers). */
+function useCanSetTeamworkColors(): boolean {
+  const [can, setCan] = useState(false)
+  useEffect(() => {
+    let alive = true
+    const load = (): void => {
+      void window.api.caller
+        .status()
+        .then((s) => alive && setCan(Boolean(s.workspaces.find((w) => w.slug === s.workspaceSlug)?.canSetColors)))
+        .catch(() => undefined)
+    }
+    load()
+    const off = window.api.caller.onChanged(load)
+    return () => {
+      alive = false
+      off()
+    }
+  }, [])
+  return can
+}
+
+/** The member's own Teamwork calendar first, callers by name, Unassigned last. */
+function teamworkRank(c: { name: string; sourceUrl: string }): number {
+  if (c.sourceUrl.endsWith('/unassigned')) return 2
+  return c.name.endsWith('(you)') ? 0 : 1
+}
+
 export function Sidebar() {
   const narrow = useMediaQuery(NARROW_QUERY)
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSED_KEY) === '1')
@@ -394,6 +439,8 @@ function SidebarRail({ onExpand }: { onExpand: (focusSearch: boolean) => void })
 }
 
 function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: boolean; toggleTitle: string; onToggle: () => void }) {
+  const canSetTeamworkColors = useCanSetTeamworkColors()
+  const [coloring, setColoring] = useState<{ id: string; name: string; color: string } | null>(null)
   const now = useNow() // keeps "Last sync … ago" and the stale-sync badges current
   const calendars = useAppStore((s) => s.calendars)
   const settings = useAppStore((s) => s.settings)
@@ -438,13 +485,21 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
       const alert = a.status === 'login-required' ? 'Login needed' : a.status === 'error' ? 'Sync failed' : undefined
       if (items.length || alert) result.push({ key: a.id, title: a.label, alert, account: a, items })
     }
-    const other = enabled.filter((c) => !c.accountId || !accounts.some((a) => a.id === c.accountId))
-    if (other.length) result.push({ key: 'other', title: result.length ? 'Other calendars' : null, items: other })
+    // Teamwork: one calendar per caller, the member's own first and Unassigned last.
+    const teamwork = enabled
+      .filter((c) => isTeamworkSource(c.sourceUrl))
+      .sort((a, b) => teamworkRank(a) - teamworkRank(b) || a.name.localeCompare(b.name))
+    const other = enabled.filter((c) => !isTeamworkSource(c.sourceUrl) && (!c.accountId || !accounts.some((a) => a.id === c.accountId)))
+    if (other.length) result.push({ key: 'other', title: result.length || teamwork.length ? 'Other calendars' : null, items: other })
+    if (teamwork.length) result.push({ key: 'teamwork', title: 'Teamwork', items: teamwork })
     return result
   }, [accounts, enabled])
 
   return (
     <>
+      {coloring && (
+        <TeamworkColorDialog calendarId={coloring.id} name={coloring.name} color={coloring.color} onClose={() => setColoring(null)} />
+      )}
       <div className="flex items-center gap-2.5 pt-4 pr-3 pb-3 pl-4">
         <button
           onClick={() => setHelpTab('guide')}
@@ -540,8 +595,19 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
                   visible={!hidden.includes(c.id)}
                   error={c.lastSyncError}
                   onToggle={() => void toggleVisibility(c.id)}
+                  onColor={
+                    group.key === 'teamwork' && canSetTeamworkColors
+                      ? () => setColoring({ id: c.id, name: teamworkPerson(c.name), color: c.color })
+                      : undefined
+                  }
+                  colorTitle={group.key === 'teamwork' ? `Change ${teamworkPerson(c.name)}'s color on Teamwork` : undefined}
                   // Proton downloads a whole account in one export, so its calendars sync per account.
-                  onSync={() => void (c.accountId ? protonAction('syncAccount', c.accountId) : syncOne(c.id))}
+                  // Teamwork calendars update by themselves (live), so they have no sync button.
+                  onSync={
+                    group.key === 'teamwork'
+                      ? undefined
+                      : () => void (c.accountId ? protonAction('syncAccount', c.accountId) : syncOne(c.id))
+                  }
                   syncing={
                     syncStatus.syncingIds.includes(c.id) || accounts.some((a) => a.id === c.accountId && a.status === 'syncing')
                   }

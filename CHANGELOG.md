@@ -9,6 +9,13 @@ How to use this file:
 - Write for users: what they can now do, or what works better. Not file names or code.
 -->
 
+## 1.2.2
+- Teamwork calendars now always match the colors set on Teamwork, and change the moment someone changes a color there. If you're an owner, the admin or manage the calendar, hover a caller's Teamwork calendar in the sidebar and click the palette to change their color (or the Unassigned color) for everyone: a preview shows how interviews will look before you save.
+- Every calendar that isn't shared with a profile is now sent to Teamwork as **busy time only**: just when you're busy, with no titles, guests or places. All-day events and declined invitations aren't counted. Teamwork uses it when recommending a caller ("busy then"), and members who assign see it as **Busy** on each caller's calendar in the app. On the Teamwork page, **Not shared** is now **Busy time only**.
+- The Teamwork calendar is now one calendar per caller, grouped under **Teamwork** in the sidebar, each in the caller's Teamwork color, plus **Unassigned**. If your role sees all interviews ("All interviews in the desktop app", owners and the admin by default), turn callers on or off to see when each one is busy before you assign. Reminders only come for your own interviews.
+- You can upload a resume before the company and role are filled in. It then stays with that one interview; once they're filled in, it keeps showing, and the next resume uploaded is used by every round for that company and role.
+- A **Link** in **Who joins**: if you shared the interview (you work its profile), or you're an owner or the admin, **Share link** adds one link to it (a job post, a doc, anything), and everyone on the interview can **Open** it in the browser. **Change** or **Remove** it any time. The caller gets a notification.
+
 ## 1.2.1
 - Teamwork interviews now show who takes them: a tag at the end of the event with the caller's first name in their color, **You** when it's yours, or a dashed **Unassigned** when nobody has it yet. Later rounds show "R2 🔒", since they stay with the earlier round's caller.
 - New **Who joins** at the top of a Teamwork interview's details card: the caller, the profile they speak as and its bidders, the company, role and round, then the guests from the invitation.

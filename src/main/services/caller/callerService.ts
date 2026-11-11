@@ -98,9 +98,37 @@ type PicksByWorkspace = Record<string, Record<string, StoredPick>>
 
 const PICKS_KEY = 'caller.picks'
 /** The Teamwork calendar of this app: workspace and local calendar id. */
+/** Before 1.2.2: one Teamwork calendar. Removed on the first rebuild. */
 const TEAMWORK_CALENDAR_KEY = 'caller.teamworkCalendar'
+/** One Teamwork calendar per caller (and one for unassigned interviews): `byCaller[userId | 'unassigned']`. */
+const TEAMWORK_CALENDARS_KEY = 'caller.teamworkCalendars'
+const UNASSIGNED = 'unassigned'
+const UNASSIGNED_COLOR = '#94a3b8'
+type TeamworkCalendars = { slug: string; byCaller: Record<string, string> }
 /** Teamwork details of the member's own events: local event id → label and link. */
 const ANNOTATIONS_KEY = 'caller.annotations'
+/** Busy time sent last, per workspace: skip sending when nothing changed. */
+const BUSY_HASH_KEY = 'caller.busyHash'
+/** Busy time sent and shown: yesterday to 60 days ahead (the server keeps 90). */
+const BUSY_FUTURE_DAYS = 60
+/** Calendars sync in bursts; busy time is sent once they settle. */
+const BUSY_DEBOUNCE_MS = 5_000
+/** Longer than this is not a meeting (all-day or multi-day): never sent. */
+const BUSY_MAX_MS = 16 * 60 * 60 * 1000
+
+/** Members and calendar managers change colors on Teamwork. */
+function canSetColors(permissions: string[]): boolean {
+  return permissions.includes('members.manage') || permissions.includes('calendar.manage')
+}
+
+/** Another member's busy time from their app (start and end only). */
+interface MemberBusy {
+  userId: string
+  name: string
+  color: string
+  mine: boolean
+  blocks: Array<{ start: string; end: string }>
+}
 /** Days before and after today the Teamwork calendar holds. */
 const LIVE_PAST_DAYS = 7
 const LIVE_FUTURE_DAYS = 60
@@ -142,6 +170,7 @@ interface AppInterview {
       caller?: { userId: string; name: string; level: number | null; color: string } | null
       bidders?: Array<{ userId: string; name: string }>
       resume?: { attachmentId: string; filename: string; size: number } | null
+      link?: { url: string; site: string; sharedBy: string | null; sharedAt: string } | null
       canManageResume?: boolean
       canAssign?: boolean
     } | null
@@ -228,7 +257,116 @@ class CallerService {
     syncService.onCalendarSynced((calendar, ics) => {
       void this.uploadShared(calendar, ics)
       void this.uploadPicksOf(calendar.id)
+      this.scheduleBusy()
     })
+  }
+
+  // ---------------------------------------------------------------------------
+  // Busy time: every calendar not shared with a profile goes to Teamwork as
+  // start and end times only, so whoever assigns sees when the member is busy.
+
+  private busyTimer: NodeJS.Timeout | null = null
+  /** The workspace's Unassigned color (Teamwork's calendar colors). */
+  private unassignedColor = UNASSIGNED_COLOR
+  private colorsTimer: NodeJS.Timeout | null = null
+
+  /**
+   * Changes the Teamwork color behind one of the Teamwork calendars: the
+   * caller's member color, or the workspace's Unassigned color. Everyone sees it.
+   */
+  async setColor(calendarId: string, color: string): Promise<void> {
+    const slug = this.requireWorkspace()
+    if (!/^#[0-9a-f]{6}$/i.test(color)) throw new CallerError('Pick a color.')
+    const stored = settingsRepository.getInternal<TeamworkCalendars | null>(TEAMWORK_CALENDARS_KEY, null)
+    const key = Object.entries(stored?.slug === slug ? stored.byCaller : {}).find(([, id]) => id === calendarId)?.[0]
+    if (!key) throw new CallerError('This is not a Teamwork calendar.')
+    try {
+      if (key === UNASSIGNED) {
+        await this.request(`/workspaces/${slug}/calendar/colors`, { method: 'PUT', body: { unassigned: color.toLowerCase() } })
+      } else {
+        await this.request(`/workspaces/${slug}/members/${encodeURIComponent(key)}`, { method: 'PATCH', body: { color: color.toLowerCase() } })
+      }
+    } catch (err) {
+      if (err instanceof CallerError && err.status === 403) {
+        throw new CallerError('Only owners, the admin and calendar managers change colors on Teamwork.')
+      }
+      throw err
+    }
+    await this.refreshInterviews(slug)
+  }
+
+  /** What this member may do here, and the workspace's Unassigned color (read on every full load). */
+  private async refreshWorkspaceInfo(slug: string): Promise<void> {
+    const [ctx, colors] = await Promise.all([
+      this.request<{ membership: { permissions: string[] } }>(`/workspaces/${slug}`),
+      this.request<{ unassigned: string }>(`/workspaces/${slug}/calendar/colors`).catch(() => null)
+    ])
+    if (colors?.unassigned && /^#[0-9a-f]{6}$/i.test(colors.unassigned)) this.unassignedColor = colors.unassigned
+    const can = canSetColors(ctx.membership.permissions)
+    const c = this.connection()
+    if (c.workspaces.some((w) => w.slug === slug && w.canSetColors !== can)) {
+      this.saveConnection({ workspaces: c.workspaces.map((w) => (w.slug === slug ? { ...w, canSetColors: can } : w)) })
+    }
+  }
+  private busyMembers: MemberBusy[] = []
+  private busyRefreshTimer: NodeJS.Timeout | null = null
+
+  private scheduleBusy(): void {
+    if (this.busyTimer) clearTimeout(this.busyTimer)
+    this.busyTimer = setTimeout(() => {
+      this.busyTimer = null
+      void this.sendBusy().catch((err) => console.warn('[teamwork] busy time not sent:', errorText(err)))
+    }, BUSY_DEBOUNCE_MS)
+  }
+
+  /** The member's busy time: timed events of calendars not shared with a profile (not declined, not picked). */
+  private busyBlocks(slug: string): Array<{ start: string; end: string }> {
+    const shared = new Set(Object.keys(this.allShares()[slug] ?? {}))
+    const picked = new Set(Object.values(this.allPicks()[slug] ?? {}).flatMap((p) => p.eventIds))
+    const teamwork = new Set(calendarRepository.list().filter((c) => isTeamworkSource(c.sourceUrl)).map((c) => c.id))
+    const from = new Date(Date.now() - DAY_MS).toISOString()
+    const to = new Date(Date.now() + BUSY_FUTURE_DAYS * DAY_MS).toISOString()
+    return eventRepository
+      .listInRange(from, to)
+      .filter(
+        (e) =>
+          e.calendarId &&
+          !shared.has(e.calendarId) &&
+          !teamwork.has(e.calendarId) &&
+          !picked.has(e.id) &&
+          !e.allDay &&
+          e.myResponse !== 'declined' &&
+          Date.parse(e.endTime) - Date.parse(e.startTime) > 0 &&
+          Date.parse(e.endTime) - Date.parse(e.startTime) <= BUSY_MAX_MS
+      )
+      .map((e) => ({ start: new Date(e.startTime).toISOString(), end: new Date(e.endTime).toISOString() }))
+      .sort((a, b) => a.start.localeCompare(b.start))
+  }
+
+  /** Sends the member's busy time to the chosen workspace (only when it changed). */
+  private async sendBusy(): Promise<void> {
+    const slug = this.connection().workspaceSlug
+    if (!slug || !this.token()) return
+    const blocks = this.busyBlocks(slug)
+    const hash = fingerprint(JSON.stringify(blocks))
+    const sent = settingsRepository.getInternal<Record<string, string>>(BUSY_HASH_KEY, {})
+    if (sent[slug] === hash) return
+    await this.request(`/workspaces/${slug}/calendar/busy`, { method: 'PUT', body: { blocks } })
+    settingsRepository.setInternal(BUSY_HASH_KEY, { ...sent, [slug]: hash })
+  }
+
+  /** Other members' busy time, for members who assign or see every interview (others get none). */
+  private async refreshBusy(slug: string): Promise<void> {
+    const from = new Date(Date.now() - LIVE_PAST_DAYS * DAY_MS).toISOString()
+    const to = new Date(Date.now() + LIVE_FUTURE_DAYS * DAY_MS).toISOString()
+    try {
+      this.busyMembers = await this.request<MemberBusy[]>(
+        `/workspaces/${slug}/calendar/busy?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+      )
+    } catch (err) {
+      if (!(err instanceof CallerError && (err.status === 403 || err.status === 404))) throw err
+      this.busyMembers = []
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -274,6 +412,7 @@ class CallerService {
   private async runLive(slug: string, signal: AbortSignal): Promise<void> {
     let delay = LIVE_RETRY_MIN_MS
     await this.refreshInterviews(slug).catch((err) => console.warn('[teamwork] first load failed:', errorText(err)))
+    this.scheduleBusy()
     while (!signal.aborted) {
       const { serverUrl } = this.connection()
       const token = this.token()
@@ -330,6 +469,24 @@ class CallerService {
       void this.refreshInterviews(slug).catch((err) => console.warn('[teamwork] resync failed:', errorText(err)))
       return
     }
+    if (event === 'colors.changed') {
+      if (this.colorsTimer) return
+      this.colorsTimer = setTimeout(() => {
+        this.colorsTimer = null
+        void this.refreshInterviews(slug).catch((err) => console.warn('[teamwork] colors update failed:', errorText(err)))
+      }, LIVE_DEBOUNCE_MS)
+      return
+    }
+    if (event === 'busy.changed') {
+      if (this.busyRefreshTimer) return
+      this.busyRefreshTimer = setTimeout(() => {
+        this.busyRefreshTimer = null
+        void this.refreshBusy(slug)
+          .then(() => this.rebuildTeamwork(slug))
+          .catch((err) => console.warn('[teamwork] busy time update failed:', errorText(err)))
+      }, LIVE_DEBOUNCE_MS)
+      return
+    }
     if (event !== 'interviews.changed' || !data) return
     try {
       const message = JSON.parse(data) as { ids?: string[]; assignedToYou?: string[] }
@@ -376,6 +533,10 @@ class CallerService {
       `/workspaces/${slug}/events/app?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
     )
     this.interviewsById = new Map(page.items.map((i) => [i.event.id, i]))
+    await Promise.all([
+      this.refreshBusy(slug).catch((err) => console.warn('[teamwork] busy time not loaded:', errorText(err))),
+      this.refreshWorkspaceInfo(slug).catch((err) => console.warn('[teamwork] workspace not loaded:', errorText(err)))
+    ])
     this.rebuildTeamwork(slug)
   }
 
@@ -410,8 +571,9 @@ class CallerService {
       bidders: (d?.bidders ?? []).map((b) => b.name),
       caller: this.callerOf(i),
       resume: d?.resume ? { filename: d.resume.filename, size: d.resume.size } : null,
+      link:
+        d?.link && /^https?:\/\//i.test(d.link.url) ? { url: d.link.url, site: d.link.site, sharedBy: d.link.sharedBy } : null,
       canUploadResume: Boolean(d?.canManageResume),
-      hasDetails: Boolean(d?.company && d.role),
       canAssign: Boolean(d?.canAssign) && i.event.status !== 'cancelled',
       callerId: d?.caller?.userId ?? i.event.assignees[0]?.userId ?? null
     }
@@ -480,6 +642,27 @@ class CallerService {
     return Boolean(next && next !== before.event.interview?.resume?.attachmentId)
   }
 
+  /** Shares one link on the interview for everyone on it, or removes it (null). */
+  async shareLink(interviewId: string, url: string | null): Promise<void> {
+    const slug = this.requireWorkspace()
+    const path = `/workspaces/${slug}/events/${encodeURIComponent(interviewId)}/link`
+    if (url === null) {
+      await this.request(path, { method: 'DELETE' })
+    } else {
+      const link = url.trim()
+      if (!/^https?:\/\/\S+$/i.test(link)) throw new CallerError('Paste a link that starts with https://')
+      await this.request(path, { method: 'PUT', body: { url: link } })
+    }
+    await this.refreshInterview(slug, interviewId)
+  }
+
+  /** Shows a change right away; Teamwork's live update follows for everyone else. */
+  private async refreshInterview(slug: string, interviewId: string): Promise<void> {
+    const page = await this.request<{ items: AppInterview[] }>(`/workspaces/${slug}/events/app?ids=${encodeURIComponent(interviewId)}`)
+    for (const item of page.items) this.interviewsById.set(item.event.id, item)
+    this.rebuildTeamwork(slug)
+  }
+
   /**
    * Picks a PDF or Word file and makes it the interview's resume on Teamwork,
    * as the website does: an upload target for the profile + company + role,
@@ -519,11 +702,7 @@ class CallerService {
     if (!stored.ok) throw new CallerError(`Teamwork's file storage refused the upload (${stored.status}).`)
     await this.request(`/workspaces/${slug}/files/${ticket.attachment.id}/complete`, { method: 'POST', body: {} })
     await this.request(`/workspaces/${slug}/events/${interviewId}/resume/file`, { method: 'PUT', body: { attachmentId: ticket.attachment.id } })
-
-    // Show it right away; Teamwork's live update follows for everyone else.
-    const page = await this.request<{ items: AppInterview[] }>(`/workspaces/${slug}/events/app?ids=${encodeURIComponent(interviewId)}`)
-    for (const item of page.items) this.interviewsById.set(item.event.id, item)
-    this.rebuildTeamwork(slug)
+    await this.refreshInterview(slug, interviewId)
     return filename
   }
 
@@ -566,19 +745,24 @@ class CallerService {
   }
 
   /**
-   * Writes the Teamwork calendar: workspace interviews that aren't already the
-   * member's own events. An interview that came from one of the member's shared
-   * calendars or picked events is shown on that event instead (its details card).
+   * Writes the Teamwork calendars: workspace interviews that aren't already the
+   * member's own events, one calendar per caller (and one for unassigned ones),
+   * so whoever assigns sees when each caller is busy. An interview that came
+   * from one of the member's shared calendars or picked events is shown on that
+   * event instead (its details card).
    */
   private rebuildTeamwork(slug: string): void {
-    const calendarId = this.teamworkCalendarId(slug)
     const shares = this.allShares()[slug] ?? {}
     const picks = this.allPicks()[slug] ?? {}
     const ownCalendars = new Map(Object.entries(shares).map(([localId, share]) => [share.connectionId, localId]))
     const ownPicks = new Map(Object.values(picks).map((pick) => [pick.connectionId, pick.eventIds]))
     const annotations: Annotations = {}
     const tags: Record<string, CallerTag> = {}
-    const events: Parameters<typeof eventRepository.replaceCalendarEvents>[1] = []
+    type Row = Parameters<typeof eventRepository.replaceCalendarEvents>[1][number]
+    const groups = new Map<
+      string,
+      { name: string; color: string; mine: boolean; rows: Array<{ key: string; tag: CallerTag | null; row: Omit<Row, 'id'> }> }
+    >()
     for (const i of this.interviewsById.values()) {
       if (i.event.status === 'cancelled') continue
       const own = this.ownEventOf(i, ownCalendars, ownPicks)
@@ -588,23 +772,68 @@ class CallerService {
         tags[own] = this.tagOf(i)
         continue
       }
-      tags[makeEventId(calendarId, i.event.id)] = this.tagOf(i)
+      const caller = this.callerOf(i)
+      const key = i.event.interview?.caller?.userId ?? i.event.assignees[0]?.userId ?? UNASSIGNED
+      let group = groups.get(key)
+      if (!group) {
+        group = caller
+          ? { name: caller.mine ? `${caller.name} (you)` : caller.name, color: caller.color, mine: caller.mine, rows: [] }
+          : { name: 'Unassigned', color: this.unassignedColor, mine: false, rows: [] }
+        groups.set(key, group)
+      }
       const meeting = i.event.meetingUrl ?? ''
-      events.push({
-        id: makeEventId(calendarId, i.event.id),
-        externalId: i.event.id,
-        title: this.labelOf(i),
-        description: [label, `Open on Teamwork: ${this.urlOf(slug, i.event.id)}`, i.event.description].filter(Boolean).join('\n\n'),
-        startTime: i.event.start,
-        endTime: i.event.end,
-        allDay: false,
-        location: meeting || i.event.location,
-        attendees: i.event.attendees,
-        myResponse: null
+      group.rows.push({
+        key: i.event.id,
+        tag: this.tagOf(i),
+        row: {
+          externalId: i.event.id,
+          title: this.labelOf(i),
+          description: [label, `Open on Teamwork: ${this.urlOf(slug, i.event.id)}`, i.event.description].filter(Boolean).join('\n\n'),
+          startTime: i.event.start,
+          endTime: i.event.end,
+          allDay: false,
+          location: meeting || i.event.location,
+          attendees: i.event.attendees,
+          myResponse: null
+        }
       })
     }
-    eventRepository.replaceCalendarEvents(calendarId, events)
-    calendarRepository.setSyncSuccess(calendarId, null)
+    // Other members' busy time from their apps, on their calendars (times only).
+    for (const member of this.busyMembers) {
+      if (member.mine) continue
+      let group = groups.get(member.userId)
+      if (!group) {
+        group = { name: member.name, color: member.color, mine: false, rows: [] }
+        groups.set(member.userId, group)
+      }
+      for (const block of member.blocks) {
+        group.rows.push({
+          key: `busy:${member.userId}:${block.start}`,
+          tag: null,
+          row: {
+            externalId: `busy:${member.userId}:${block.start}`,
+            title: 'Busy',
+            description: `${member.name} is busy (from their own calendar on Teamwork).`,
+            startTime: block.start,
+            endTime: block.end,
+            allDay: false,
+            location: '',
+            attendees: [],
+            myResponse: null
+          }
+        })
+      }
+    }
+    const calendarIds = this.teamworkCalendars(slug, groups)
+    for (const [key, group] of groups) {
+      const calendarId = calendarIds.get(key)!
+      for (const r of group.rows) if (r.tag) tags[makeEventId(calendarId, r.key)] = r.tag
+      eventRepository.replaceCalendarEvents(
+        calendarId,
+        group.rows.map(({ key: rowKey, row }) => ({ ...row, id: makeEventId(calendarId, rowKey) }))
+      )
+      calendarRepository.setSyncSuccess(calendarId, null)
+    }
     settingsRepository.setInternal(ANNOTATIONS_KEY, annotations)
     this.tagsByEvent = tags
     for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IPC.callerChanged)
@@ -632,31 +861,63 @@ class CallerService {
     )
   }
 
-  /** The Teamwork calendar of a workspace, created the first time. */
-  private teamworkCalendarId(slug: string): string {
-    const stored = settingsRepository.getInternal<{ slug: string; calendarId: string } | null>(TEAMWORK_CALENDAR_KEY, null)
-    const name = `Teamwork · ${this.connection().workspaces.find((w) => w.slug === slug)?.name ?? slug}`.slice(0, 80)
-    if (stored && calendarRepository.get(stored.calendarId)) {
-      const existing = calendarRepository.get(stored.calendarId)!
-      if (stored.slug !== slug || existing.name !== name) {
-        // Another workspace now: same calendar, new contents.
-        calendarRepository.update(existing.id, { name, sourceUrl: `${TEAMWORK_SOURCE_PREFIX}${slug}` })
-        settingsRepository.setInternal(TEAMWORK_CALENDAR_KEY, { slug, calendarId: existing.id })
+  /**
+   * The Teamwork calendar of each caller with interviews here: created the first
+   * time (in the caller's Teamwork color; reminders only for the member's own),
+   * renamed when the caller is, and removed once nothing is left on it. The
+   * member's on/off choice and color stay as long as the calendar does.
+   */
+  private teamworkCalendars(slug: string, groups: Map<string, { name: string; color: string; mine: boolean }>): Map<string, string> {
+    this.removeLegacyTeamworkCalendar()
+    const stored = settingsRepository.getInternal<TeamworkCalendars | null>(TEAMWORK_CALENDARS_KEY, null)
+    const byCaller: Record<string, string> = {}
+    // Another workspace now: start over.
+    const previous = stored?.slug === slug ? stored.byCaller : {}
+    if (stored && stored.slug !== slug) for (const id of Object.values(stored.byCaller)) this.removeCalendar(id)
+    for (const [key, group] of groups) {
+      const name = `Teamwork · ${group.name}`.slice(0, 80)
+      const existing = previous[key] ? calendarRepository.get(previous[key]) : null
+      if (existing) {
+        // Colors are set on Teamwork (or from here, which saves there): the calendar follows.
+        if (existing.name !== name || existing.color.toLowerCase() !== group.color.toLowerCase()) {
+          calendarRepository.update(existing.id, { name, color: group.color })
+        }
+        byCaller[key] = existing.id
+      } else {
+        byCaller[key] = calendarRepository.create({
+          name,
+          color: group.color,
+          sourceUrl: `${TEAMWORK_SOURCE_PREFIX}${slug}/${key}`,
+          enabled: true,
+          notify: group.mine
+        }).id
       }
-      return existing.id
     }
-    const created = calendarRepository.create({ name, color: '#7c3aed', sourceUrl: `${TEAMWORK_SOURCE_PREFIX}${slug}`, enabled: true, notify: true })
-    settingsRepository.setInternal(TEAMWORK_CALENDAR_KEY, { slug, calendarId: created.id })
-    return created.id
+    for (const [key, id] of Object.entries(previous)) if (!byCaller[key]) this.removeCalendar(id)
+    settingsRepository.setInternal(TEAMWORK_CALENDARS_KEY, { slug, byCaller })
+    return new Map(Object.entries(byCaller))
   }
 
-  /** Signing out: the Teamwork calendar and the Teamwork details of own events go away. */
-  private clearTeamwork(): void {
-    const stored = settingsRepository.getInternal<{ slug: string; calendarId: string } | null>(TEAMWORK_CALENDAR_KEY, null)
-    if (stored && calendarRepository.get(stored.calendarId)) calendarRepository.remove(stored.calendarId)
+  private removeCalendar(id: string): void {
+    if (calendarRepository.get(id)) calendarRepository.remove(id)
+  }
+
+  private removeLegacyTeamworkCalendar(): void {
+    const legacy = settingsRepository.getInternal<{ slug: string; calendarId: string } | null>(TEAMWORK_CALENDAR_KEY, null)
+    if (!legacy) return
+    this.removeCalendar(legacy.calendarId)
     settingsRepository.setInternal(TEAMWORK_CALENDAR_KEY, null)
+  }
+
+  /** Signing out: the Teamwork calendars and the Teamwork details of own events go away. */
+  private clearTeamwork(): void {
+    this.removeLegacyTeamworkCalendar()
+    const stored = settingsRepository.getInternal<TeamworkCalendars | null>(TEAMWORK_CALENDARS_KEY, null)
+    for (const id of Object.values(stored?.byCaller ?? {})) this.removeCalendar(id)
+    settingsRepository.setInternal(TEAMWORK_CALENDARS_KEY, null)
     settingsRepository.setInternal(ANNOTATIONS_KEY, {})
     this.interviewsById.clear()
+    this.busyMembers = []
     this.tagsByEvent = {}
     for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IPC.callerChanged)
   }
@@ -822,7 +1083,8 @@ class CallerService {
       workspaces.push({
         slug: m.workspace.slug,
         name: m.workspace.name,
-        canShareAny: ctx.membership.permissions.includes('calendarSources.manage')
+        canShareAny: ctx.membership.permissions.includes('calendarSources.manage'),
+        canSetColors: canSetColors(ctx.membership.permissions)
       })
     }
     if (workspaces.length === 0) throw new CallerError('This account is not a member of any workspace yet.')
@@ -955,6 +1217,7 @@ class CallerService {
     // The upload follows the sync (see the constructor).
     await this.syncLocal([calendar])
     await this.uploads.get(localCalendarId)
+    this.scheduleBusy()
     return this.listShares()
   }
 
@@ -969,6 +1232,7 @@ class CallerService {
       })
       this.saveShare(slug, localCalendarId, null)
     }
+    this.scheduleBusy()
     return this.listShares()
   }
 
@@ -1054,6 +1318,8 @@ class CallerService {
       return { label: annotated.label, url: annotated.url, interview: interview ? this.interviewOf(interview) : null }
     }
     const calendar = event.calendarId ? calendarRepository.get(event.calendarId) : null
+    // Another member's busy time: nothing on Teamwork to show.
+    if (event.externalId?.startsWith('busy:')) return null
     if (calendar && isTeamworkSource(calendar.sourceUrl) && event.externalId) {
       const interview = this.interviewsById.get(event.externalId)
       return {
@@ -1098,6 +1364,7 @@ class CallerService {
       touched.add(profileId)
     }
     await Promise.all([...touched].map((pid) => this.uploadPick(slug, pid)))
+    this.scheduleBusy()
     return this.eventShare(eventId)
   }
 

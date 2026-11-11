@@ -197,31 +197,43 @@ profile; its events become that profile's interviews on Teamwork, where company,
 
 ### Good to know
 
-- Only shared calendars leave your computer, and only their events (title, time, guests, place and description). Your
-  calendar links, Proton logins and unshared calendars stay in All-In-One.
+- A calendar shared with a profile sends its events (title, time, guests, place and description). Every other calendar
+  is sent as **busy time only**: just when you're busy, with no titles, guests or places, so whoever assigns interviews
+  knows when you're free. All-day events and invitations you declined aren't counted. Your calendar links and Proton
+  logins stay in All-In-One.
 - A shared calendar is sent again every time it syncs (its refresh button, refresh everything, auto-sync, or a Proton
   export). **Sync shared calendars** sends them all now.
 - To share just one event, not its whole calendar, open the event and pick **Share with** under **Teamwork** in its
   details card. These are listed on the Teamwork page under **Shared one by one**. They're sent again whenever their
   calendar syncs, so a moved or cancelled invitation follows.
 - You can share only with the profiles you work. Owners and the admin can share with any profile.
-- To stop sharing, pick **Not shared**. Teamwork removes the calendar's upcoming interviews that nobody has worked on yet.
+- To stop sharing with a profile, pick **Busy time only**. Teamwork removes the calendar's upcoming interviews that
+  nobody has worked on yet; the calendar then counts as busy time.
 - **Workspace interviews** at the bottom shows the interviews from yesterday to two weeks ahead that your role lets you see.
   **Open** shows one on the Teamwork website.
-- The **Teamwork** calendar in the sidebar shows the interviews assigned to you (owners and the admin see all of them).
+- The **Teamwork** group in the sidebar shows the interviews assigned to you, on a calendar named after you. With "All
+  interviews in the desktop app" (owners and the admin by default, or any role given it on Teamwork) you see every
+  interview, one calendar per caller in their Teamwork color plus **Unassigned**, along with each member's **Busy** time
+  from their own calendars: turn callers on or off to see when they're busy before you assign. Reminders only come for
+  your own interviews.
+- Colors come from Teamwork, so every caller looks the same for everyone, on the website and in the app. Owners, the
+  admin and calendar managers can change them: hover a Teamwork calendar in the sidebar, click the palette, pick a
+  color (the preview shows an interview in it) and **Save color**. On the website, click a member's color dot on the
+  Members page or in the calendar's member list.
   It's read-only and updates by itself whenever something changes on Teamwork; you get a notification when an interview
   is assigned to you. Interviews that came from your own shared events show their Teamwork details on your event instead.
 - Each Teamwork interview shows its caller at the end of the event: the caller's first name in their color,
   **You** for yours, or a dashed **Unassigned**. "R2 🔒" marks a later round, which stays with the earlier round's caller.
 - An interview's details card starts with **Who joins**: the caller, the profile they speak as and its bidders, the
-  company, role and round, and the resume: **Download** saves it on your computer. If you shared the interview (you work
-  its profile), or you're an owner or the admin, **Upload resume** adds it (PDF or Word, up to 10 MB; company and role
-  must be filled in first). Every round for that company and role uses it.
+  company, role and round, the resume (**Download** saves it on your computer) and a shared **Link** (**Open** opens it
+  in your browser). If you shared the interview (you work its profile), or you're an owner or the admin, **Upload
+  resume** adds the resume (PDF or Word, up to 10 MB) and **Share link** adds one link for everyone on the interview.
+  With company and role filled in, every round for them uses the resume; without, it stays with that interview.
 - If your role lets you assign interviews, click **Assign** (or **Change**) next to the caller in **Who joins**, pick a
   caller (★ is Teamwork's recommendation) and click **Assign**. A later round stays with the earlier round's caller; only
   the admin can move it, after confirming.
 - A Teamwork feed added as a link calendar can't be shared back: its interviews are on Teamwork already.
-- Signing out keeps your sharing choices, and removes the Teamwork calendar until you sign in again.
+- Signing out keeps your sharing choices, and removes the Teamwork calendars until you sign in again.
 
 ---
 
@@ -259,7 +271,7 @@ profile; its events become that profile's interviews on Teamwork, where company,
 | "Secure connection failed" | A VPN, firewall or antivirus program is interfering with the connection. Try another VPN server, or check the program's settings. |
 | "Missing or null Origin" when signing in to Teamwork | Update All-In-One to 1.2.0 or later, then sign in again. |
 | "You can only share calendars with the profiles you work" | Ask a Teamwork owner to add you to that profile, or share with one of your own profiles. |
-| A shared calendar shows an error on the Teamwork page | Click **Sync shared calendars**. If Teamwork removed the calendar, it goes back to **Not shared**; share it again if you still want to. |
+| A shared calendar shows an error on the Teamwork page | Click **Sync shared calendars**. If Teamwork removed the calendar, it goes back to **Busy time only**; share it again if you still want to. |
 | Proton account says "Login needed" | Click **Log in** on the account and sign in again. |
 | Proton account says "Sync failed" | Click **Sync now** again. If it keeps failing, use **Open Proton** → **Download ICS** (see [Option A](#option-a-connect-your-proton-account-recommended)). |
 | Invitations from Proton you declined or haven't answered look like normal events | Click **Edit** on the Proton account and check **Your email** (accounts added before version 1.0.7 need it entered once). |

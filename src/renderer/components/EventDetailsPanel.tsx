@@ -19,7 +19,7 @@ import { linkify } from '../utils/linkify'
 import { renderDescription } from '../utils/richText'
 import { errorMessage } from '../utils/errors'
 import { placeNextTo } from '../utils/placement'
-import { BellIcon, ClockIcon, CloudUploadIcon, DownloadIcon, ExternalIcon, LockIcon, MapPinIcon, RepeatIcon, StarIcon, UsersIcon, XIcon } from './icons'
+import { BellIcon, ClockIcon, CloudUploadIcon, DownloadIcon, ExternalIcon, LinkIcon, LockIcon, MapPinIcon, RepeatIcon, StarIcon, UsersIcon, XIcon } from './icons'
 import { NotesEditor } from './NotesEditor'
 import { Button, ColorDot, isModalOpen, Spinner } from './ui'
 
@@ -382,8 +382,12 @@ function WhoJoins({ interview }: { interview: TeamworkInterview }) {
   const [choosing, setChoosing] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [editingLink, setEditingLink] = useState(false)
+  const [linkDraft, setLinkDraft] = useState('')
+  const [linkBusy, setLinkBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
-  const { caller, resume } = interview
+  const { caller, resume, link } = interview
+  const canManage = interview.canUploadResume
 
   async function download() {
     setSaving(true)
@@ -411,12 +415,29 @@ function WhoJoins({ interview }: { interview: TeamworkInterview }) {
     }
   }
 
-  const uploadButton = interview.canUploadResume && (
+  async function saveLink(url: string | null) {
+    setLinkBusy(true)
+    setMessage(null)
+    try {
+      await window.api.caller.shareLink(interview.id, url)
+      setEditingLink(false)
+      setLinkDraft('')
+      setMessage(url ? 'Link shared with everyone on this interview.' : 'Link removed.')
+    } catch (err) {
+      setMessage(errorMessage(err))
+    } finally {
+      setLinkBusy(false)
+    }
+  }
+
+  const chip =
+    'inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-2 py-0.5 text-xs text-slate-200 hover:border-slate-500 hover:text-white disabled:opacity-60'
+  const uploadButton = canManage && (
     <button
       type="button"
       onClick={() => void upload()}
       disabled={uploading}
-      className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-2 py-0.5 text-xs text-slate-200 hover:border-slate-500 hover:text-white disabled:opacity-60"
+      className={chip}
       title="Add the resume sent to the company (PDF or Word, up to 10 MB)"
     >
       {uploading ? <Spinner className="text-slate-400" /> : <CloudUploadIcon size={12} />} {resume ? 'Replace' : 'Upload resume'}
@@ -477,13 +498,7 @@ function WhoJoins({ interview }: { interview: TeamworkInterview }) {
         <dd className="min-w-0">
           {resume ? (
             <span className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void download()}
-                disabled={saving}
-                className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-2 py-0.5 text-xs text-slate-200 hover:border-slate-500 hover:text-white disabled:opacity-60"
-                title={`Save ${resume.filename}`}
-              >
+              <button type="button" onClick={() => void download()} disabled={saving} className={chip} title={`Save ${resume.filename}`}>
                 {saving ? <Spinner className="text-slate-400" /> : <DownloadIcon size={12} />} Download
               </button>
               {uploadButton}
@@ -494,13 +509,82 @@ function WhoJoins({ interview }: { interview: TeamworkInterview }) {
           ) : uploadButton ? (
             uploadButton
           ) : (
-            <span className="text-xs text-slate-500">
-              {interview.hasDetails ? 'None added on Teamwork yet' : 'Fill in the company and role on Teamwork first'}
-            </span>
+            <span className="text-xs text-slate-500">None added on Teamwork yet</span>
           )}
-          {message && <span className="selectable mt-1 block text-xs break-all text-slate-400">{message}</span>}
         </dd>
+        {(link || canManage) && (
+          <>
+            <dt className="text-slate-500">Link</dt>
+            <dd className="min-w-0">
+              {editingLink ? (
+                <form
+                  className="flex items-center gap-1.5"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    if (linkDraft.trim()) void saveLink(linkDraft)
+                  }}
+                >
+                  <input
+                    type="url"
+                    autoFocus
+                    required
+                    placeholder="https://…"
+                    aria-label="Link"
+                    value={linkDraft}
+                    disabled={linkBusy}
+                    onChange={(e) => setLinkDraft(e.target.value)}
+                    className="min-w-0 flex-1 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200"
+                  />
+                  <button
+                    type="submit"
+                    disabled={linkBusy || !linkDraft.trim()}
+                    className="rounded-md bg-blue-600 px-2.5 py-0.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+                  >
+                    Share
+                  </button>
+                  <button type="button" disabled={linkBusy} onClick={() => setEditingLink(false)} className={linkClass}>
+                    Cancel
+                  </button>
+                  {linkBusy && <Spinner className="text-slate-500" />}
+                </form>
+              ) : (
+                <span className="flex flex-wrap items-center gap-2">
+                  {link && (
+                    <a href={link.url} target="_blank" rel="noopener noreferrer" className={chip} title={link.url}>
+                      <ExternalIcon size={12} /> Open
+                    </a>
+                  )}
+                  {canManage && (
+                    <button
+                      type="button"
+                      className={chip}
+                      disabled={linkBusy}
+                      onClick={() => {
+                        setLinkDraft(link?.url ?? '')
+                        setEditingLink(true)
+                      }}
+                    >
+                      <LinkIcon size={12} /> {link ? 'Change' : 'Share link'}
+                    </button>
+                  )}
+                  {canManage && link && (
+                    <button type="button" className={linkClass} disabled={linkBusy} onClick={() => void saveLink(null)}>
+                      Remove
+                    </button>
+                  )}
+                  {link && (
+                    <span className="min-w-0 truncate text-xs text-slate-500" title={link.url}>
+                      {link.site}
+                      {link.sharedBy ? ` · by ${link.sharedBy}` : ''}
+                    </span>
+                  )}
+                </span>
+              )}
+            </dd>
+          </>
+        )}
       </dl>
+      {message && <p className="selectable text-xs break-all text-slate-400">{message}</p>}
     </div>
   )
 }

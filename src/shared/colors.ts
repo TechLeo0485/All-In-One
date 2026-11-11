@@ -12,6 +12,23 @@ export const PRESET_COLORS = [
   '#64748b' // slate
 ]
 
+/** Teamwork's member palette (and its grey for Unassigned): the colors callers have on the website. */
+export const TEAMWORK_COLORS = [
+  '#2563eb',
+  '#16a34a',
+  '#db2777',
+  '#ea580c',
+  '#7c3aed',
+  '#0891b2',
+  '#ca8a04',
+  '#dc2626',
+  '#0d9488',
+  '#9333ea',
+  '#65a30d',
+  '#e11d48',
+  '#64748b'
+]
+
 /** Picks a preset color not yet used, so new calendars are distinguishable by default. */
 export function nextUnusedColor(used: string[]): string {
   return PRESET_COLORS.find((c) => !used.includes(c)) ?? PRESET_COLORS[used.length % PRESET_COLORS.length]

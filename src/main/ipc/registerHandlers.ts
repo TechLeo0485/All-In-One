@@ -229,6 +229,18 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
   handle(IPC.callerUploadResume, (_e, interviewId) =>
     callerService.uploadResume(v.str(interviewId, 'Interview', { required: true, max: 64 }))
   )
+  handle(IPC.callerSetColor, (_e, calendarId, color) =>
+    callerService.setColor(
+      v.str(calendarId, 'Calendar', { required: true, max: 64 }),
+      v.str(color, 'Color', { required: true, max: 7 })
+    )
+  )
+  handle(IPC.callerShareLink, (_e, interviewId, url) =>
+    callerService.shareLink(
+      v.str(interviewId, 'Interview', { required: true, max: 64 }),
+      url === null ? null : v.str(url, 'Link', { required: true, max: 2048 })
+    )
+  )
   handle(IPC.callerCandidates, (_e, interviewId) =>
     callerService.candidates(v.str(interviewId, 'Interview', { required: true, max: 64 }))
   )

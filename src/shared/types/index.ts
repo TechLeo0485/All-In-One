@@ -440,6 +440,10 @@ export interface CalendarApi {
     tags(): Promise<Record<string, CallerTag>>
     /** Saves the interview's resume where the member picks; the saved path, or null when cancelled. */
     downloadResume(interviewId: string): Promise<string | null>
+    /** Shares one link on the Teamwork interview for everyone on it, or removes it (null). */
+    shareLink(interviewId: string, url: string | null): Promise<void>
+    /** Changes the Teamwork color of a caller's (or the Unassigned) Teamwork calendar, for everyone. */
+    setColor(calendarId: string, color: string): Promise<void>
     /** Picks a PDF or Word file and makes it the interview's resume on Teamwork; its name, or null when cancelled. */
     uploadResume(interviewId: string): Promise<string | null>
     /** The callers to choose from for an interview, the recommended one first. */
@@ -460,6 +464,8 @@ export interface CallerWorkspace {
   name: string
   /** Owners and the admin share calendars with any profile; others with the profiles they work. */
   canShareAny: boolean
+  /** May change callers' and the Unassigned color on Teamwork (members or calendar management). */
+  canSetColors?: boolean
 }
 
 export interface CallerStatus {
@@ -552,10 +558,10 @@ export interface TeamworkInterview {
   bidders: string[]
   caller: TeamworkCaller | null
   resume: { filename: string; size: number } | null
-  /** The member may add or replace the resume (owners, the admin, the profile's bidders) once company and role are in. */
+  /** One link shared on the interview (job post, doc, anything). */
+  link: { url: string; site: string; sharedBy: string | null } | null
+  /** The member may upload the resume and share the link (owners, the admin, the profile's bidders). */
   canUploadResume: boolean
-  /** Company and role are filled in, so a resume can be added. */
-  hasDetails: boolean
   /** The member may choose the caller (Teamwork's "assign interviews" permission). */
   canAssign: boolean
   callerId: string | null

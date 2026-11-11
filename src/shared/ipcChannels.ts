@@ -79,6 +79,8 @@ export const IPC = {
   callerTags: 'caller:tags',
   callerDownloadResume: 'caller:downloadResume',
   callerUploadResume: 'caller:uploadResume',
+  callerShareLink: 'caller:shareLink',
+  callerSetColor: 'caller:setColor',
   callerCandidates: 'caller:candidates',
   callerAssign: 'caller:assign',
   callerChanged: 'caller:changed'

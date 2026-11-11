@@ -25,8 +25,9 @@ export function CallerPage() {
           <h1 className="text-xl font-semibold">Teamwork</h1>
           <p className="mt-1 text-sm text-slate-400">
             Share calendars with your workspace. Each shared calendar belongs to a profile: its events become that
-            profile&apos;s interviews on Teamwork, updated every time the calendar syncs here. Calendars you don&apos;t share
-            never leave this computer.
+            profile&apos;s interviews on Teamwork, updated every time the calendar syncs here. Every other calendar is sent
+            as busy time only (when you&apos;re busy, no titles, guests or places), so whoever assigns interviews knows when
+            you&apos;re free.
           </p>
         </div>
         {error && <p className="mb-4 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p>}
@@ -328,7 +329,7 @@ function ShareRow({
             ? share.lastUploadAt
               ? ` · sent ${new Date(share.lastUploadAt).toLocaleString()}${share.eventCount !== null ? ` · ${share.eventCount} events` : ''}`
               : ' · not sent yet'
-            : ' · not shared'}
+            : ' · busy time only'}
         </p>
         {share?.lastError && <p className="text-xs text-red-300">{share.lastError}</p>}
         {row.blocked && <p className="text-xs text-slate-500">{row.blocked}</p>}
@@ -344,7 +345,7 @@ function ShareRow({
           else onUnshare()
         }}
       >
-        <option value="">Not shared</option>
+        <option value="">Busy time only</option>
         {options.map((p) => (
           <option key={p.id} value={p.id}>
             Share with {p.fullName}
