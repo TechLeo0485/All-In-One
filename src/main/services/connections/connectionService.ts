@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { hostname } from 'node:os'
-import { BrowserWindow, safeStorage } from 'electron'
+import { BrowserWindow, net, powerMonitor, safeStorage } from 'electron'
 import { IPC } from '@shared/ipcChannels'
 import { hostOf, isFileSource, isTeamworkSource } from '@shared/sources'
 import type { CalendarSource, ConnectionCalendar, ConnectionStatus, ConnectionSyncResult, ConnectionsStatus } from '@shared/types'
@@ -35,6 +35,16 @@ import { protonAccountService } from '../proton/protonAccountService'
  * content, when the list of calendars changed, or when the user asks (Check
  * what's wanted, Sync & send). There is no timer and no polling.
  *
+ * When it sends:
+ *   1. a wanted calendar synced here and is not what the platform has;
+ *   2. the platform asked for a fresh copy (see below), which syncs it first.
+ * Only the newest copy of a calendar ever waits: one that syncs again while an
+ * older copy is still going out replaces whatever was queued behind it. A send
+ * that fails because the network or the platform is down is kept (the newest
+ * only) and tried again - with a growing wait, and at once when the computer
+ * is back online or wakes up. Checking for "online" asks the operating system,
+ * not the network.
+ *
  * Listening for sync requests is one idle connection per platform, held only
  * while that platform is connected and only while its "Let it ask for a sync"
  * switch is on; the platform sends a few bytes every half minute to keep it
@@ -64,6 +74,13 @@ const LIVE_RETRY_MIN_MS = 5_000
 const LIVE_RETRY_MAX_MS = 5 * 60_000
 /** A request for calendars synced this recently is already answered. */
 const REQUEST_REPEAT_MS = 60_000
+/** A send that failed for the network: first retry after this, doubling, up to the longest. */
+const RETRY_MIN_MS = 30_000
+const RETRY_MAX_MS = 10 * 60_000
+/** A sync a platform asked for that failed here: tried again this many times at most. */
+const REQUEST_RETRIES = 6
+/** While something waits for the network: how often the operating system is asked whether it is back. */
+const ONLINE_CHECK_MS = 3_000
 
 interface Connection {
   id: string
@@ -96,6 +113,15 @@ interface ServerCalendar {
   profile?: string | null
 }
 
+/** One copy of a calendar on its way to one platform. */
+interface Outgoing {
+  id: string
+  calendar: CalendarSource
+  ics: string
+  /** Sends of this copy that failed for the network. */
+  tries: number
+}
+
 class ConnectionError extends Error {
   constructor(
     message: string,
@@ -117,8 +143,20 @@ function errorText(err: unknown): string {
 }
 
 class ConnectionService {
-  /** Uploads per connection and calendar, one after another, so two syncs never race. */
+  /** The send under way per connection and calendar; whoever waits for a calendar to go waits on this. */
   private uploads = new Map<string, Promise<void>>()
+  /** What waits to go, per connection and calendar: the newest copy only. */
+  private waiting = new Map<string, Outgoing>()
+  /** Slots with a send under way. */
+  private sending = new Set<string>()
+  /** Copies that could not be sent for the network or the platform being down: the newest only, tried again. */
+  private unsent = new Map<string, Outgoing>()
+  private retryTimer: NodeJS.Timeout | null = null
+  /** Asks the operating system whether the network is back, only while something waits for it. */
+  private onlineWatch: NodeJS.Timeout | null = null
+  private wasOnline = true
+  /** Syncs a platform asked for that failed here, per connection: tried again later. */
+  private requestRetries = new Map<string, { calendarIds: Set<string>; tries: number; timer: NodeJS.Timeout }>()
   private catalogTimer: NodeJS.Timeout | null = null
   /** The live connections: connection id → the way to end it. */
   private live = new Map<string, AbortController>()
@@ -351,58 +389,156 @@ class ConnectionService {
     }, CATALOG_DEBOUNCE_MS)
   }
 
-  /** After a calendar synced: sends it to one platform, unless it is what the platform already has. */
-  private upload(id: string, calendar: CalendarSource, ics: string): Promise<void> {
+  /**
+   * After a calendar synced: queues it for one platform. Only the newest copy
+   * waits - this one replaces an older one that has not left yet, and one that
+   * was waiting for the network.
+   */
+  private upload(id: string, calendar: CalendarSource, ics: string, tries = 0): Promise<void> {
     const slot = `${id}:${calendar.id}`
-    const previous = this.uploads.get(slot) ?? Promise.resolve()
-    const run = previous.then(async () => {
-      const connection = this.all()[id]
-      const key = this.key(id)
-      if (!connection || !key || !connection.wanted[calendar.id]) return
-      const before = this.sentOf(id)[calendar.id]
-      const hash = fingerprint(ics)
-      // Nothing changed since the last successful send: no request at all.
-      if (before?.hash === hash && !before.error) return
-      const send = (): Promise<{ status?: string; event_count?: number }> =>
-        this.request(
-          connection.address,
-          key,
-          `/calendars/${encodeURIComponent(calendar.id)}?name=${encodeURIComponent(calendar.name.slice(0, 80))}`,
-          { method: 'PUT', ics, timeoutMs: UPLOAD_TIMEOUT_MS }
-        )
-      try {
-        if (Buffer.byteLength(ics, 'utf8') > MAX_UPLOAD_BYTES) throw new ConnectionError('This calendar is too large to send (8 MB at most)')
-        let result: { status?: string; event_count?: number }
-        try {
-          result = await send()
-        } catch (err) {
-          // The platform asks for a pause after a change: wait as long as it says, once.
-          if (!(err instanceof ConnectionError && err.status === 429)) throw err
-          await new Promise((resolve) => setTimeout(resolve, Math.min((err.retryAfter || 30) * 1000 + 500, MAX_RETRY_WAIT_MS)))
-          result = await send()
-        }
-        if (result.status === 'unassigned') {
-          // It was let go on the platform since the platform was last asked.
-          const wanted = { ...connection.wanted }
-          delete wanted[calendar.id]
-          this.save(id, { wanted })
-          this.saveSent(id, calendar.id, null)
-        } else {
-          this.saveSent(id, calendar.id, {
-            hash,
-            at: new Date().toISOString(),
-            eventCount: result.event_count ?? before?.eventCount ?? null,
-            error: null
-          })
-        }
-      } catch (err) {
-        this.saveSent(id, calendar.id, { hash: null, at: before?.at ?? null, eventCount: before?.eventCount ?? null, error: errorText(err) })
+    this.waiting.set(slot, { id, calendar, ics, tries })
+    this.unsent.delete(slot)
+    if (!this.sending.has(slot)) this.uploads.set(slot, this.drain(slot))
+    return this.uploads.get(slot) ?? Promise.resolve()
+  }
+
+  /** Sends what waits for one slot, one copy at a time, until nothing newer has arrived. */
+  private async drain(slot: string): Promise<void> {
+    this.sending.add(slot)
+    try {
+      for (;;) {
+        const next = this.waiting.get(slot)
+        if (!next) break
+        this.waiting.delete(slot)
+        await this.send(slot, next).catch(() => undefined)
       }
-      this.changed()
-    })
-    const settled = run.catch(() => undefined)
-    this.uploads.set(slot, settled)
-    return settled
+    } finally {
+      this.sending.delete(slot)
+    }
+  }
+
+  /** Sends one copy, unless it is what the platform already has. */
+  private async send(slot: string, out: Outgoing): Promise<void> {
+    const { id, calendar, ics } = out
+    const connection = this.all()[id]
+    const key = this.key(id)
+    if (!connection || !key || !connection.wanted[calendar.id]) return
+    const before = this.sentOf(id)[calendar.id]
+    const hash = fingerprint(ics)
+    // Nothing changed since the last successful send: no request at all.
+    if (before?.hash === hash && !before.error) return
+    const put = (): Promise<{ status?: string; event_count?: number }> =>
+      this.request(
+        connection.address,
+        key,
+        `/calendars/${encodeURIComponent(calendar.id)}?name=${encodeURIComponent(calendar.name.slice(0, 80))}`,
+        { method: 'PUT', ics, timeoutMs: UPLOAD_TIMEOUT_MS }
+      )
+    try {
+      if (Buffer.byteLength(ics, 'utf8') > MAX_UPLOAD_BYTES) throw new ConnectionError('This calendar is too large to send (8 MB at most)', 413)
+      let result: { status?: string; event_count?: number }
+      try {
+        result = await put()
+      } catch (err) {
+        // The platform asks for a pause after a change: wait as long as it says, once.
+        if (!(err instanceof ConnectionError && err.status === 429)) throw err
+        await new Promise((resolve) => setTimeout(resolve, Math.min((err.retryAfter || 30) * 1000 + 500, MAX_RETRY_WAIT_MS)))
+        result = await put()
+      }
+      if (result.status === 'unassigned') {
+        // It was let go on the platform since the platform was last asked.
+        const wanted = { ...connection.wanted }
+        delete wanted[calendar.id]
+        this.save(id, { wanted })
+        this.saveSent(id, calendar.id, null)
+      } else {
+        this.saveSent(id, calendar.id, {
+          hash,
+          at: new Date().toISOString(),
+          eventCount: result.event_count ?? before?.eventCount ?? null,
+          error: null
+        })
+      }
+    } catch (err) {
+      // The network or the platform is down (unreachable, 5xx, still busy): this
+      // copy is kept and tried again, unless a newer one is already waiting.
+      const down = !(err instanceof ConnectionError) || err.status === 0 || err.status === 429 || err.status >= 500
+      this.saveSent(id, calendar.id, {
+        hash: null,
+        at: before?.at ?? null,
+        eventCount: before?.eventCount ?? null,
+        error: down ? `${errorText(err)} It will be sent as soon as it can be.` : errorText(err)
+      })
+      if (down && !this.waiting.has(slot)) {
+        this.unsent.set(slot, { ...out, tries: out.tries + 1 })
+        this.scheduleRetry()
+      }
+    }
+    this.changed()
+  }
+
+  /** Tries unsent copies again after a wait that doubles with each failure, and watches for the network coming back. */
+  private scheduleRetry(): void {
+    if (this.unsent.size === 0) return
+    if (!this.retryTimer) {
+      const tries = Math.min(...[...this.unsent.values()].map((o) => o.tries))
+      const delay = Math.min(RETRY_MIN_MS * 2 ** Math.max(tries - 1, 0), RETRY_MAX_MS)
+      this.retryTimer = setTimeout(() => this.retryUnsent(), delay)
+    }
+    this.watchOnline()
+  }
+
+  /** Sends every unsent copy now (the wait is over, or the network is back). */
+  private retryUnsent(): void {
+    if (this.retryTimer) clearTimeout(this.retryTimer)
+    this.retryTimer = null
+    const again = [...this.unsent.values()]
+    this.unsent.clear()
+    for (const out of again) {
+      const slot = `${out.id}:${out.calendar.id}`
+      // A newer copy came in meanwhile: that one goes, not this.
+      if (!this.waiting.has(slot)) void this.upload(out.id, out.calendar, out.ics, out.tries)
+    }
+  }
+
+  /**
+   * While something waits for the network - an unsent copy, a requested sync
+   * that failed, a live connection that dropped - asks the operating system
+   * every few seconds whether it is online (no request is made). The moment
+   * it comes back: unsent copies go, and the live connections reconnect.
+   * With nothing waiting, this stops.
+   */
+  private watchOnline(): void {
+    if (this.onlineWatch) return
+    this.wasOnline = net.isOnline()
+    this.onlineWatch = setInterval(() => {
+      const online = net.isOnline()
+      const back = online && !this.wasOnline
+      this.wasOnline = online
+      if (back) this.networkBack()
+      const liveDown = [...this.live.keys()].some((id) => !this.listening.has(id))
+      if (this.unsent.size === 0 && this.requestRetries.size === 0 && !liveDown) {
+        if (this.onlineWatch) clearInterval(this.onlineWatch)
+        this.onlineWatch = null
+      }
+    }, ONLINE_CHECK_MS)
+  }
+
+  /** The network is back, or the computer woke up: do at once what was waiting for it. */
+  private networkBack(): void {
+    if (this.unsent.size > 0) this.retryUnsent()
+    for (const [id, retry] of [...this.requestRetries]) {
+      clearTimeout(retry.timer)
+      this.requestRetries.delete(id)
+      void this.syncRequested(id, [...retry.calendarIds], retry.tries)
+    }
+    // Live connections that were waiting to retry start over now.
+    for (const id of [...this.live.keys()]) {
+      if (!this.listening.has(id)) {
+        this.stopLive(id)
+        this.startLive(id)
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -411,11 +547,18 @@ class ConnectionService {
   /** Starts listening on every connection that wants it. Called once the app is up. */
   start(): void {
     for (const connection of this.list()) this.startLive(connection.id)
+    // Waking from sleep: connections dropped while asleep, and sends may be waiting.
+    powerMonitor.on('resume', () => this.networkBack())
   }
 
   /** Ends every live connection (the app is quitting). */
   stop(): void {
     for (const id of [...this.live.keys()]) this.stopLive(id)
+    if (this.retryTimer) clearTimeout(this.retryTimer)
+    if (this.onlineWatch) clearInterval(this.onlineWatch)
+    for (const retry of this.requestRetries.values()) clearTimeout(retry.timer)
+    this.retryTimer = this.onlineWatch = null
+    this.requestRetries.clear()
   }
 
   private startLive(id: string): void {
@@ -458,6 +601,8 @@ class ConnectionService {
         delay = LIVE_RETRY_MIN_MS
         this.listening.add(id)
         this.changed()
+        // The platform is reachable again: what could not be sent goes now.
+        if (this.unsent.size > 0) this.retryUnsent()
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
@@ -476,6 +621,8 @@ class ConnectionService {
       }
       if (this.listening.delete(id)) this.changed()
       if (signal.aborted) return
+      // Down: wait, but the moment the network is back this starts over (networkBack).
+      this.watchOnline()
       await new Promise((resolve) => setTimeout(resolve, delay))
       delay = Math.min(delay * 2, LIVE_RETRY_MAX_MS)
     }
@@ -500,8 +647,13 @@ class ConnectionService {
     void this.syncRequested(id, calendarIds.filter((c): c is string => typeof c === 'string'))
   }
 
-  /** The platform asked for these calendars: sync the ones it really gets; each is sent as it arrives. */
-  private async syncRequested(id: string, calendarIds: string[]): Promise<void> {
+  /**
+   * The platform asked for these calendars: sync the ones it really gets; each
+   * is sent as it arrives. Asked again for a calendar within a minute, the
+   * first sync answers both. One that fails to sync here (the network, Proton)
+   * is tried again later, a few times, and at once when the network is back.
+   */
+  private async syncRequested(id: string, calendarIds: string[], tries = 0): Promise<void> {
     const connection = this.all()[id]
     if (!connection) return
     const now = Date.now()
@@ -509,7 +661,7 @@ class ConnectionService {
       (c) =>
         calendarIds.includes(c.id) &&
         connection.wanted[c.id] &&
-        now - (this.requestedAt.get(c.id) ?? 0) > REQUEST_REPEAT_MS
+        (tries > 0 || now - (this.requestedAt.get(c.id) ?? 0) > REQUEST_REPEAT_MS)
     )
     if (calendars.length === 0) return
     for (const c of calendars) this.requestedAt.set(c.id, now)
@@ -519,6 +671,18 @@ class ConnectionService {
       ...accounts.map((a) => protonAccountService.sync(a).catch(() => undefined)),
       ...others.map((c) => syncService.syncOne(c.id, { force: true }).catch(() => undefined))
     ])
+    const failed = calendars.filter((c) => calendarRepository.get(c.id)?.lastSyncError).map((c) => c.id)
+    if (failed.length === 0 || tries >= REQUEST_RETRIES) return
+    // One retry per connection: a later failure joins the one already waiting.
+    const waiting = this.requestRetries.get(id)
+    if (waiting) clearTimeout(waiting.timer)
+    const ids = new Set([...(waiting?.calendarIds ?? []), ...failed])
+    const timer = setTimeout(() => {
+      this.requestRetries.delete(id)
+      void this.syncRequested(id, [...ids], tries + 1)
+    }, Math.min(RETRY_MIN_MS * 2 ** tries, RETRY_MAX_MS))
+    this.requestRetries.set(id, { calendarIds: ids, tries: tries + 1, timer })
+    this.watchOnline()
   }
 
   /** Whether the platform may ask this app for a fresh copy. Off ends the live connection at once. */
