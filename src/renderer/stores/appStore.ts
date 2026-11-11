@@ -15,7 +15,7 @@ import { setDisplayTimeZone } from '../utils/dates'
 import { errorMessage } from '../utils/errors'
 import { applyTheme } from '../utils/theme'
 
-export type View = 'calendar' | 'pipeline' | 'calendars' | 'caller' | 'settings'
+export type View = 'calendar' | 'pipeline' | 'calendars' | 'caller' | 'connections' | 'settings'
 
 /** Tab of the Help popup (opened from the logo, or after an update). */
 export type HelpTab = 'guide' | 'whats-new'

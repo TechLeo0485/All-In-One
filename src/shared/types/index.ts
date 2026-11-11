@@ -455,6 +455,57 @@ export interface CalendarApi {
     /** The Teamwork calendar or interview details changed (live update from the workspace). */
     onChanged(callback: () => void): () => void
   }
+  connections: {
+    status(): Promise<ConnectionsStatus>
+    /** Pairs this app with a platform's calendar connection address, using an API key made there. */
+    connect(address: string, key: string, name: string): Promise<ConnectionsStatus>
+    disconnect(id: string): Promise<ConnectionsStatus>
+    /** Asks the platform again which calendars it wants. */
+    refresh(id: string): Promise<ConnectionsStatus>
+    /** Syncs the calendars the platform wants now (Proton accounts are exported first); each is sent as it arrives. */
+    sync(id: string): Promise<ConnectionSyncResult[]>
+    /** A calendar was sent, or what a platform wants changed. */
+    onChanged(callback: () => void): () => void
+  }
+}
+
+/* ---------- Calendar connections (any platform that speaks the protocol) ---------- */
+
+/** One of this app's calendars, as it stands with one platform. */
+export interface ConnectionCalendar {
+  id: string
+  name: string
+  color: string
+  /** What the platform wants it for (a profile's name there); null = not sent. */
+  wantedFor: string | null
+  lastSentAt: string | null
+  eventCount: number | null
+  error: string | null
+}
+
+export interface ConnectionStatus {
+  id: string
+  name: string
+  /** The platform's host, shown instead of the full address. */
+  host: string
+  /** The account on the platform the API key belongs to, when the platform says. */
+  account: string
+  lastCheckedAt: string | null
+  lastError: string | null
+  /** This app's calendars by Proton account (then links and files), as the platform is told. */
+  groups: { id: string; name: string; calendars: ConnectionCalendar[] }[]
+}
+
+export interface ConnectionsStatus {
+  /** What platforms call this app. */
+  clientName: string
+  connections: ConnectionStatus[]
+}
+
+export interface ConnectionSyncResult {
+  name: string
+  ok: boolean
+  message: string
 }
 
 /* ---------- Caller server (interviews of the Caller project) ---------- */
