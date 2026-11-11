@@ -14,6 +14,7 @@ import { Spinner } from './components/ui'
 import { CalendarPage } from './pages/CalendarPage'
 import { CalendarsPage } from './pages/CalendarsPage'
 import { CallerPage } from './pages/CallerPage'
+import { ConnectionsPage } from './pages/ConnectionsPage'
 import { PipelinePage } from './pages/PipelinePage'
 import { SettingsPage } from './pages/SettingsPage'
 
@@ -55,6 +56,7 @@ export default function App() {
             {view === 'pipeline' && <PipelinePage />}
             {view === 'calendars' && <CalendarsPage />}
             {view === 'caller' && <CallerPage />}
+            {view === 'connections' && <ConnectionsPage />}
             {view === 'settings' && <SettingsPage />}
           </ErrorBoundary>
         </main>

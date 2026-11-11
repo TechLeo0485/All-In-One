@@ -9,6 +9,9 @@ How to use this file:
 - Write for users: what they can now do, or what works better. Not file names or code.
 -->
 
+## Unreleased
+- **Connections**: a new page in the sidebar sends calendars to other platforms that support calendar connections, free Proton accounts included. Paste the connection address and API key the platform gives you. The app tells it which calendars it has, by Proton account; on the platform, choose the ones it should get; **Sync & send** here sends them, and they're sent again whenever they sync with something changed. Calendars a platform didn't choose are never sent to it, and with no connection the app contacts nobody. You can connect several platforms at once.
+
 ## 1.2.2
 - Teamwork calendars now always match the colors set on Teamwork, and change the moment someone changes a color there. If you're an owner, the admin or manage the calendar, hover a caller's Teamwork calendar in the sidebar and click the palette to change their color (or the Unassigned color) for everyone: a preview shows how interviews will look before you save.
 - Every calendar that isn't shared with a profile is now sent to Teamwork as **busy time only**: just when you're busy, with no titles, guests or places. All-day events and declined invitations aren't counted. Teamwork uses it when recommending a caller ("busy then"), and members who assign see it as **Busy** on each caller's calendar in the app. On the Teamwork page, **Not shared** is now **Busy time only**.

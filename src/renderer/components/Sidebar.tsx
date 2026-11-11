@@ -16,6 +16,7 @@ import {
   EyeOffIcon,
   KanbanIcon,
   LayersIcon,
+  LinkIcon,
   PaletteIcon,
   PanelLeftIcon,
   PlusIcon,
@@ -432,6 +433,7 @@ function SidebarRail({ onExpand }: { onExpand: (focusSearch: boolean) => void })
         <NavButton compact view="pipeline" label="Pipeline" icon={<KanbanIcon size={18} />} />
         <NavButton compact view="calendars" label="Manage calendars" icon={<LayersIcon size={18} />} />
         <NavButton compact view="caller" label="Teamwork" icon={<CloudUploadIcon size={18} />} />
+        <NavButton compact view="connections" label="Connections" icon={<LinkIcon size={18} />} />
         <NavButton compact view="settings" label="Settings" icon={<SettingsIcon size={18} />} />
       </nav>
     </aside>
@@ -657,6 +659,7 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
         <NavButton view="pipeline" label="Pipeline" icon={<KanbanIcon />} />
         <NavButton view="calendars" label="Manage calendars" icon={<LayersIcon />} />
         <NavButton view="caller" label="Teamwork" icon={<CloudUploadIcon />} />
+        <NavButton view="connections" label="Connections" icon={<LinkIcon />} />
         <NavButton view="settings" label="Settings" icon={<SettingsIcon />} />
       </nav>
     </>

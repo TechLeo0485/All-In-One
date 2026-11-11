@@ -12,6 +12,7 @@ import { isFileSource } from '@shared/sources'
 import { findStatus } from '@shared/eventStatus'
 import { MAX_NOTE_IMAGE_BYTES, NOTE_IMAGE_TYPES } from '@shared/noteImages'
 import { callerService } from '../services/caller/callerService'
+import { connectionService } from '../services/connections/connectionService'
 import { fileSourceService } from '../services/fileSourceService'
 import { protonAccountService } from '../services/proton/protonAccountService'
 import { reminderService } from '../services/reminderService'
@@ -199,6 +200,20 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
   handle(IPC.protonSyncAll, () => void protonAccountService.syncAll())
 
   // Caller server (the renderer never sees the session token)
+  handle(IPC.connectionsStatus, () => connectionService.status())
+  handle(IPC.connectionsConnect, (_e, address, key, name) =>
+    connectionService.connect(
+      v.str(address, 'Address', { required: true, max: 2000 }),
+      v.str(key, 'API key', { required: true, max: 400 }),
+      v.str(name, 'Name', { max: 60 })
+    )
+  )
+  handle(IPC.connectionsDisconnect, (_e, id) => connectionService.disconnect(v.str(id, 'Connection', { required: true, max: 64 })))
+  handle(IPC.connectionsRefresh, (_e, id) => connectionService.refresh(v.str(id, 'Connection', { required: true, max: 64 })))
+  handle(IPC.connectionsSync, (_e, id) => connectionService.syncWanted(v.str(id, 'Connection', { required: true, max: 64 })))
+  handle(IPC.connectionsSetListen, (_e, id, on) =>
+    connectionService.setListen(v.str(id, 'Connection', { required: true, max: 64 }), on === true)
+  )
   handle(IPC.callerStatus, () => callerService.status())
   handle(IPC.callerSignIn, (_e, serverUrl, email, password) =>
     callerService.signIn(

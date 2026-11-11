@@ -14,6 +14,7 @@ Members of a Teamwork workspace can also [share calendars with Teamwork](#sharin
   - [Option B: Share link (paid Proton plans)](#option-b-share-link-paid-proton-plans)
   - [Option C: Exported file (free or paid)](#option-c-exported-file)
 - [Sharing calendars with Teamwork](#sharing-calendars-with-teamwork)
+- [Sending calendars to other platforms](#sending-calendars-to-other-platforms)
 - [How syncing works](#how-syncing-works)
 - [Problems?](#problems)
 
@@ -234,6 +235,33 @@ profile; its events become that profile's interviews on Teamwork, where company,
   the admin can move it, after confirming.
 - A Teamwork feed added as a link calendar can't be shared back: its interviews are on Teamwork already.
 - Signing out keeps your sharing choices, and removes the Teamwork calendars until you sign in again.
+
+---
+
+## Sending calendars to other platforms
+
+Some platforms can receive calendars from an app through a **calendar connection**: they give you a connection
+address and an API key. With those, this app can send them your calendars, including calendars of **free Proton
+accounts**, which have no link a platform could follow on its own. It works with any platform that supports
+calendar connections, and with several at once.
+
+1. On the platform, make a calendar connection and copy its address, and make an API key. (Where exactly depends
+   on the platform; look for "connect an app" near its calendar settings.)
+2. In this app, click **Connections** in the sidebar, paste the address and the key, then click **Connect**.
+3. Back on the platform, this app's calendars are now listed by Proton account. Choose the ones it should get.
+4. Here, click **Sync & send**. From then on a chosen calendar is sent again every time it syncs.
+
+- Calendars the platform did not choose are never sent to it; it only knows their names.
+- **Check what's wanted** asks the platform again after you change the choice there.
+- Nothing is sent on a timer: only when a chosen calendar syncs with something changed, or when you click a button
+  here. With no connection, the app contacts nobody.
+- One address works with one app. On another computer, make another connection on the platform.
+- **Disconnect** forgets the address and key here. What the platform already has stays until you remove it there.
+
+**For developers:** a platform supports this by answering, at the connection address, `PUT /catalog` (JSON
+`{"calendars": [{"id", "name", "group_id", "group_name"}]}`, answering `{"calendars": [{"calendar_id", "wanted"}]}`)
+and `PUT /calendars/<id>` (the calendar as `.ics`). Every request carries `X-API-Key`, `X-Client-Id` and
+`X-Client-Name`.
 
 ---
 
