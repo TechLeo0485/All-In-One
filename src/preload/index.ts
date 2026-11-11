@@ -122,9 +122,8 @@ const api: CalendarApi = {
     status: () => ipcRenderer.invoke(IPC.connectionsStatus),
     connect: (address, key, name) => ipcRenderer.invoke(IPC.connectionsConnect, address, key, name),
     disconnect: (id) => ipcRenderer.invoke(IPC.connectionsDisconnect, id),
-    refresh: (id) => ipcRenderer.invoke(IPC.connectionsRefresh, id),
-    sync: (id) => ipcRenderer.invoke(IPC.connectionsSync, id),
     setListen: (id, on) => ipcRenderer.invoke(IPC.connectionsSetListen, id, on),
+    dismissEnded: () => ipcRenderer.invoke(IPC.connectionsDismissEnded),
     onChanged: (callback) => {
       const listener = (): void => callback()
       ipcRenderer.on(IPC.connectionsChanged, listener)

@@ -455,15 +455,13 @@ export interface CalendarApi {
   }
   connections: {
     status(): Promise<ConnectionsStatus>
-    /** Pairs this app with a platform's calendar connection address, using an API key made there. */
+    /** Pairs this app with a platform's calendar connection address. The API key may be ''. */
     connect(address: string, key: string, name: string): Promise<ConnectionsStatus>
     disconnect(id: string): Promise<ConnectionsStatus>
-    /** Asks the platform again which calendars it wants. */
-    refresh(id: string): Promise<ConnectionsStatus>
-    /** Syncs the calendars the platform wants now (Proton accounts are exported first); each is sent as it arrives. */
-    sync(id: string): Promise<ConnectionSyncResult[]>
     /** Whether the platform may ask this app for a fresh copy (one idle connection while on). */
     setListen(id: string, on: boolean): Promise<ConnectionsStatus>
+    /** Clears the notices about connections the platform ended. */
+    dismissEnded(): Promise<ConnectionsStatus>
     /** A calendar was sent, or what a platform wants changed. */
     onChanged(callback: () => void): () => void
   }
@@ -496,6 +494,10 @@ export interface ConnectionStatus {
   listen: boolean
   /** The live connection for those requests is up right now. */
   listening: boolean
+  /** Sending now, waiting for the network (it is sent the moment it can be), or up to date. */
+  state: 'sending' | 'waiting' | 'up-to-date'
+  /** The latest time any calendar went to this platform. */
+  lastSentAt: string | null
   /** This app's calendars by Proton account (then links and files), as the platform is told. */
   groups: { id: string; name: string; calendars: ConnectionCalendar[] }[]
 }
@@ -504,13 +506,10 @@ export interface ConnectionsStatus {
   /** What platforms call this app. */
   clientName: string
   connections: ConnectionStatus[]
+  /** Connections the platform ended (and that were dropped here), newest first, until dismissed. */
+  ended: { name: string; reason: string; at: string }[]
 }
 
-export interface ConnectionSyncResult {
-  name: string
-  ok: boolean
-  message: string
-}
 
 /* ---------- Caller server (interviews of the Caller project) ---------- */
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { ConnectionStatus, ConnectionSyncResult, ConnectionsStatus } from '@shared/types'
+import type { ConnectionStatus, ConnectionsStatus } from '@shared/types'
 import { Button, ColorDot, Field, Spinner, TextInput } from '../components/ui'
 import { errorMessage } from '../utils/errors'
 
@@ -14,10 +14,10 @@ function ago(iso: string | null): string {
 }
 
 /**
- * Connections: send some of this app's calendars to other platforms. A platform
- * gives you a connection address and an API key; this app tells it which
- * calendars it has, grouped by Proton account; on the platform you choose the
- * ones it should get; and every time one of those syncs here, it is sent.
+ * Connections: send some of this app's calendars to other platforms. Paste the
+ * platform's connection address (and, if you like, an API key); the platform
+ * then chooses which calendars it gets, and they are kept up to date there by
+ * themselves - whenever they change here, and whenever the platform asks.
  * Works with any platform that supports calendar connections.
  */
 export function ConnectionsPage() {
@@ -32,6 +32,11 @@ export function ConnectionsPage() {
     load()
     return window.api.connections.onChanged(load)
   }, [load])
+  // "Sent 3 min ago" keeps its age current.
+  useEffect(() => {
+    const t = window.setInterval(load, 60_000)
+    return () => window.clearInterval(t)
+  }, [load])
 
   const none = status !== null && status.connections.length === 0
 
@@ -42,9 +47,9 @@ export function ConnectionsPage() {
           <div className="min-w-0 max-w-2xl">
             <h1 className="text-xl font-semibold">Connections</h1>
             <p className="mt-1 text-sm text-slate-400">
-              Send calendars to other platforms, free Proton accounts included. A platform gives you a connection address
-              and an API key. This app tells it which calendars it has; there, you choose the ones it should get. Those are
-              sent every time they sync here. Links, Proton logins and files stay on this computer.
+              Send calendars to other platforms, free Proton accounts included. Paste the connection address the platform
+              gives you; there, choose which calendars it gets. They stay up to date there by themselves. Links, Proton
+              logins and files stay on this computer.
             </p>
           </div>
           {status && !none && !adding && (
@@ -58,11 +63,29 @@ export function ConnectionsPage() {
           <Spinner />
         ) : (
           <div className="space-y-6">
+            {status.ended.length > 0 && (
+              <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    {status.ended.map((e) => (
+                      <p key={`${e.name}-${e.at}`} className="text-amber-200">
+                        <span className="font-medium">{e.name}</span> was disconnected: {e.reason}
+                      </p>
+                    ))}
+                    <p className="text-xs text-slate-400">To connect it again, add its connection address here.</p>
+                  </div>
+                  <Button variant="ghost" onClick={() => void window.api.connections.dismissEnded().then(setStatus)}>
+                    Dismiss
+                  </Button>
+                </div>
+              </div>
+            )}
             {(adding || none) && (
               <Connect
                 onDone={(s) => {
                   setStatus(s)
                   setAdding(false)
+                  setError(null)
                 }}
                 onCancel={none ? undefined : () => setAdding(false)}
                 onError={setError}
@@ -109,25 +132,26 @@ function Connect({ onDone, onCancel, onError }: {
         void submit()
       }}
     >
-      <p className="text-sm text-slate-300">
-        On the platform, make a calendar connection and an API key, then paste both here. One address works with one app.
-      </p>
-      <Field label="Connection address" hint="The address the platform shows for the connection.">
+      <p className="text-sm text-slate-300">Paste the connection address the platform shows. One address works with one app.</p>
+      <Field label="Connection address">
         <TextInput value={address} onChange={(e) => setAddress(e.target.value)} placeholder="https://" autoComplete="off" spellCheck={false} />
       </Field>
       {insecure && (
         <p className="text-xs text-amber-300">
-          This address is not secure (http): the API key and your calendars travel unencrypted. Use https when you can.
+          This address is not secure (http): your calendars travel unencrypted. Use https when you can.
         </p>
       )}
-      <Field label="API key" hint="Kept encrypted on this computer.">
+      <Field
+        label="API key (optional)"
+        hint="Leave it empty and the platform gives this app a key of its own. Kept encrypted on this computer."
+      >
         <TextInput type="password" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" spellCheck={false} />
       </Field>
       <Field label="Name (optional)" hint="What to call this connection here. Without one, the platform's address is used.">
         <TextInput value={name} onChange={(e) => setName(e.target.value)} maxLength={60} />
       </Field>
       <div className="flex items-center gap-2">
-        <Button type="submit" variant="primary" disabled={busy || !address.trim() || !key.trim()}>
+        <Button type="submit" variant="primary" disabled={busy || !address.trim()}>
           {busy && <Spinner />} Connect
         </Button>
         {onCancel && (
@@ -140,53 +164,31 @@ function Connect({ onDone, onCancel, onError }: {
   )
 }
 
+const STATE: Record<ConnectionStatus['state'], { label: string; tone: string }> = {
+  sending: { label: 'Sending…', tone: 'text-blue-300' },
+  waiting: { label: 'Waiting for the network: sent as soon as it can be', tone: 'text-amber-300' },
+  'up-to-date': { label: 'Up to date', tone: 'text-emerald-400' }
+}
+
 function ConnectionCard({ connection, clientName, onStatus, onError }: {
   connection: ConnectionStatus
   clientName: string
   onStatus: (s: ConnectionsStatus) => void
   onError: (message: string | null) => void
 }) {
-  const [working, setWorking] = useState<'refresh' | 'sync' | null>(null)
-  const [results, setResults] = useState<ConnectionSyncResult[]>([])
+  const [busy, setBusy] = useState(false)
   const wanted = connection.groups.flatMap((g) => g.calendars).filter((c) => c.wantedFor)
+  const state = STATE[connection.state]
 
-  async function refresh() {
-    setWorking('refresh')
+  async function run(task: () => Promise<ConnectionsStatus>) {
+    setBusy(true)
     onError(null)
     try {
-      onStatus(await window.api.connections.refresh(connection.id))
+      onStatus(await task())
     } catch (err) {
       onError(errorMessage(err))
     } finally {
-      setWorking(null)
-    }
-  }
-
-  async function sync() {
-    setWorking('sync')
-    onError(null)
-    setResults([])
-    try {
-      setResults(await window.api.connections.sync(connection.id))
-      onStatus(await window.api.connections.status())
-    } catch (err) {
-      onError(errorMessage(err))
-    } finally {
-      setWorking(null)
-    }
-  }
-
-  async function disconnect() {
-    onError(null)
-    onStatus(await window.api.connections.disconnect(connection.id))
-  }
-
-  async function setListen(on: boolean) {
-    onError(null)
-    try {
-      onStatus(await window.api.connections.setListen(connection.id, on))
-    } catch (err) {
-      onError(errorMessage(err))
+      setBusy(false)
     }
   }
 
@@ -195,58 +197,53 @@ function ConnectionCard({ connection, clientName, onStatus, onError }: {
       <header className="flex flex-wrap items-center justify-between gap-3 p-4">
         <div className="min-w-0 text-sm">
           <p className="truncate font-semibold">{connection.name}</p>
-          <p className="mt-0.5 truncate text-xs text-slate-500">
-            {connection.host}
-            {connection.account && <> · as {connection.account}</>} · shown there as {clientName} · asked {ago(connection.lastCheckedAt)}
+          <p className="mt-0.5 text-xs">
+            <span className={state.tone}>{state.label}</span>
+            <span className="text-slate-500">
+              {wanted.length > 0 && connection.lastSentAt && <> · last sent {ago(connection.lastSentAt)}</>}
+              {' · '}
+              {connection.host}
+              {connection.account && <> as {connection.account}</>}
+            </span>
           </p>
-          {connection.lastError && <p className="mt-1 text-xs text-amber-300">{connection.lastError}</p>}
+          {connection.lastError && connection.state !== 'up-to-date' && (
+            <p className="mt-1 text-xs text-amber-300">{connection.lastError}</p>
+          )}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={() => void refresh()} disabled={working !== null} title="Ask the platform again which calendars it wants">
-            {working === 'refresh' && <Spinner />} Check what&apos;s wanted
-          </Button>
-          <Button variant="primary" onClick={() => void sync()} disabled={working !== null || wanted.length === 0} title="Sync the wanted calendars now and send them">
-            {working === 'sync' && <Spinner />} Sync &amp; send
-          </Button>
-          <Button variant="ghost" onClick={() => void disconnect()} disabled={working !== null} title="Forget this address and key. What the platform already has stays there">
-            Disconnect
-          </Button>
-        </div>
+        <Button
+          variant="ghost"
+          onClick={() => void run(() => window.api.connections.disconnect(connection.id))}
+          disabled={busy}
+          title="Disconnect here and on the platform. The calendars it already has stay there, no longer updated"
+        >
+          Disconnect
+        </Button>
       </header>
 
       <label className="flex cursor-pointer items-start gap-2.5 border-t border-slate-800 px-4 py-3">
         <input
           type="checkbox"
           checked={connection.listen}
-          onChange={(e) => void setListen(e.target.checked)}
+          disabled={busy}
+          onChange={(e) => void run(() => window.api.connections.setListen(connection.id, e.target.checked))}
           className="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-950 text-blue-600"
         />
         <span className="text-xs text-slate-400">
-          <span className="font-medium text-slate-200">Let it ask for a sync</span>
+          <span className="font-medium text-slate-200">Stay in touch</span>
           <span className={`ml-2 ${connection.listening ? 'text-emerald-400' : 'text-slate-500'}`}>
-            {!connection.listen ? 'Off' : connection.listening ? '● Listening' : '○ Not connected right now'}
+            {!connection.listen ? 'Off' : connection.listening ? '● Connected' : '○ Reconnecting'}
           </span>
           <span className="block">
-            When someone on the platform wants a fresh copy, the calendars it gets are synced and sent, as if you had
-            clicked Sync &amp; send. Keeps one idle connection open to the platform; off, nothing is open and you sync by hand.
+            Keeps one quiet connection open, so the platform can ask for a fresh copy (Proton is then synced and sent) and
+            newly chosen calendars go at once. Off: calendars still go whenever they sync here, and choices made on the
+            platform arrive the next time the app starts. Shown there as {clientName}.
           </span>
         </span>
       </label>
 
-      {results.length > 0 && (
-        <ul className="space-y-1 border-t border-slate-800 px-4 py-3 text-sm">
-          {results.map((r) => (
-            <li key={r.name} className={r.ok ? 'text-slate-300' : 'text-amber-300'}>
-              <span className="font-medium">{r.name}</span>: {r.message}
-            </li>
-          ))}
-        </ul>
-      )}
-
       {wanted.length === 0 && (
         <p className="border-t border-slate-800 px-4 py-3 text-sm text-slate-300">
-          The platform has not chosen a calendar yet. Choose there which of the calendars below it should get, then click{' '}
-          <span className="font-medium">Check what&apos;s wanted</span>.
+          The platform hasn&apos;t chosen a calendar yet. Choose there which of the calendars below it should get; they arrive by themselves.
         </p>
       )}
 
@@ -263,10 +260,10 @@ function ConnectionCard({ connection, clientName, onStatus, onError }: {
                     {c.error
                       ? c.error
                       : !c.wantedFor
-                        ? 'Not sent: the platform does not want it'
+                        ? 'Not sent: the platform did not choose it'
                         : c.lastSentAt
                           ? `${c.eventCount ?? 0} events · sent ${ago(c.lastSentAt)}`
-                          : 'Wanted, not sent yet. Click Sync & send'}
+                          : 'On its way'}
                   </p>
                 </div>
                 {c.wantedFor && (
