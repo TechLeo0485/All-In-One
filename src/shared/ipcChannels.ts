@@ -89,5 +89,6 @@ export const IPC = {
   connectionsDisconnect: 'connections:disconnect',
   connectionsRefresh: 'connections:refresh',
   connectionsSync: 'connections:sync',
+  connectionsSetListen: 'connections:setListen',
   connectionsChanged: 'connections:changed'
 } as const

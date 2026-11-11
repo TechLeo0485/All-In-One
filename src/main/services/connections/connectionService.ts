@@ -19,6 +19,8 @@ import { protonAccountService } from '../proton/protonAccountService'
  *                                         Proton account, and learns which of them
  *                                         the platform wants
  *   PUT    <address>/calendars/<id>       sends one wanted calendar as .ics
+ *   GET    <address>/requests             listens (server-sent events) for "sync":
+ *                                         someone on the platform wants a fresh copy
  *
  * with the headers X-API-Key, X-Client-Id (this install's own id: an address is
  * paired with the one app that first uses it) and X-Client-Name. Nothing here
@@ -32,6 +34,11 @@ import { protonAccountService } from '../proton/protonAccountService'
  * ever. Connected: a request only when a wanted calendar synced with changed
  * content, when the list of calendars changed, or when the user asks (Check
  * what's wanted, Sync & send). There is no timer and no polling.
+ *
+ * Listening for sync requests is one idle connection per platform, held only
+ * while that platform is connected and only while its "Let it ask for a sync"
+ * switch is on; the platform sends a few bytes every half minute to keep it
+ * open. A platform that has no such stream is not asked again until restart.
  *
  * API keys are kept encrypted with the operating system's key store (Electron
  * safeStorage); they never reach the renderer.
@@ -52,6 +59,11 @@ const MAX_RETRY_WAIT_MS = 40_000
 /** Calendars sync in bursts; what this app has is told once they settle. */
 const CATALOG_DEBOUNCE_MS = 3_000
 const MAX_CONNECTIONS = 10
+/** The live connection: how long to wait before trying again after it drops. */
+const LIVE_RETRY_MIN_MS = 5_000
+const LIVE_RETRY_MAX_MS = 5 * 60_000
+/** A request for calendars synced this recently is already answered. */
+const REQUEST_REPEAT_MS = 60_000
 
 interface Connection {
   id: string
@@ -66,6 +78,8 @@ interface Connection {
   wanted: Record<string, string>
   /** Fingerprint of the list of calendars last told: the same list isn't told again. */
   catalogHash: string | null
+  /** Listen for the platform asking for a fresh copy. On unless switched off. */
+  listen?: boolean
 }
 
 interface Sent {
@@ -106,6 +120,12 @@ class ConnectionService {
   /** Uploads per connection and calendar, one after another, so two syncs never race. */
   private uploads = new Map<string, Promise<void>>()
   private catalogTimer: NodeJS.Timeout | null = null
+  /** The live connections: connection id → the way to end it. */
+  private live = new Map<string, AbortController>()
+  /** Whether each live connection is up right now, for the page. */
+  private listening = new Set<string>()
+  /** When a calendar was last synced because a platform asked. */
+  private requestedAt = new Map<string, number>()
 
   constructor() {
     // Every successful sync of a calendar goes to the platforms that want it.
@@ -386,6 +406,132 @@ class ConnectionService {
   }
 
   // ---------------------------------------------------------------------------
+  // Sync requests: a platform asks for a fresh copy over a live connection
+
+  /** Starts listening on every connection that wants it. Called once the app is up. */
+  start(): void {
+    for (const connection of this.list()) this.startLive(connection.id)
+  }
+
+  /** Ends every live connection (the app is quitting). */
+  stop(): void {
+    for (const id of [...this.live.keys()]) this.stopLive(id)
+  }
+
+  private startLive(id: string): void {
+    const connection = this.all()[id]
+    if (!connection || connection.listen === false || this.live.has(id) || !this.key(id)) return
+    const controller = new AbortController()
+    this.live.set(id, controller)
+    void this.runLive(id, controller.signal).finally(() => {
+      if (this.live.get(id) === controller) this.live.delete(id)
+      if (this.listening.delete(id)) this.changed()
+    })
+  }
+
+  private stopLive(id: string): void {
+    this.live.get(id)?.abort()
+    this.live.delete(id)
+    if (this.listening.delete(id)) this.changed()
+  }
+
+  private async runLive(id: string, signal: AbortSignal): Promise<void> {
+    let delay = LIVE_RETRY_MIN_MS
+    while (!signal.aborted) {
+      const connection = this.all()[id]
+      const key = this.key(id)
+      if (!connection || !key || connection.listen === false) return
+      try {
+        const response = await fetch(`${connection.address}/requests`, {
+          headers: {
+            'X-API-Key': key,
+            'X-Client-Id': this.clientId(),
+            'X-Client-Name': this.clientName(),
+            Accept: 'text/event-stream'
+          },
+          signal
+        })
+        // No such stream on this platform, or the key or address no longer works:
+        // nothing to gain from asking again. (Check what's wanted reports the reason.)
+        if ([401, 403, 404, 405, 409, 501].includes(response.status)) return
+        if (!response.ok || !response.body) throw new Error(`The platform answered ${response.status}`)
+        delay = LIVE_RETRY_MIN_MS
+        this.listening.add(id)
+        this.changed()
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        for (;;) {
+          const { value, done } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
+          let end: number
+          while ((end = buffer.indexOf('\n\n')) >= 0) {
+            this.onLiveMessage(id, buffer.slice(0, end))
+            buffer = buffer.slice(end + 2)
+          }
+        }
+      } catch {
+        // dropped or unreachable: try again below, more slowly each time
+      }
+      if (this.listening.delete(id)) this.changed()
+      if (signal.aborted) return
+      await new Promise((resolve) => setTimeout(resolve, delay))
+      delay = Math.min(delay * 2, LIVE_RETRY_MAX_MS)
+    }
+  }
+
+  /** One server-sent event: `event:` and `data:` lines. Lines starting with ":" are keep-alives. */
+  private onLiveMessage(id: string, block: string): void {
+    let event = 'message'
+    let data = ''
+    for (const line of block.split('\n')) {
+      if (line.startsWith('event:')) event = line.slice(6).trim()
+      else if (line.startsWith('data:')) data += line.slice(5).trim()
+    }
+    if (event !== 'sync') return
+    let calendarIds: unknown
+    try {
+      calendarIds = (JSON.parse(data) as { calendar_ids?: unknown }).calendar_ids
+    } catch {
+      return
+    }
+    if (!Array.isArray(calendarIds)) return
+    void this.syncRequested(id, calendarIds.filter((c): c is string => typeof c === 'string'))
+  }
+
+  /** The platform asked for these calendars: sync the ones it really gets; each is sent as it arrives. */
+  private async syncRequested(id: string, calendarIds: string[]): Promise<void> {
+    const connection = this.all()[id]
+    if (!connection) return
+    const now = Date.now()
+    const calendars = this.shareable(connection.address).filter(
+      (c) =>
+        calendarIds.includes(c.id) &&
+        connection.wanted[c.id] &&
+        now - (this.requestedAt.get(c.id) ?? 0) > REQUEST_REPEAT_MS
+    )
+    if (calendars.length === 0) return
+    for (const c of calendars) this.requestedAt.set(c.id, now)
+    const accounts = [...new Set(calendars.map((c) => c.accountId).filter((a): a is string => Boolean(a)))]
+    const others = calendars.filter((c) => !c.accountId)
+    await Promise.all([
+      ...accounts.map((a) => protonAccountService.sync(a).catch(() => undefined)),
+      ...others.map((c) => syncService.syncOne(c.id, { force: true }).catch(() => undefined))
+    ])
+  }
+
+  /** Whether the platform may ask this app for a fresh copy. Off ends the live connection at once. */
+  setListen(id: string, on: boolean): ConnectionsStatus {
+    this.get(id)
+    this.save(id, { listen: on })
+    if (on) this.startLive(id)
+    else this.stopLive(id)
+    this.changed()
+    return this.status()
+  }
+
+  // ---------------------------------------------------------------------------
   // For the renderer
 
   private statusOf(connection: Connection): ConnectionStatus {
@@ -413,6 +559,8 @@ class ConnectionService {
       account: connection.account,
       lastCheckedAt: connection.lastCheckedAt,
       lastError: connection.lastError,
+      listen: connection.listen !== false,
+      listening: this.listening.has(connection.id),
       groups: [...groups.values()]
     }
   }
@@ -451,12 +599,14 @@ class ConnectionService {
       catalogHash: this.catalogHash(address)
     }
     settingsRepository.setInternal(CONNECTIONS_KEY, all)
+    this.startLive(id)
     this.changed()
     return this.status()
   }
 
   /** Forgets the address and the key. What the platform already has stays there until it is removed there. */
   disconnect(id: string): ConnectionsStatus {
+    this.stopLive(id)
     this.saveKey(id, null)
     this.save(id, null)
     this.saveSent(id, null, null)

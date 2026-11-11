@@ -464,6 +464,8 @@ export interface CalendarApi {
     refresh(id: string): Promise<ConnectionsStatus>
     /** Syncs the calendars the platform wants now (Proton accounts are exported first); each is sent as it arrives. */
     sync(id: string): Promise<ConnectionSyncResult[]>
+    /** Whether the platform may ask this app for a fresh copy (one idle connection while on). */
+    setListen(id: string, on: boolean): Promise<ConnectionsStatus>
     /** A calendar was sent, or what a platform wants changed. */
     onChanged(callback: () => void): () => void
   }
@@ -492,6 +494,10 @@ export interface ConnectionStatus {
   account: string
   lastCheckedAt: string | null
   lastError: string | null
+  /** The platform may ask this app for a fresh copy. */
+  listen: boolean
+  /** The live connection for those requests is up right now. */
+  listening: boolean
   /** This app's calendars by Proton account (then links and files), as the platform is told. */
   groups: { id: string; name: string; calendars: ConnectionCalendar[] }[]
 }

@@ -181,6 +181,15 @@ function ConnectionCard({ connection, clientName, onStatus, onError }: {
     onStatus(await window.api.connections.disconnect(connection.id))
   }
 
+  async function setListen(on: boolean) {
+    onError(null)
+    try {
+      onStatus(await window.api.connections.setListen(connection.id, on))
+    } catch (err) {
+      onError(errorMessage(err))
+    }
+  }
+
   return (
     <section className="rounded-xl border border-slate-800 bg-slate-900/50">
       <header className="flex flex-wrap items-center justify-between gap-3 p-4">
@@ -204,6 +213,25 @@ function ConnectionCard({ connection, clientName, onStatus, onError }: {
           </Button>
         </div>
       </header>
+
+      <label className="flex cursor-pointer items-start gap-2.5 border-t border-slate-800 px-4 py-3">
+        <input
+          type="checkbox"
+          checked={connection.listen}
+          onChange={(e) => void setListen(e.target.checked)}
+          className="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-950 text-blue-600"
+        />
+        <span className="text-xs text-slate-400">
+          <span className="font-medium text-slate-200">Let it ask for a sync</span>
+          <span className={`ml-2 ${connection.listening ? 'text-emerald-400' : 'text-slate-500'}`}>
+            {!connection.listen ? 'Off' : connection.listening ? '● Listening' : '○ Not connected right now'}
+          </span>
+          <span className="block">
+            When someone on the platform wants a fresh copy, the calendars it gets are synced and sent, as if you had
+            clicked Sync &amp; send. Keeps one idle connection open to the platform; off, nothing is open and you sync by hand.
+          </span>
+        </span>
+      </label>
 
       {results.length > 0 && (
         <ul className="space-y-1 border-t border-slate-800 px-4 py-3 text-sm">

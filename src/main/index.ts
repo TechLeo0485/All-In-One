@@ -16,6 +16,7 @@ import { settingsRepository } from './database/settingsRepository'
 import { protonAccountService } from './services/proton/protonAccountService'
 import { registerIpcHandlers } from './ipc/registerHandlers'
 import { callerService } from './services/caller/callerService'
+import { connectionService } from './services/connections/connectionService'
 import { syncService } from './sync/syncService'
 import { hostBackoff } from './sync/hostBackoff'
 import { reminderService } from './services/reminderService'
@@ -275,6 +276,9 @@ if (!app.requestSingleInstanceLock()) {
 
     // Teamwork: the live connection keeps the Teamwork calendar current (no polling).
     callerService.startLive()
+    // Calendar connections: listens for a platform asking for a fresh copy. Nothing
+    // is opened when no platform is connected.
+    connectionService.start()
 
     trayService.create({
       show: () => showWindow(),
@@ -351,6 +355,7 @@ if (!app.requestSingleInstanceLock()) {
     shortcutService.dispose()
     reminderService.stop()
     autoSyncService.stop()
+    connectionService.stop()
     updateService.stop()
     trayService.destroy()
     protonAccountService.shutdown() // aborts in-flight exports before the DB closes
