@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { CallerInterview, CallerShareRow, CallerShares, CallerStatus, CallerSyncResult } from '@shared/types'
-import { CloudUploadIcon, ExternalIcon } from '../components/icons'
+import type { CallerShareRow, CallerShares, CallerStatus, CallerSyncResult } from '@shared/types'
+import { CloudUploadIcon } from '../components/icons'
 import { Button, ColorDot, Field, inputClass, Spinner, TextInput } from '../components/ui'
 import { errorMessage } from '../utils/errors'
 
@@ -297,7 +297,6 @@ function Connected({
         </section>
       )}
 
-      <Interviews workspaceSlug={status.workspaceSlug} />
     </div>
   )
 }
@@ -353,87 +352,5 @@ function ShareRow({
         ))}
       </select>
     </li>
-  )
-}
-
-/** The workspace's interviews from yesterday to two weeks ahead, as the member may see them. */
-function Interviews({ workspaceSlug }: { workspaceSlug: string | null }) {
-  const [items, setItems] = useState<CallerInterview[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  const load = useCallback(() => {
-    setError(null)
-    window.api.caller
-      .interviews()
-      .then(setItems)
-      .catch((err) => setError(errorMessage(err)))
-  }, [])
-  useEffect(() => {
-    setItems(null)
-    load()
-  }, [load, workspaceSlug])
-  // Teamwork says interviews changed: the list follows, no refresh needed.
-  useEffect(() => window.api.caller.onChanged(load), [load])
-
-  const byDay = new Map<string, CallerInterview[]>()
-  for (const i of items ?? []) {
-    const day = new Date(i.start).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
-    byDay.set(day, [...(byDay.get(day) ?? []), i])
-  }
-
-  return (
-    <section>
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold">Workspace interviews</h2>
-          <p className="text-xs text-slate-400">
-            Yesterday to two weeks ahead, as your role in the workspace lets you see them. Updates by itself when something changes.
-          </p>
-        </div>
-        <Button onClick={load}>Refresh</Button>
-      </div>
-      {error ? (
-        <p className="text-sm text-red-300">{error}</p>
-      ) : !items ? (
-        <Spinner />
-      ) : items.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-slate-700 px-6 py-8 text-center text-sm text-slate-400">No interviews in this period.</p>
-      ) : (
-        <div className="space-y-4">
-          {[...byDay.entries()].map(([day, list]) => (
-            <div key={day}>
-              <h3 className="mb-1.5 text-xs font-semibold tracking-wide text-slate-500 uppercase">{day}</h3>
-              <ul className="space-y-1.5">
-                {list.map((i) => (
-                  <li key={i.id} className={`flex flex-wrap items-center gap-3 rounded-lg border border-slate-800 p-3 text-sm ${i.cancelled ? 'opacity-60' : ''}`}>
-                    <span className="w-28 shrink-0 text-xs text-slate-400 tabular-nums">
-                      {new Date(i.start).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })} –{' '}
-                      {new Date(i.end).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className={`truncate font-medium ${i.cancelled ? 'line-through' : ''}`}>
-                        {i.company && i.role ? `${i.company} – ${i.role}` : i.title}
-                      </p>
-                      <p className="truncate text-xs text-slate-400">
-                        {[i.profile, i.round, i.caller ? `Caller: ${i.caller}` : 'No caller yet'].filter(Boolean).join(' · ')}
-                        {!i.company && !i.cancelled ? ' · needs company and role' : ''}
-                      </p>
-                    </div>
-                    {i.meetingUrl && (
-                      <a href={i.meetingUrl} target="_blank" rel="noreferrer" className="text-xs text-blue-400 hover:underline">
-                        Join
-                      </a>
-                    )}
-                    <a href={i.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-400 hover:underline">
-                      <ExternalIcon size={12} /> Open
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
   )
 }

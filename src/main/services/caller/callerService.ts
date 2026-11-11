@@ -9,7 +9,6 @@ import type {
   EventAttendee,
   CalendarSource,
   CallerEventShare,
-  CallerInterview,
   CallerPick,
   CallerProfile,
   CallerShareRow,
@@ -240,12 +239,6 @@ function sourceLabel(calendar: CalendarSource): string {
   }
   if (isFileSource(calendar.sourceUrl)) return 'File'
   return hostOf(calendar.sourceUrl) ?? 'Link'
-}
-
-/** "Round 2 of 3", or null without company and role. */
-function roundText(info: { round: number | null; rounds: number | null } | null): string | null {
-  if (!info?.round) return null
-  return info.rounds && info.rounds > 1 ? `Round ${info.round} of ${info.rounds}` : `Round ${info.round}`
 }
 
 class CallerService {
@@ -1486,48 +1479,6 @@ class CallerService {
   // ---------------------------------------------------------------------------
   // Interviews
 
-  /** Workspace interviews the member may see (Teamwork applies their role), yesterday to two weeks ahead. */
-  async interviews(): Promise<CallerInterview[]> {
-    const slug = this.requireWorkspace()
-    const from = new Date(Date.now() - DAY_MS).toISOString()
-    const to = new Date(Date.now() + 14 * DAY_MS).toISOString()
-    const rows = await this.request<
-      Array<{
-        id: string
-        title: string
-        start: string
-        end: string
-        source: string
-        status: string
-        meetingUrl?: string | null
-        assignees: Array<{ name: string }>
-        interview: {
-          profile: { fullName: string } | null
-          company: { name: string } | null
-          role: string | null
-          round: number | null
-          rounds: number | null
-        } | null
-      }>
-    >(`/workspaces/${slug}/events?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
-    const { serverUrl } = this.connection()
-    return rows
-      .filter((r) => r.source === 'internal')
-      .map((r) => ({
-        id: r.id,
-        title: r.title,
-        start: r.start,
-        end: r.end,
-        company: r.interview?.company?.name ?? null,
-        role: r.interview?.role ?? null,
-        round: roundText(r.interview),
-        profile: r.interview?.profile?.fullName ?? null,
-        caller: r.assignees[0]?.name ?? null,
-        cancelled: r.status === 'cancelled',
-        meetingUrl: r.meetingUrl ?? null,
-        url: `${serverUrl}/app/${slug}/calendar/${r.id}`
-      }))
-  }
 }
 
 export const callerService = new CallerService()

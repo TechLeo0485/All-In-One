@@ -103,7 +103,6 @@ const api: CalendarApi = {
     share: (localCalendarId, profileId) => ipcRenderer.invoke(IPC.callerShare, localCalendarId, profileId),
     unshare: (localCalendarId) => ipcRenderer.invoke(IPC.callerUnshare, localCalendarId),
     syncShared: () => ipcRenderer.invoke(IPC.callerSyncShared),
-    interviews: () => ipcRenderer.invoke(IPC.callerInterviews),
     eventShare: (eventId) => ipcRenderer.invoke(IPC.callerEventShare, eventId),
     shareEvent: (eventId, profileId) => ipcRenderer.invoke(IPC.callerShareEvent, eventId, profileId),
     tags: () => ipcRenderer.invoke(IPC.callerTags),

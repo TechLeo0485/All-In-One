@@ -432,8 +432,6 @@ export interface CalendarApi {
     unshare(localCalendarId: string): Promise<CallerShares>
     /** Syncs every shared calendar now (Proton accounts are exported first); each upload follows. */
     syncShared(): Promise<CallerSyncResult[]>
-    /** Workspace interviews the member may see, from yesterday to two weeks ahead. */
-    interviews(): Promise<CallerInterview[]>
     /** Whether one event is shared on its own, and the profiles it can be shared with. */
     eventShare(eventId: string): Promise<CallerEventShare>
     /** Caller tags of the events that are Teamwork interviews. */
@@ -587,24 +585,6 @@ export interface CallerTag {
   caller: TeamworkCaller | null
   round: number | null
   locked: boolean
-}
-
-/** A workspace interview, as the member's role and permissions let them see it. */
-export interface CallerInterview {
-  id: string
-  title: string
-  start: string
-  end: string
-  company: string | null
-  role: string | null
-  /** "Round 2 of 3" */
-  round: string | null
-  profile: string | null
-  caller: string | null
-  cancelled: boolean
-  meetingUrl: string | null
-  /** The interview on the Caller website. */
-  url: string
 }
 
 export interface CallerSyncResult {

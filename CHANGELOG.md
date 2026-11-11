@@ -10,6 +10,7 @@ How to use this file:
 -->
 
 ## 1.2.2
+- The **Workspace interviews** list at the bottom of the Teamwork page is gone: the same interviews are on your calendar, under **Teamwork** in the sidebar.
 - Teamwork calendars now always match the colors set on Teamwork, and change the moment someone changes a color there. If you're an owner, the admin or manage the calendar, hover a caller's Teamwork calendar in the sidebar and click the palette to change their color (or the Unassigned color) for everyone: a preview shows how interviews will look before you save.
 - Every calendar that isn't shared with a profile is now sent to Teamwork as **busy time only**: just when you're busy, with no titles, guests or places. All-day events and declined invitations aren't counted. Teamwork uses it when recommending a caller ("busy then"), and members who assign see it as **Busy** on each caller's calendar in the app. On the Teamwork page, **Not shared** is now **Busy time only**.
 - The Teamwork calendar is now one calendar per caller, grouped under **Teamwork** in the sidebar, each in the caller's Teamwork color, plus **Unassigned**. If your role sees all interviews ("All interviews in the desktop app", owners and the admin by default), turn callers on or off to see when each one is busy before you assign. Reminders only come for your own interviews.

@@ -209,8 +209,6 @@ profile; its events become that profile's interviews on Teamwork, where company,
 - You can share only with the profiles you work. Owners and the admin can share with any profile.
 - To stop sharing with a profile, pick **Busy time only**. Teamwork removes the calendar's upcoming interviews that
   nobody has worked on yet; the calendar then counts as busy time.
-- **Workspace interviews** at the bottom shows the interviews from yesterday to two weeks ahead that your role lets you see.
-  **Open** shows one on the Teamwork website.
 - The **Teamwork** group in the sidebar shows the interviews assigned to you, on a calendar named after you. With "All
   interviews in the desktop app" (owners and the admin by default, or any role given it on Teamwork) you see every
   interview, one calendar per caller in their Teamwork color plus **Unassigned**, along with each member's **Busy** time

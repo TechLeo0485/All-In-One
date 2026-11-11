@@ -220,7 +220,6 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
   )
   handle(IPC.callerUnshare, (_e, localCalendarId) => callerService.unshare(v.id(localCalendarId)))
   handle(IPC.callerSyncShared, () => callerService.syncShared())
-  handle(IPC.callerInterviews, () => callerService.interviews())
   handle(IPC.callerEventShare, (_e, eventId) => callerService.eventShare(v.id(eventId)))
   handle(IPC.callerTags, () => callerService.tags())
   handle(IPC.callerDownloadResume, (_e, interviewId) =>
