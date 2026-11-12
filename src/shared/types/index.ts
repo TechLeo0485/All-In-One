@@ -547,6 +547,8 @@ export interface CallerStatus {
   queue: CallerQueued[]
   /** Not connected: what's shown is Teamwork's state saved at this time. */
   cachedAt: string | null
+  /** Teamwork no longer accepts this version of the app: why, and what to do. Nothing syncs until it's updated. */
+  updateRequired: string | null
 }
 
 /** A job link the interview probably came from: its profile applied to it, and the invitation names the company. */

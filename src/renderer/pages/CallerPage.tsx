@@ -69,7 +69,13 @@ export function TeamworkConnection() {
       </header>
       <div className="p-4">
         {error && <p className="mb-4 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p>}
-        {status?.signedIn && status.live !== 'connected' && (
+        {status?.updateRequired && (
+          <p className="mb-4 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+            <span className="font-semibold">Update required.</span> {status.updateRequired} Your waiting changes are kept and go once
+            the app is updated (Settings → check for updates).
+          </p>
+        )}
+        {status?.signedIn && !status.updateRequired && status.live !== 'connected' && (
           <p className="mb-4 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
             Teamwork can&apos;t be reached right now.
             {status.cachedAt && <> Showing what it had at {new Date(status.cachedAt).toLocaleString()}.</>} What you do here is saved

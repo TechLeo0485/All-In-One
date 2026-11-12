@@ -34,6 +34,7 @@ import { syncService } from '../../sync/syncService'
 import { protonAccountService } from '../proton/protonAccountService'
 import { createNotification } from '../windowsIdentity'
 import { buildIcs } from './icsBuilder'
+import { backoff, busyBlocksFrom, missedSummary, queuedOutcome, teamworkHasLatest } from './syncRules'
 
 /**
  * Connection to Teamwork (the Caller website). Any member signs in here and
@@ -400,21 +401,7 @@ class CallerService {
     const teamwork = new Set(calendarRepository.list().filter((c) => isTeamworkSource(c.sourceUrl)).map((c) => c.id))
     const from = new Date(Date.now() - DAY_MS).toISOString()
     const to = new Date(Date.now() + BUSY_FUTURE_DAYS * DAY_MS).toISOString()
-    return eventRepository
-      .listInRange(from, to)
-      .filter(
-        (e) =>
-          e.calendarId &&
-          !shared.has(e.calendarId) &&
-          !teamwork.has(e.calendarId) &&
-          !picked.has(e.id) &&
-          !e.allDay &&
-          e.myResponse !== 'declined' &&
-          Date.parse(e.endTime) - Date.parse(e.startTime) > 0 &&
-          Date.parse(e.endTime) - Date.parse(e.startTime) <= BUSY_MAX_MS
-      )
-      .map((e) => ({ start: new Date(e.startTime).toISOString(), end: new Date(e.endTime).toISOString() }))
-      .sort((a, b) => a.start.localeCompare(b.start))
+    return busyBlocksFrom(eventRepository.listInRange(from, to), { calendarIds: new Set([...shared, ...teamwork]), eventIds: picked }, BUSY_MAX_MS)
   }
 
   /** Sends the member's busy time to the chosen workspace (only when it changed, unless `force`). */
@@ -542,12 +529,18 @@ class CallerService {
             Authorization: `Bearer ${token}`,
             Origin: serverUrl,
             Accept: 'text/event-stream',
+            'X-App-Version': app.getVersion(),
             ...(this.lastEventId ? { 'Last-Event-ID': this.lastEventId } : {})
           },
           signal: attempt.signal
         })
         if (response.status === 401) {
           this.saveToken(null)
+          break
+        }
+        if (response.status === 426) {
+          // Too old for Teamwork: stop here (no retries) until the app is updated; nothing is lost.
+          this.setUpdateRequired(await this.updateMessage(response))
           break
         }
         if (!response.ok || !response.body) throw new Error(`Teamwork answered ${response.status}`)
@@ -672,7 +665,7 @@ class CallerService {
    */
   private scheduleRecheck(slug: string, soon = false): void {
     if (this.recheckTimer) clearTimeout(this.recheckTimer)
-    const delay = soon ? 5_000 : Math.min(RECHECK_MIN_MS * 2 ** this.recheckTries, RECHECK_MAX_MS)
+    const delay = soon ? 5_000 : backoff(this.recheckTries, RECHECK_MIN_MS, RECHECK_MAX_MS)
     if (!soon) this.recheckTries++
     this.recheckTimer = setTimeout(() => {
       this.recheckTimer = null
@@ -739,7 +732,7 @@ class CallerService {
       // Not listed: probably removed on the website. Only a definite "not found" when sending
       // (uploadShared) stops sharing here, so a short or failed list never drops a share.
       const held = byId.get(share.connectionId)
-      if (held?.clientHash && held.clientHash === share.lastHash && !share.lastError) continue
+      if (teamworkHasLatest(held, share)) continue
       const calendar = calendarRepository.get(localId)
       if (!calendar) continue
       // Teamwork's copy differs: whatever was recorded as sent, sync and send it.
@@ -749,7 +742,7 @@ class CallerService {
     if (resync.length) await this.syncLocal(resync).catch((err) => console.warn('[teamwork] resync failed:', errorText(err)))
     for (const [profileId, pick] of Object.entries(picks)) {
       const held = byId.get(pick.connectionId)
-      if (held?.clientHash && held.clientHash === pick.lastHash && !pick.lastError) continue
+      if (teamworkHasLatest(held, pick)) continue
       this.savePick(slug, profileId, { ...pick, lastHash: null })
       await this.uploadPick(slug, profileId)
     }
@@ -840,17 +833,17 @@ class CallerService {
   private async flushQueue(slug: string): Promise<boolean> {
     for (const a of this.queue().filter((q) => q.slug === slug)) {
       if (!this.queue().some((q) => q.id === a.id)) continue // cancelled meanwhile
-      const now = this.currentOf(a)
+      const outcome = queuedOutcome(a, this.currentOf(a))
       // Already so on Teamwork (it got through before the app could note it, e.g. a crash): done.
-      if (now !== null && this.alreadyDone(a, now)) {
+      if (outcome === 'done') {
         this.saveQueue(this.queue().filter((q) => q.id !== a.id))
         continue
       }
-      if (now === null) {
+      if (outcome === 'gone') {
         this.dropQueued(a, a.kind === 'color' ? 'that calendar is gone.' : 'the interview is no longer on Teamwork.')
         continue
       }
-      if (now !== a.base) {
+      if (outcome === 'changed') {
         this.dropQueued(a, 'someone changed it on Teamwork meanwhile, so it was not overwritten.')
         continue
       }
@@ -878,19 +871,11 @@ class CallerService {
         this.saveQueue(this.queue().filter((q) => q.id !== a.id))
       } catch (err) {
         // Unreachable again: the rest waits, in order, for the next try.
-        if (err instanceof CallerError && err.network) return false
+        if (err instanceof CallerError && (err.network || err.status === 426)) return false
         this.dropQueued(a, errorText(err))
       }
     }
     return true
-  }
-
-  /** Teamwork already says what the action would make it say. */
-  private alreadyDone(a: QueuedAction, now: string): boolean {
-    if (a.kind === 'assign') return now === (a.callerId ?? '')
-    if (a.kind === 'link') return now === (a.url ?? '')
-    if (a.kind === 'color') return now === (a.color ?? '').toLowerCase()
-    return false
   }
 
   private dropQueued(a: QueuedAction, reason: string): void {
@@ -912,23 +897,12 @@ class CallerService {
   private async notifyMissed(slug: string): Promise<void> {
     const since = (settingsRepository.getInternal<Record<string, string> | null>(ONLINE_UNTIL_KEY, null) ?? {})[slug]
     if (!since) return
-    const cutoff = Math.max(Date.parse(since), Date.now() - MISSED_DAYS * DAY_MS)
     const page = await this.request<{ items: Array<{ type: string; readAt: string | null; createdAt: string }> }>(
       `/workspaces/${slug}/notifications?unread=true&limit=50`
     )
-    const missed = page.items.filter((n) => !n.readAt && Date.parse(n.createdAt) > cutoff)
-    if (missed.length === 0 || !Notification.isSupported()) return
-    const count = (pick: (type: string) => boolean): number => missed.filter((n) => pick(n.type)).length
-    const assigned = count((t) => t === 'interview.assigned' || t === 'event.assigned')
-    const updates = count((t) => t === 'interview.changed' || t.startsWith('event.'))
-    const others = missed.length - assigned - updates
-    const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
-    const parts = [
-      assigned ? `${plural(assigned, 'interview', 'interviews')} assigned to you` : '',
-      updates ? plural(updates, 'interview update', 'interview updates') : '',
-      others ? plural(others, 'other notification', 'other notifications') : ''
-    ].filter(Boolean)
-    const notification = createNotification({ title: 'While you were away', body: `${parts.join(', ')}.` })
+    const line = missedSummary(page.items, since, Date.now(), MISSED_DAYS)
+    if (!line || !Notification.isSupported()) return
+    const notification = createNotification({ title: 'While you were away', body: line })
     notification.on('click', () => void shell.openExternal(`${this.connection().serverUrl}/app/${slug}/notifications`))
     notification.show()
   }
@@ -962,12 +936,23 @@ class CallerService {
 
   /** Loads every interview in the Teamwork calendar's window (first connection, or a resync). */
   private async refreshInterviews(slug: string): Promise<void> {
-    const from = new Date(Date.now() - LIVE_PAST_DAYS * DAY_MS).toISOString()
-    const to = new Date(Date.now() + LIVE_FUTURE_DAYS * DAY_MS).toISOString()
-    const page = await this.request<{ items: AppInterview[] }>(
-      `/workspaces/${slug}/events/app?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
-    )
-    this.interviewsById = new Map(page.items.map((i) => [i.event.id, i]))
+    const from = Date.now() - LIVE_PAST_DAYS * DAY_MS
+    const to = Date.now() + LIVE_FUTURE_DAYS * DAY_MS
+    const load = (start: number, end: number) =>
+      this.request<{ items: AppInterview[]; truncated?: boolean }>(
+        `/workspaces/${slug}/events/app?from=${encodeURIComponent(new Date(start).toISOString())}&to=${encodeURIComponent(new Date(end).toISOString())}`
+      )
+    const page = await load(from, to)
+    let items = page.items
+    // More than one answer holds: load the window a week at a time, so nothing is left out.
+    if (page.truncated) {
+      const byId = new Map<string, AppInterview>()
+      for (let start = from; start < to; start += 7 * DAY_MS) {
+        for (const item of (await load(start, Math.min(start + 7 * DAY_MS, to))).items) byId.set(item.event.id, item)
+      }
+      items = [...byId.values()]
+    }
+    this.interviewsById = new Map(items.map((i) => [i.event.id, i]))
     await Promise.all([
       this.refreshBusy(slug).catch((err) => console.warn('[teamwork] busy time not loaded:', errorText(err))),
       this.refreshWorkspaceInfo(slug).catch((err) => console.warn('[teamwork] workspace not loaded:', errorText(err)))
@@ -1683,6 +1668,8 @@ class CallerService {
           Authorization: `Bearer ${token}`,
           // Teamwork's CSRF protection wants the site's own origin on changes, as its pages send.
           Origin: serverUrl,
+          // Teamwork turns away versions it no longer supports (426), so they don't half-sync.
+          'X-App-Version': app.getVersion(),
           ...(init.body === undefined ? {} : { 'Content-Type': 'application/json' })
         },
         body: init.body === undefined ? undefined : JSON.stringify(init.body),
@@ -1694,6 +1681,11 @@ class CallerService {
     if (response.status === 401) {
       this.saveToken(null)
       throw new CallerError('Your Teamwork sign-in ended. Sign in again.', 401)
+    }
+    if (response.status === 426) {
+      const message = await this.updateMessage(response)
+      this.setUpdateRequired(message)
+      throw new CallerError(message, 426)
     }
     const text = await response.text()
     let body: unknown
@@ -1707,6 +1699,20 @@ class CallerService {
       throw new CallerError(message ?? `Teamwork answered with an error (${response.status})`, response.status)
     }
     return body as T
+  }
+
+  /** Teamwork turned this version away (426): its message, until the app is updated. */
+  private updateRequired: string | null = null
+
+  private setUpdateRequired(message: string): void {
+    if (this.updateRequired === message) return
+    this.updateRequired = message
+    this.notifyChanged()
+  }
+
+  private async updateMessage(response: Response): Promise<string> {
+    const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
+    return body?.error?.message ?? 'This version of the app is too old for Teamwork. Update it to keep syncing.'
   }
 
   // ---------------------------------------------------------------------------
@@ -1727,7 +1733,8 @@ class CallerService {
       queue: this.queue()
         .filter((q) => q.slug === c.workspaceSlug)
         .map(({ id, kind, label, createdAt, interviewId }) => ({ id, kind, label, createdAt, interviewId })),
-      cachedAt: this.liveUp ? null : this.cachedAt
+      cachedAt: this.liveUp ? null : this.cachedAt,
+      updateRequired: this.updateRequired
     }
   }
 
@@ -1737,7 +1744,7 @@ class CallerService {
     try {
       response = await fetch(`${serverUrl}/api/auth/sign-in/email`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Origin: serverUrl },
+        headers: { 'Content-Type': 'application/json', Origin: serverUrl, 'X-App-Version': app.getVersion() },
         body: JSON.stringify({ email: email.trim(), password }),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
       })

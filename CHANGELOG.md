@@ -10,6 +10,9 @@ How to use this file:
 -->
 
 ## Unreleased
+- The app now tells Teamwork its version. If Teamwork no longer supports it, the Teamwork card says **Update required** and syncing pauses instead of half-working; changes waiting to be sent are kept and go once the app is updated.
+- A workspace with very many interviews no longer misses some: when Teamwork has more than one answer holds, the app loads them a week at a time.
+- "While you were away" counts each notification once (an assignment was counted twice before).
 - An interview with no company and role yet now shows **From your job links** in **Who joins**: job links its profile applied to whose company the invitation names (or whose email domain it comes from). **Use** fills in that company and role; nothing is filled in by itself.
 - Every caller now has a Teamwork calendar in the sidebar, even with nothing on it: an empty one means that caller is free, not missing.
 

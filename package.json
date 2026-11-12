@@ -11,6 +11,8 @@
     "build": "npm run typecheck && electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "npm run test:rules && npm run test:migrations",
+    "test:rules": "node --no-warnings --test src/main/services/caller/syncRules.test.ts",
     "test:migrations": "node scripts/test-migrations.mjs",
     "postinstall": "electron-builder install-app-deps",
     "rebuild": "electron-builder install-app-deps",
