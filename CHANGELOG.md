@@ -10,6 +10,7 @@ How to use this file:
 -->
 
 ## Unreleased
+- An interview with no company and role yet now shows **From your job links** in **Who joins**: job links its profile applied to whose company the invitation names (or whose email domain it comes from). **Use** fills in that company and role; nothing is filled in by itself.
 - Every caller now has a Teamwork calendar in the sidebar, even with nothing on it: an empty one means that caller is free, not missing.
 
 ## 1.2.4

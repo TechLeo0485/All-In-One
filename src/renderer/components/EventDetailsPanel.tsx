@@ -1,5 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
-import type { AttendeeStatus, CalendarEvent, CallerCandidate, CallerEventShare, EventAttendee, TeamworkInterview } from '@shared/types'
+import type {
+  AttendeeStatus,
+  CalendarEvent,
+  CallerCandidate,
+  CallerEventShare,
+  EventAttendee,
+  JobLinkSuggestion,
+  TeamworkInterview
+} from '@shared/types'
 import { DEFAULT_EVENT_STATUSES, DEFAULT_IMPORTANT_COLOR, findStatus, FOLLOW_UP_ID } from '@shared/eventStatus'
 import { findMeetingUrl } from '@shared/meetingLink'
 import { describeRecurrence } from '@shared/recurrence'
@@ -275,6 +283,78 @@ const CANDIDATE_STATUS: Record<CallerCandidate['status'], string> = {
   unknown: 'offline'
 }
 
+const SUGGESTION_REASON: Record<JobLinkSuggestion['reason'], string> = {
+  name: 'named in the invitation',
+  domain: 'from their email address',
+  role: 'role named in the invitation'
+}
+
+/**
+ * Job links this interview probably came from (its profile applied to them,
+ * and the invitation names the company or comes from its email domain).
+ * Nothing is filled in by itself: Use fills in that company and role.
+ */
+function JobLinkSuggestions({ interviewId }: { interviewId: string }) {
+  const [list, setList] = useState<JobLinkSuggestion[] | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    let alive = true
+    window.api.caller
+      .jobLinkSuggestions(interviewId)
+      .then((l) => alive && setList(l))
+      .catch(() => alive && setList([]))
+    return () => {
+      alive = false
+    }
+  }, [interviewId])
+  if (!list || list.length === 0) return null
+
+  async function use(s: JobLinkSuggestion) {
+    setBusy(s.linkId)
+    setError(null)
+    try {
+      await window.api.caller.setInterviewDetails(interviewId, s.company, s.role)
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div className="rounded-md border border-blue-500/30 bg-blue-500/5 p-2">
+      <p className="mb-1 flex items-center gap-1.5 text-xs font-medium text-slate-200">
+        <LinkIcon size={12} /> From your job links
+      </p>
+      <ul className="space-y-1">
+        {list.map((s) => (
+          <li key={s.linkId} className="flex items-center gap-2 text-xs">
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-medium text-slate-100">
+                {s.company} – {s.role}
+              </span>
+              <span className="text-slate-500">
+                applied {new Date(`${s.appliedOn}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ·{' '}
+                {SUGGESTION_REASON[s.reason]}
+              </span>
+            </span>
+            <button
+              type="button"
+              disabled={busy !== null}
+              onClick={() => void use(s)}
+              className="shrink-0 rounded-md border border-slate-700 px-2 py-0.5 text-xs text-slate-200 hover:border-slate-500 hover:text-white disabled:opacity-60"
+            >
+              {busy === s.linkId ? <Spinner className="text-slate-400" /> : 'Use'}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {error && <p className="mt-1 text-xs text-red-300">{error}</p>}
+    </div>
+  )
+}
+
 /**
  * Choosing the caller of a Teamwork interview, for members allowed to assign:
  * the callers as Teamwork ranks them (recommended first, with whether they're
@@ -517,6 +597,11 @@ function WhoJoins({ interview, offlineSince }: { interview: TeamworkInterview; o
             </span>
           )}
         </dd>
+        {!interview.company && interview.canEditDetails && interview.profile && (
+          <dd className="col-span-2">
+            <JobLinkSuggestions interviewId={interview.id} />
+          </dd>
+        )}
         {(interview.company || interview.round) && (
           <>
             <dt className="text-slate-500">For</dt>

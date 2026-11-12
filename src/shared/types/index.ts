@@ -444,6 +444,10 @@ export interface CalendarApi {
     setColor(calendarId: string, color: string): Promise<{ queued: boolean }>
     /** The Team view's Day board for the interviews between `from` and `to` (ISO). */
     teamBoard(from: string, to: string): Promise<TeamBoard>
+    /** Job links the interview probably came from (only while company and role are empty). */
+    jobLinkSuggestions(interviewId: string): Promise<JobLinkSuggestion[]>
+    /** Fills in the interview's company and role (from a job link suggestion). */
+    setInterviewDetails(interviewId: string, company: string, role: string): Promise<void>
     /** Drops something waiting to be sent to Teamwork (made while offline). */
     cancelQueued(id: string): Promise<CallerStatus>
     /** Picks a PDF or Word file and makes it the interview's resume on Teamwork; its name, or null when cancelled. */
@@ -543,6 +547,17 @@ export interface CallerStatus {
   queue: CallerQueued[]
   /** Not connected: what's shown is Teamwork's state saved at this time. */
   cachedAt: string | null
+}
+
+/** A job link the interview probably came from: its profile applied to it, and the invitation names the company. */
+export interface JobLinkSuggestion {
+  linkId: string
+  company: string
+  role: string
+  /** The job link's workday, YYYY-MM-DD. */
+  appliedOn: string
+  url: string
+  reason: 'name' | 'domain' | 'role'
 }
 
 /** A caller column on the Team view's Day board. */
@@ -689,6 +704,8 @@ export interface TeamworkInterview {
   link: { url: string; site: string; sharedBy: string | null } | null
   /** The member may upload the resume and share the link (owners, the admin, the profile's bidders). */
   canUploadResume: boolean
+  /** The member may fill in company and role (owners, the admin, the profile's bidders). */
+  canEditDetails: boolean
   /** The member may choose the caller (Teamwork's "assign interviews" permission). */
   canAssign: boolean
   callerId: string | null

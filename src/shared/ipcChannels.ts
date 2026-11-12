@@ -82,6 +82,8 @@ export const IPC = {
   callerSetColor: 'caller:setColor',
   callerCancelQueued: 'caller:cancelQueued',
   callerTeamBoard: 'caller:teamBoard',
+  callerJobLinkSuggestions: 'caller:jobLinkSuggestions',
+  callerSetInterviewDetails: 'caller:setInterviewDetails',
   callerCandidates: 'caller:candidates',
   callerAssign: 'caller:assign',
   callerChanged: 'caller:changed',

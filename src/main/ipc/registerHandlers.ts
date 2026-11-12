@@ -249,6 +249,16 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
       v.str(color, 'Color', { required: true, max: 7 })
     )
   )
+  handle(IPC.callerJobLinkSuggestions, (_e, interviewId) =>
+    callerService.jobLinkSuggestions(v.str(interviewId, 'Interview', { required: true, max: 64 }))
+  )
+  handle(IPC.callerSetInterviewDetails, (_e, interviewId, company, role) =>
+    callerService.setInterviewDetails(
+      v.str(interviewId, 'Interview', { required: true, max: 64 }),
+      v.str(company, 'Company', { required: true, max: 160 }),
+      v.str(role, 'Role', { required: true, max: 160 })
+    )
+  )
   handle(IPC.callerTeamBoard, (_e, from, to) =>
     callerService.teamBoard(v.str(from, 'From', { required: true, max: 40 }), v.str(to, 'To', { required: true, max: 40 }))
   )

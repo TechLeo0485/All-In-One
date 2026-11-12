@@ -16,6 +16,7 @@ import type {
   CallerStatus,
   CallerAssignResult,
   CallerQueued,
+  JobLinkSuggestion,
   TeamBoard,
   TeamBoardCaller,
   CallerCandidate,
@@ -211,6 +212,7 @@ interface AppInterview {
       resume?: { attachmentId: string; filename: string; size: number } | null
       link?: { url: string; site: string; sharedBy: string | null; sharedAt: string } | null
       canManageResume?: boolean
+      canEditDetails?: boolean
       canAssign?: boolean
     } | null
   }
@@ -1007,6 +1009,7 @@ class CallerService {
       link:
         d?.link && /^https?:\/\//i.test(d.link.url) ? { url: d.link.url, site: d.link.site, sharedBy: d.link.sharedBy } : null,
       canUploadResume: Boolean(d?.canManageResume),
+      canEditDetails: Boolean(d?.canEditDetails) && i.event.status !== 'cancelled',
       canAssign: Boolean(d?.canAssign) && i.event.status !== 'cancelled',
       callerId: d?.caller?.userId ?? i.event.assignees[0]?.userId ?? null,
       pending: this.queue()
@@ -1128,6 +1131,32 @@ class CallerService {
 
   private tagOf(i: AppInterview): CallerTag {
     return { caller: this.callerOf(i), round: i.event.interview?.round ?? null, locked: Boolean(i.event.interview?.lockedTo) }
+  }
+
+  /** Job links the interview probably came from; none offline (Teamwork works them out). */
+  async jobLinkSuggestions(interviewId: string): Promise<JobLinkSuggestion[]> {
+    const slug = this.requireWorkspace()
+    try {
+      return await this.request<JobLinkSuggestion[]>(`/workspaces/${slug}/events/${encodeURIComponent(interviewId)}/job-link-suggestions`)
+    } catch (err) {
+      if (err instanceof CallerError && (err.network || err.status === 404)) return []
+      throw err
+    }
+  }
+
+  /** Fills in the interview's company and role, as on the website (from a job link suggestion). */
+  async setInterviewDetails(interviewId: string, company: string, role: string): Promise<void> {
+    const slug = this.requireWorkspace()
+    try {
+      await this.request(`/workspaces/${slug}/events/${encodeURIComponent(interviewId)}/interview`, {
+        method: 'PUT',
+        body: { company: company.trim(), role: role.trim() }
+      })
+    } catch (err) {
+      if (err instanceof CallerError && err.network) throw new CallerError("You're offline: connect to Teamwork to fill this in.")
+      throw err
+    }
+    await this.refreshInterview(slug, interviewId)
   }
 
   /** Every caller of the workspace (from the members list), for the Team view's columns. */
