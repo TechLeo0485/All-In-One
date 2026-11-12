@@ -1447,6 +1447,18 @@ class CallerService {
         })
       }
     }
+    // Every caller has a calendar, empty ones too: an empty one means free (nothing assigned,
+    // no busy time sent), not missing. The workspace's callers when the member list is readable,
+    // else the callers this app knows from the interviews.
+    const myId = this.connection().userId
+    const everyCaller = this.callers.length
+      ? this.callers.map((c) => ({ userId: c.userId, name: c.name, color: c.color }))
+      : [...this.interviewsById.values()].flatMap((i) => (i.event.interview?.caller ? [i.event.interview.caller] : []))
+    for (const caller of everyCaller) {
+      if (groups.has(caller.userId)) continue
+      const mine = caller.userId === myId
+      groups.set(caller.userId, { name: mine ? `${caller.name} (you)` : caller.name, color: caller.color, mine, rows: [] })
+    }
     const calendarIds = this.teamworkCalendars(slug, groups)
     for (const [key, group] of groups) {
       const calendarId = calendarIds.get(key)!

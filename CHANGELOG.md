@@ -9,6 +9,9 @@ How to use this file:
 - Write for users: what they can now do, or what works better. Not file names or code.
 -->
 
+## Unreleased
+- Every caller now has a Teamwork calendar in the sidebar, even with nothing on it: an empty one means that caller is free, not missing.
+
 ## 1.2.4
 - **Personal / Team** switch in the calendar's toolbar, in the Day view once you're connected to Teamwork. **Personal** is your calendar as always. In **Team**, the Day view becomes the team's day as on the Teamwork website: a column per caller (their initials in their color, their name, and how many interviews they have or "Free all day") on one time axis, with each interview where it falls and a red line at the current time; **Unassigned** comes first. Interviews show their round (R1, R2), a corner in their status color and an amber dot when company and role are missing. Drag a card onto another caller to give it to them (a later round asks first; offline, the move waits and goes when Teamwork is back). Click a card for its details. Week and Month look the same in both.
 - **Connections** now has two cards: **Teamwork** (sign in, pick the workspace, connected) and **Pool**, the other platforms that support calendar connections. The separate Teamwork page is gone.
