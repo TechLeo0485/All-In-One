@@ -275,6 +275,7 @@ if (!app.requestSingleInstanceLock()) {
     })
 
     // Teamwork: the live connection keeps the Teamwork calendar current (no polling).
+    callerService.setOpenEvent(openEvent)
     callerService.startLive()
     // Calendar connections: listens for a platform asking for a fresh copy. Nothing
     // is opened when no platform is connected.

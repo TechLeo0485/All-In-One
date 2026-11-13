@@ -289,16 +289,23 @@ const SUGGESTION_REASON: Record<JobLinkSuggestion['reason'], string> = {
   role: 'role named in the invitation'
 }
 
+const inputClass = 'min-w-0 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200'
+
 /**
- * Job links this interview probably came from (its profile applied to them,
- * and the invitation names the company or comes from its email domain).
- * Nothing is filled in by itself: Use fills in that company and role.
+ * Step 1 for an interview that just came in: its company and role. Job links
+ * its profile applied to come first (the invitation names the company, or comes
+ * from its email domain); Use fills in that company and role. Or type them in.
+ * Nothing is filled in by itself.
  */
-function JobLinkSuggestions({ interviewId }: { interviewId: string }) {
-  const [list, setList] = useState<JobLinkSuggestion[] | null>(null)
+function DetailsStep({ interviewId, hasProfile }: { interviewId: string; hasProfile: boolean }) {
+  const [list, setList] = useState<JobLinkSuggestion[] | null>(hasProfile ? null : [])
+  const [typing, setTyping] = useState(false)
+  const [company, setCompany] = useState('')
+  const [role, setRole] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
+    if (!hasProfile) return
     let alive = true
     window.api.caller
       .jobLinkSuggestions(interviewId)
@@ -307,14 +314,13 @@ function JobLinkSuggestions({ interviewId }: { interviewId: string }) {
     return () => {
       alive = false
     }
-  }, [interviewId])
-  if (!list || list.length === 0) return null
+  }, [interviewId, hasProfile])
 
-  async function use(s: JobLinkSuggestion) {
-    setBusy(s.linkId)
+  async function save(key: string, c: string, r: string) {
+    setBusy(key)
     setError(null)
     try {
-      await window.api.caller.setInterviewDetails(interviewId, s.company, s.role)
+      await window.api.caller.setInterviewDetails(interviewId, c, r)
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -322,34 +328,74 @@ function JobLinkSuggestions({ interviewId }: { interviewId: string }) {
     }
   }
 
+  const suggestions = list ?? []
+  const showForm = typing || (list !== null && suggestions.length === 0)
   return (
     <div className="rounded-md border border-blue-500/30 bg-blue-500/5 p-2">
       <p className="mb-1 flex items-center gap-1.5 text-xs font-medium text-slate-200">
-        <LinkIcon size={12} /> From your job links
+        <span className="flex size-4 items-center justify-center rounded-full bg-blue-600 text-[0.6rem] text-white">1</span>
+        Company and role
       </p>
-      <ul className="space-y-1">
-        {list.map((s) => (
-          <li key={s.linkId} className="flex items-center gap-2 text-xs">
-            <span className="min-w-0 flex-1">
-              <span className="block truncate font-medium text-slate-100">
-                {s.company} – {s.role}
-              </span>
-              <span className="text-slate-500">
-                applied {new Date(`${s.appliedOn}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ·{' '}
-                {SUGGESTION_REASON[s.reason]}
-              </span>
-            </span>
-            <button
-              type="button"
-              disabled={busy !== null}
-              onClick={() => void use(s)}
-              className="shrink-0 rounded-md border border-slate-700 px-2 py-0.5 text-xs text-slate-200 hover:border-slate-500 hover:text-white disabled:opacity-60"
-            >
-              {busy === s.linkId ? <Spinner className="text-slate-400" /> : 'Use'}
-            </button>
-          </li>
-        ))}
-      </ul>
+      {list === null && (
+        <p className="flex items-center gap-1.5 text-xs text-slate-500">
+          <Spinner className="text-slate-400" /> Looking in the job links…
+        </p>
+      )}
+      {suggestions.length > 0 && (
+        <>
+          <p className="mb-1 flex items-center gap-1 text-[0.7rem] text-slate-400">
+            <LinkIcon size={11} /> From your job links
+          </p>
+          <ul className="space-y-1">
+            {suggestions.map((sg) => (
+              <li key={sg.linkId} className="flex items-center gap-2 text-xs">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium text-slate-100">
+                    {sg.company} – {sg.role}
+                  </span>
+                  <span className="text-slate-500">
+                    applied {new Date(`${sg.appliedOn}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ·{' '}
+                    {SUGGESTION_REASON[sg.reason]}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={() => void save(sg.linkId, sg.company, sg.role)}
+                  className="shrink-0 rounded-md border border-slate-700 px-2 py-0.5 text-xs text-slate-200 hover:border-slate-500 hover:text-white disabled:opacity-60"
+                >
+                  {busy === sg.linkId ? <Spinner className="text-slate-400" /> : 'Use'}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {showForm ? (
+        <form
+          className="mt-1.5 grid grid-cols-[1fr_1fr_auto] gap-1.5"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (company.trim() && role.trim()) void save('typed', company, role)
+          }}
+        >
+          <input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Company" aria-label="Company" maxLength={200} className={inputClass} autoFocus={typing} />
+          <input value={role} onChange={(e) => setRole(e.target.value)} placeholder="Role" aria-label="Role" maxLength={200} className={inputClass} />
+          <button
+            type="submit"
+            disabled={busy !== null || !company.trim() || !role.trim()}
+            className="rounded-md bg-blue-600 px-2.5 py-0.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+          >
+            {busy === 'typed' ? <Spinner className="text-white" /> : 'Save'}
+          </button>
+        </form>
+      ) : (
+        list !== null && (
+          <button type="button" className={`mt-1 ${linkClass}`} onClick={() => setTyping(true)}>
+            None of these: type them in
+          </button>
+        )
+      )}
       {error && <p className="mt-1 text-xs text-red-300">{error}</p>}
     </div>
   )
@@ -467,6 +513,7 @@ const formatSize = (bytes: number): string =>
  */
 function WhoJoins({ interview, offlineSince }: { interview: TeamworkInterview; offlineSince: string | null }) {
   const [choosing, setChoosing] = useState(false)
+  const [skipCaller, setSkipCaller] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -476,6 +523,10 @@ function WhoJoins({ interview, offlineSince }: { interview: TeamworkInterview; o
   const [message, setMessage] = useState<string | null>(null)
   const { caller, resume, link } = interview
   const canManage = interview.canUploadResume
+  // Step 2, once the company and role are in: the caller picker opens by itself, Teamwork's
+  // recommendation chosen (nothing preselected when it has none). Assigning stays a click.
+  const suggestCaller = !caller && interview.canAssign && Boolean(interview.company) && !skipCaller
+  const pickerOpen = choosing || suggestCaller
 
   async function download() {
     setSaving(true)
@@ -604,18 +655,25 @@ function WhoJoins({ interview, offlineSince }: { interview: TeamworkInterview; o
           ) : (
             <span className="text-amber-300">Nobody yet</span>
           )}
-          {interview.canAssign && !choosing && (
+          {interview.canAssign && !pickerOpen && (
             <button type="button" className={`ml-auto shrink-0 ${linkClass}`} onClick={() => setChoosing(true)}>
               {caller ? 'Change' : 'Assign'}
             </button>
           )}
         </dd>
-        {choosing && (
+        {pickerOpen && (
           <dd className="col-span-2">
+            {suggestCaller && !choosing && (
+              <p className="mb-1 flex items-center gap-1.5 text-xs font-medium text-slate-200">
+                <span className="flex size-4 items-center justify-center rounded-full bg-blue-600 text-[0.6rem] text-white">2</span>
+                Pick the caller
+              </p>
+            )}
             <CallerPicker
               interview={interview}
               onDone={(queued) => {
                 setChoosing(false)
+                setSkipCaller(true)
                 if (queued) setMessage("You're offline: the caller is saved here and sent to Teamwork when you're back.")
               }}
             />
@@ -630,9 +688,12 @@ function WhoJoins({ interview, offlineSince }: { interview: TeamworkInterview; o
             </span>
           )}
         </dd>
-        {!interview.company && interview.canEditDetails && interview.profile && (
+        {!interview.company && interview.canEditDetails && (
           <dd className="col-span-2">
-            <JobLinkSuggestions interviewId={interview.id} />
+            <DetailsStep interviewId={interview.id} hasProfile={Boolean(interview.profile)} />
+            {!caller && interview.canAssign && (
+              <p className="mt-1 text-[0.7rem] text-slate-500">Then the caller: Teamwork suggests one once the company and role are in.</p>
+            )}
           </dd>
         )}
         {(interview.company || interview.round) && (

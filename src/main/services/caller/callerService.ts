@@ -23,6 +23,7 @@ import type {
   CallerSyncResult,
   CallerTag,
   CallerWorkspace,
+  OpenEventRequest,
   TeamworkInterview
 } from '@shared/types'
 import { accountRepository } from '../../database/accountRepository'
@@ -438,6 +439,10 @@ class CallerService {
   private interviewsById = new Map<string, AppInterview>()
   private pendingIds = new Set<string>()
   private pendingAssigned = new Set<string>()
+  /** Interviews Teamwork flagged as just come in (the member is an owner). */
+  private pendingNew = new Set<string>()
+  /** Shows an event's details in the app's window (set at startup). */
+  private openEventInApp: ((request: OpenEventRequest) => void) | null = null
   private pendingTimer: NodeJS.Timeout | null = null
 
   /**
@@ -489,6 +494,12 @@ class CallerService {
     this.pendingTimer = null
     this.pendingIds.clear()
     this.pendingAssigned.clear()
+    this.pendingNew.clear()
+  }
+
+  /** How a notification opens an interview in the app's window. */
+  setOpenEvent(open: (request: OpenEventRequest) => void): void {
+    this.openEventInApp = open
   }
 
   private restartLive(): void {
@@ -618,9 +629,10 @@ class CallerService {
     }
     if (event !== 'interviews.changed' || !data) return
     try {
-      const message = JSON.parse(data) as { ids?: string[]; assignedToYou?: string[] }
+      const message = JSON.parse(data) as { ids?: string[]; assignedToYou?: string[]; newForYou?: string[] }
       for (const id of message.ids ?? []) this.pendingIds.add(id)
       for (const id of message.assignedToYou ?? []) this.pendingAssigned.add(id)
+      for (const id of message.newForYou ?? []) this.pendingNew.add(id)
     } catch {
       return
     }
@@ -912,9 +924,12 @@ class CallerService {
     this.pendingTimer = null
     const ids = [...this.pendingIds]
     const assigned = new Set(this.pendingAssigned)
+    const fresh = new Set(this.pendingNew)
     this.pendingIds.clear()
     this.pendingAssigned.clear()
+    this.pendingNew.clear()
     if (ids.length === 0) return
+    const arrived: AppInterview[] = []
     try {
       for (let i = 0; i < ids.length; i += 200) {
         const page = await this.request<{ items: AppInterview[]; removed: string[] }>(
@@ -925,10 +940,13 @@ class CallerService {
           const before = this.interviewsById.get(item.event.id)
           this.interviewsById.set(item.event.id, item)
           if (assigned.has(item.event.id) && item.assignedToMe) this.notifyAssigned(slug, item)
+          else if (fresh.has(item.event.id) && this.stillNew(item)) arrived.push(item)
           else if (before && item.assignedToMe && this.resumeAdded(before, item)) this.notifyResume(item)
         }
       }
       this.rebuildTeamwork(slug)
+      // After the rebuild, so a click finds the interview's event in the calendar.
+      if (arrived.length) this.notifyArrived(slug, arrived)
     } catch (err) {
       console.warn('[teamwork] update failed:', errorText(err))
     }
@@ -1587,13 +1605,55 @@ class CallerService {
     for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IPC.callerChanged)
   }
 
-  /** A desktop notification for an interview newly assigned to the member. */
+  /** A desktop notification for an interview newly assigned to the member; a click opens it here. */
   private notifyAssigned(slug: string, i: AppInterview): void {
     if (!Notification.isSupported()) return
-    const when = new Date(i.event.start).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
-    const notification = createNotification({ title: 'New interview assigned to you', body: `${this.labelOf(i)} · ${when}` })
-    notification.on('click', () => void shell.openExternal(this.urlOf(slug, i.event.id)))
+    const notification = createNotification({ title: 'New interview assigned to you', body: `${this.labelOf(i)} · ${this.whenOf(i)}` })
+    notification.on('click', () => this.openInterview(slug, i.event.id))
     notification.show()
+  }
+
+  /** Still worth telling an owner about: upcoming, not cancelled, nobody on it yet. */
+  private stillNew(i: AppInterview): boolean {
+    return i.event.status !== 'cancelled' && !i.event.interview?.caller && Date.parse(i.event.end) > Date.now()
+  }
+
+  /**
+   * Owners: interviews that just came in from a member's calendar. A click opens
+   * the interview here, where the company and role, then the caller, are
+   * suggested. Several at once: one notification, opening the earliest.
+   */
+  private notifyArrived(slug: string, items: AppInterview[]): void {
+    if (!Notification.isSupported()) return
+    const sorted = [...items].sort((a, b) => Date.parse(a.event.start) - Date.parse(b.event.start))
+    const first = sorted[0]!
+    const profile = first.event.interview?.profile?.fullName
+    const notification =
+      sorted.length === 1
+        ? createNotification({
+            title: profile ? `New interview for ${profile}` : 'New interview',
+            body: `${this.labelOf(first)} · ${this.whenOf(first)}
+Click to add the company and role, then pick the caller.`
+          })
+        : createNotification({
+            title: `${sorted.length} new interviews`,
+            body: `The first: ${this.labelOf(first)} · ${this.whenOf(first)}
+Click to open it.`
+          })
+    notification.on('click', () => this.openInterview(slug, first.event.id))
+    notification.show()
+  }
+
+  /** Shows the interview's details in the app; on the website when the app has no event for it. */
+  private openInterview(slug: string, interviewId: string): void {
+    const eventId = this.eventIdByInterview[interviewId]
+    const i = this.interviewsById.get(interviewId)
+    if (eventId && i && this.openEventInApp) this.openEventInApp({ eventId, startTime: i.event.start })
+    else void shell.openExternal(this.urlOf(slug, interviewId))
+  }
+
+  private whenOf(i: AppInterview): string {
+    return new Date(i.event.start).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
   }
 
   /** A desktop notification when a resume is added to one of the member's interviews. */
