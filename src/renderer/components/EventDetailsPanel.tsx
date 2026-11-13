@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent } from 'react'
 import type {
   AttendeeStatus,
   CalendarEvent,
@@ -468,6 +468,7 @@ const formatSize = (bytes: number): string =>
 function WhoJoins({ interview, offlineSince }: { interview: TeamworkInterview; offlineSince: string | null }) {
   const [choosing, setChoosing] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [dragging, setDragging] = useState(false)
   const [saving, setSaving] = useState(false)
   const [editingLink, setEditingLink] = useState(false)
   const [linkDraft, setLinkDraft] = useState('')
@@ -489,11 +490,11 @@ function WhoJoins({ interview, offlineSince }: { interview: TeamworkInterview; o
     }
   }
 
-  async function upload() {
+  async function upload(file?: File) {
     setUploading(true)
     setMessage(null)
     try {
-      const result = await window.api.caller.uploadResume(interview.id)
+      const result = await window.api.caller.uploadResume(interview.id, file)
       if (result) {
         setMessage(
           result.queued
@@ -537,11 +538,43 @@ function WhoJoins({ interview, offlineSince }: { interview: TeamworkInterview; o
       onClick={() => void upload()}
       disabled={uploading}
       className={chip}
-      title="Add the resume sent to the company (PDF or Word, up to 10 MB)"
+      title="Add the resume sent to the company (PDF or Word, up to 10 MB), or drop the file here"
     >
       {uploading ? <Spinner className="text-slate-400" /> : <CloudUploadIcon size={12} />} {resume ? 'Replace' : 'Upload resume'}
     </button>
   )
+
+  // The Resume row takes a file dragged onto it, as well as the button.
+  const hasFiles = (e: DragEvent): boolean => Array.from(e.dataTransfer.types).includes('Files')
+  const dropZone = canManage
+    ? {
+        onDragEnter: (e: DragEvent) => {
+          if (!hasFiles(e)) return
+          e.preventDefault()
+          setDragging(true)
+        },
+        onDragOver: (e: DragEvent) => {
+          if (!hasFiles(e)) return
+          e.preventDefault()
+          e.dataTransfer.dropEffect = uploading ? 'none' : 'copy'
+        },
+        onDragLeave: (e: DragEvent) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false)
+        },
+        onDrop: (e: DragEvent) => {
+          if (!hasFiles(e)) return
+          e.preventDefault()
+          setDragging(false)
+          const files = e.dataTransfer.files
+          if (uploading) return
+          if (files.length !== 1) {
+            setMessage('Drop one file: the resume (PDF or Word).')
+            return
+          }
+          void upload(files[0])
+        }
+      }
+    : {}
 
   return (
     <div className="space-y-2 pl-6 text-sm">
@@ -618,8 +651,17 @@ function WhoJoins({ interview, offlineSince }: { interview: TeamworkInterview; o
           </>
         )}
         <dt className="text-slate-500">Resume</dt>
-        <dd className="min-w-0">
-          {resume ? (
+        <dd
+          {...dropZone}
+          className={`min-w-0 rounded-md transition-colors ${
+            dragging ? 'bg-sky-500/10 outline-1 outline-offset-2 outline-sky-400 outline-dashed' : ''
+          }`}
+        >
+          {dragging ? (
+            <span className="flex items-center gap-1.5 py-0.5 text-xs text-sky-300">
+              <CloudUploadIcon size={12} /> Drop to {resume ? 'replace the resume' : 'upload the resume'}
+            </span>
+          ) : resume ? (
             <span className="flex flex-wrap items-center gap-2">
               <button type="button" onClick={() => void download()} disabled={saving} className={chip} title={`Save ${resume.filename}`}>
                 {saving ? <Spinner className="text-slate-400" /> : <DownloadIcon size={12} />} Download
@@ -630,7 +672,10 @@ function WhoJoins({ interview, offlineSince }: { interview: TeamworkInterview; o
               </span>
             </span>
           ) : uploadButton ? (
-            uploadButton
+            <span className="flex flex-wrap items-center gap-2">
+              {uploadButton}
+              <span className="text-xs text-slate-500">or drop a PDF or Word file here</span>
+            </span>
           ) : (
             <span className="text-xs text-slate-500">None added on Teamwork yet</span>
           )}

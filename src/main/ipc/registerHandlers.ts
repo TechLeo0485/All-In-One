@@ -240,8 +240,11 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
   handle(IPC.callerDownloadResume, (_e, interviewId) =>
     callerService.downloadResume(v.str(interviewId, 'Interview', { required: true, max: 64 }))
   )
-  handle(IPC.callerUploadResume, (_e, interviewId) =>
-    callerService.uploadResume(v.str(interviewId, 'Interview', { required: true, max: 64 }))
+  handle(IPC.callerUploadResume, (_e, interviewId, dropped) =>
+    callerService.uploadResume(
+      v.str(interviewId, 'Interview', { required: true, max: 64 }),
+      dropped === undefined || dropped === null ? undefined : v.str(dropped, 'File', { max: 4096 })
+    )
   )
   handle(IPC.callerSetColor, (_e, calendarId, color) =>
     callerService.setColor(

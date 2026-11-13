@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import { IPC } from '@shared/ipcChannels'
 import type { CalendarApi, OpenEventRequest, ProtonAccount, SyncStatus, UpdateStatus } from '@shared/types'
 
@@ -107,7 +107,9 @@ const api: CalendarApi = {
     shareEvent: (eventId, profileId) => ipcRenderer.invoke(IPC.callerShareEvent, eventId, profileId),
     tags: () => ipcRenderer.invoke(IPC.callerTags),
     downloadResume: (interviewId) => ipcRenderer.invoke(IPC.callerDownloadResume, interviewId),
-    uploadResume: (interviewId) => ipcRenderer.invoke(IPC.callerUploadResume, interviewId),
+    // A dropped file's path on disk; '' for one that isn't a file on this computer.
+    uploadResume: (interviewId, file) =>
+      ipcRenderer.invoke(IPC.callerUploadResume, interviewId, file ? webUtils.getPathForFile(file) : undefined),
     shareLink: (interviewId, url) => ipcRenderer.invoke(IPC.callerShareLink, interviewId, url),
     setColor: (calendarId, color) => ipcRenderer.invoke(IPC.callerSetColor, calendarId, color),
     cancelQueued: (id) => ipcRenderer.invoke(IPC.callerCancelQueued, id),

@@ -450,8 +450,11 @@ export interface CalendarApi {
     setInterviewDetails(interviewId: string, company: string, role: string): Promise<void>
     /** Drops something waiting to be sent to Teamwork (made while offline). */
     cancelQueued(id: string): Promise<CallerStatus>
-    /** Picks a PDF or Word file and makes it the interview's resume on Teamwork; its name, or null when cancelled. */
-    uploadResume(interviewId: string): Promise<{ name: string; queued: boolean } | null>
+    /**
+     * Makes a PDF or Word file the interview's resume on Teamwork: the file dropped
+     * on the card, else one the member picks. Its name, or null when cancelled.
+     */
+    uploadResume(interviewId: string, file?: File): Promise<{ name: string; queued: boolean } | null>
     /** The callers to choose from for an interview, the recommended one first. */
     candidates(interviewId: string): Promise<CallerCandidate[]>
     /** Gives the interview to a caller (null: nobody). `force` moves a locked later round (admin). */

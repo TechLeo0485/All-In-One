@@ -1267,20 +1267,27 @@ class CallerService {
   }
 
   /**
-   * Picks a PDF or Word file and makes it the interview's resume on Teamwork,
-   * as the website does: an upload target for the profile + company + role,
-   * the file to storage, then attached (the old one is replaced, the caller told).
+   * Makes a PDF or Word file the interview's resume on Teamwork, as the website
+   * does: an upload target for the profile + company + role, the file to storage,
+   * then attached (the old one is replaced, the caller told). The file is the one
+   * dropped on the card (its path), else one the member picks.
    */
-  async uploadResume(interviewId: string): Promise<{ name: string; queued: boolean } | null> {
+  async uploadResume(interviewId: string, dropped?: string): Promise<{ name: string; queued: boolean } | null> {
     const slug = this.requireWorkspace()
-    const win = BrowserWindow.getFocusedWindow()
-    const options = {
-      title: 'Upload resume',
-      properties: ['openFile' as const],
-      filters: [{ name: 'Resume (PDF or Word)', extensions: ['pdf', 'doc', 'docx'] }]
+    let path: string | undefined
+    if (dropped !== undefined) {
+      if (!dropped) throw new CallerError('Drop a file saved on this computer (PDF or Word).')
+      path = dropped
+    } else {
+      const win = BrowserWindow.getFocusedWindow()
+      const options = {
+        title: 'Upload resume',
+        properties: ['openFile' as const],
+        filters: [{ name: 'Resume (PDF or Word)', extensions: ['pdf', 'doc', 'docx'] }]
+      }
+      const picked = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
+      path = picked.canceled ? undefined : picked.filePaths[0]
     }
-    const picked = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
-    const path = picked.canceled ? undefined : picked.filePaths[0]
     if (!path) return null
     const contentType = RESUME_TYPES[extname(path).toLowerCase()]
     if (!contentType) throw new CallerError('A resume must be a PDF or Word file (.pdf, .doc or .docx).')
