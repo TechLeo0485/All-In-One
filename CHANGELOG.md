@@ -9,7 +9,7 @@ How to use this file:
 - Write for users: what they can now do, or what works better. Not file names or code.
 -->
 
-## Unreleased
+## 1.2.5
 - The app now tells Teamwork its version. If Teamwork no longer supports it, the Teamwork card says **Update required** and syncing pauses instead of half-working; changes waiting to be sent are kept and go once the app is updated.
 - A workspace with very many interviews no longer misses some: when Teamwork has more than one answer holds, the app loads them a week at a time.
 - "While you were away" counts each notification once (an assignment was counted twice before).
