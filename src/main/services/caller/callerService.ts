@@ -5,6 +5,7 @@ import { app, BrowserWindow, dialog, net, Notification, powerMonitor, safeStorag
 import { IPC } from '@shared/ipcChannels'
 import { hostOf, isFileSource, isTeamworkSource, TEAMWORK_SOURCE_PREFIX } from '@shared/sources'
 import type {
+  AttendeeStatus,
   CalendarEvent,
   EventAttendee,
   CalendarSource,
@@ -35,7 +36,7 @@ import { syncService } from '../../sync/syncService'
 import { protonAccountService } from '../proton/protonAccountService'
 import { createNotification } from '../windowsIdentity'
 import { buildIcs } from './icsBuilder'
-import { backoff, busyBlocksFrom, missedSummary, queuedOutcome, teamworkHasLatest } from './syncRules'
+import { backoff, busyBlocksFrom, type BusyBlock, missedSummary, queuedOutcome, teamworkHasLatest } from './syncRules'
 
 /**
  * Connection to Teamwork (the Caller website). Any member signs in here and
@@ -163,7 +164,12 @@ interface MemberBusy {
   color: string
   mine: boolean
   blocks: Array<{ start: string; end: string }>
+  /** The admin only: the events behind the busy time (title, place, guests). */
+  events?: BusyBlock[]
 }
+const ATTENDEE_STATUSES: readonly AttendeeStatus[] = ['accepted', 'declined', 'tentative', 'needs-action']
+const attendeeStatusOf = (status: string): AttendeeStatus =>
+  (ATTENDEE_STATUSES as readonly string[]).includes(status) ? (status as AttendeeStatus) : 'needs-action'
 /** Days before and after today the Teamwork calendar holds. */
 const LIVE_PAST_DAYS = 7
 const LIVE_FUTURE_DAYS = 60
@@ -396,7 +402,7 @@ class CallerService {
   }
 
   /** The member's busy time: timed events of calendars not shared with a profile (not declined, not picked). */
-  private busyBlocks(slug: string): Array<{ start: string; end: string }> {
+  private busyBlocks(slug: string): BusyBlock[] {
     const shared = new Set(Object.keys(this.allShares()[slug] ?? {}))
     const picked = new Set(Object.values(this.allPicks()[slug] ?? {}).flatMap((p) => p.eventIds))
     const teamwork = new Set(calendarRepository.list().filter((c) => isTeamworkSource(c.sourceUrl)).map((c) => c.id))
@@ -1467,6 +1473,34 @@ class CallerService {
       if (!group) {
         group = { name: member.name, color: member.color, mine: false, rows: [] }
         groups.set(member.userId, group)
+      }
+      if (member.events?.length) {
+        // The admin: each event as it is on the member's calendar (title, place, guests).
+        member.events.forEach((e, n) => {
+          const key = `busy:${member.userId}:${e.start}:${n}`
+          group!.rows.push({
+            key,
+            tag: null,
+            row: {
+              externalId: key,
+              title: e.title || 'Busy',
+              description: '',
+              startTime: e.start,
+              endTime: e.end,
+              allDay: false,
+              location: e.location,
+              attendees: e.attendees.map((a) => ({
+                name: a.name,
+                email: a.email,
+                status: attendeeStatusOf(a.status),
+                isOrganizer: a.isOrganizer,
+                optional: false
+              })),
+              myResponse: null
+            }
+          })
+        })
+        continue
       }
       for (const block of member.blocks) {
         group.rows.push({

@@ -10,23 +10,31 @@ const ev = (id: string, calendarId: string | null, start: string, hours: number,
   endTime: new Date(Date.parse(start) + hours * HOUR).toISOString(),
   allDay: false,
   myResponse: null,
+  title: `Event ${id}`,
+  location: '',
+  attendees: [],
   ...extra
 })
 
 describe('busy time', () => {
   const exclude = { calendarIds: new Set(['shared', 'teamwork']), eventIds: new Set(['picked']) }
 
-  it('keeps timed events of the member’s own calendars, sorted, as times only', () => {
+  it('keeps timed events of the member’s own calendars, sorted, with title, place and guests only', () => {
+    const guest = { name: 'Hannah', email: 'h@example.com', status: 'accepted', isOrganizer: true }
     const got = busyBlocksFrom(
-      [ev('b', 'work', '2026-11-12T15:00:00.000Z', 1), ev('a', 'work', '2026-11-12T09:00:00.000Z', 0.5)],
+      [
+        ev('b', 'work', '2026-11-12T15:00:00.000Z', 1),
+        ev('a', 'work', '2026-11-12T09:00:00.000Z', 0.5, { location: 'Teams', attendees: [{ ...guest, optional: false } as never] })
+      ],
       exclude,
       16 * HOUR
     )
     assert.deepEqual(got, [
-      { start: '2026-11-12T09:00:00.000Z', end: '2026-11-12T09:30:00.000Z' },
-      { start: '2026-11-12T15:00:00.000Z', end: '2026-11-12T16:00:00.000Z' }
+      { start: '2026-11-12T09:00:00.000Z', end: '2026-11-12T09:30:00.000Z', title: 'Event a', location: 'Teams', attendees: [guest] },
+      { start: '2026-11-12T15:00:00.000Z', end: '2026-11-12T16:00:00.000Z', title: 'Event b', location: '', attendees: [] }
     ])
-    assert.deepEqual(Object.keys(got[0]).sort(), ['end', 'start'])
+    // Nothing else of the event goes (no description, links or notes).
+    assert.deepEqual(Object.keys(got[0]).sort(), ['attendees', 'end', 'location', 'start', 'title'])
   })
 
   it('leaves out shared calendars, Teamwork’s own, picked, declined, all-day, local, empty and multi-day events', () => {

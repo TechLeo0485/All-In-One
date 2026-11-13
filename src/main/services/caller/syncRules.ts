@@ -12,19 +12,38 @@ export interface BusyCandidate {
   endTime: string
   allDay: boolean
   myResponse: string | null
+  title: string
+  location: string
+  attendees: Array<{ name: string; email: string; status: string; isOrganizer: boolean }>
 }
+
+/**
+ * One busy event as sent to Teamwork: its times (whoever assigns sees "Busy"),
+ * and its title, place and guests, which only the admin sees. Never its
+ * description, links or notes.
+ */
+export interface BusyBlock {
+  start: string
+  end: string
+  title: string
+  location: string
+  attendees: Array<{ name: string; email: string; status: string; isOrganizer: boolean }>
+}
+
+/** Guests sent per busy event (Teamwork keeps as many). */
+export const MAX_BUSY_GUESTS = 30
 
 /**
  * The member's busy time: timed events of their calendars that aren't shared
  * with a profile (those are interviews), aren't Teamwork's own, weren't picked
  * one by one, weren't declined, and aren't all-day or longer than `maxMs`.
- * Times only, sorted.
+ * Sorted by time; each with its title, place and guests (cut to Teamwork's limits).
  */
 export function busyBlocksFrom(
   events: BusyCandidate[],
   exclude: { calendarIds: ReadonlySet<string>; eventIds: ReadonlySet<string> },
   maxMs: number
-): Array<{ start: string; end: string }> {
+): BusyBlock[] {
   return events
     .filter((e) => {
       if (!e.calendarId || exclude.calendarIds.has(e.calendarId) || exclude.eventIds.has(e.id)) return false
@@ -32,8 +51,19 @@ export function busyBlocksFrom(
       const length = Date.parse(e.endTime) - Date.parse(e.startTime)
       return length > 0 && length <= maxMs
     })
-    .map((e) => ({ start: new Date(e.startTime).toISOString(), end: new Date(e.endTime).toISOString() }))
-    .sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end))
+    .map((e) => ({
+      start: new Date(e.startTime).toISOString(),
+      end: new Date(e.endTime).toISOString(),
+      title: e.title.slice(0, 300),
+      location: e.location.slice(0, 300),
+      attendees: e.attendees.slice(0, MAX_BUSY_GUESTS).map((a) => ({
+        name: a.name.slice(0, 200),
+        email: a.email.slice(0, 320),
+        status: a.status.slice(0, 20),
+        isOrganizer: a.isOrganizer
+      }))
+    }))
+    .sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end) || a.title.localeCompare(b.title))
 }
 
 /** Something done offline, as far as deciding whether to send it goes. */

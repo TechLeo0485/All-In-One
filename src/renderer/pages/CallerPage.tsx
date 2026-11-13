@@ -57,7 +57,8 @@ export function TeamworkConnection() {
           </h2>
           <p className="mt-0.5 max-w-2xl text-xs text-slate-400">
             Your Teamwork workspace. Calendars you share with a profile become its interviews; every other calendar counts as
-            busy time only (no titles, guests or places), so whoever assigns knows when you&apos;re free.
+            busy time, so whoever assigns knows when you&apos;re free. They see only &quot;Busy&quot;; the workspace admin also
+            sees each event&apos;s title, place and guests (never its description, links or notes).
           </p>
         </div>
         {status?.signedIn && (
