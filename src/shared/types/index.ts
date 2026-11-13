@@ -446,8 +446,12 @@ export interface CalendarApi {
     teamBoard(from: string, to: string): Promise<TeamBoard>
     /** Job links the interview probably came from (only while company and role are empty). */
     jobLinkSuggestions(interviewId: string): Promise<JobLinkSuggestion[]>
-    /** Fills in the interview's company and role (from a job link suggestion). */
-    setInterviewDetails(interviewId: string, company: string, role: string): Promise<void>
+    /**
+     * Fills in the interview's company and role. From a job link suggestion
+     * (`jobLinkId`), its page (e.g. Jobright's) also becomes the shared link,
+     * if none is shared yet.
+     */
+    setInterviewDetails(interviewId: string, company: string, role: string, jobLinkId?: string): Promise<void>
     /** Drops something waiting to be sent to Teamwork (made while offline). */
     cancelQueued(id: string): Promise<CallerStatus>
     /**

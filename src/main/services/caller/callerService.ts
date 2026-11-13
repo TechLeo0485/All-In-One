@@ -1154,12 +1154,13 @@ class CallerService {
   }
 
   /** Fills in the interview's company and role, as on the website (from a job link suggestion). */
-  async setInterviewDetails(interviewId: string, company: string, role: string): Promise<void> {
+  async setInterviewDetails(interviewId: string, company: string, role: string, jobLinkId?: string): Promise<void> {
     const slug = this.requireWorkspace()
     try {
       await this.request(`/workspaces/${slug}/events/${encodeURIComponent(interviewId)}/interview`, {
         method: 'PUT',
-        body: { company: company.trim(), role: role.trim() }
+        // From a job link: Teamwork also shares its page (e.g. Jobright's), if no link is shared yet.
+        body: { company: company.trim(), role: role.trim(), ...(jobLinkId ? { jobLinkId } : {}) }
       })
     } catch (err) {
       if (err instanceof CallerError && err.network) throw new CallerError("You're offline: connect to Teamwork to fill this in.")

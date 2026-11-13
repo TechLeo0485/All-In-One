@@ -255,11 +255,12 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
   handle(IPC.callerJobLinkSuggestions, (_e, interviewId) =>
     callerService.jobLinkSuggestions(v.str(interviewId, 'Interview', { required: true, max: 64 }))
   )
-  handle(IPC.callerSetInterviewDetails, (_e, interviewId, company, role) =>
+  handle(IPC.callerSetInterviewDetails, (_e, interviewId, company, role, jobLinkId) =>
     callerService.setInterviewDetails(
       v.str(interviewId, 'Interview', { required: true, max: 64 }),
       v.str(company, 'Company', { required: true, max: 160 }),
-      v.str(role, 'Role', { required: true, max: 160 })
+      v.str(role, 'Role', { required: true, max: 160 }),
+      jobLinkId === undefined || jobLinkId === null ? undefined : v.str(jobLinkId, 'Job link', { required: true, max: 64 })
     )
   )
   handle(IPC.callerTeamBoard, (_e, from, to) =>

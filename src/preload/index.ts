@@ -115,7 +115,8 @@ const api: CalendarApi = {
     cancelQueued: (id) => ipcRenderer.invoke(IPC.callerCancelQueued, id),
     teamBoard: (from, to) => ipcRenderer.invoke(IPC.callerTeamBoard, from, to),
     jobLinkSuggestions: (interviewId) => ipcRenderer.invoke(IPC.callerJobLinkSuggestions, interviewId),
-    setInterviewDetails: (interviewId, company, role) => ipcRenderer.invoke(IPC.callerSetInterviewDetails, interviewId, company, role),
+    setInterviewDetails: (interviewId, company, role, jobLinkId) =>
+      ipcRenderer.invoke(IPC.callerSetInterviewDetails, interviewId, company, role, jobLinkId),
     candidates: (interviewId) => ipcRenderer.invoke(IPC.callerCandidates, interviewId),
     assign: (interviewId, callerId, force) => ipcRenderer.invoke(IPC.callerAssign, interviewId, callerId, force),
     onChanged: (callback) => {

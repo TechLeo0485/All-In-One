@@ -18,6 +18,7 @@ How to use this file:
 - Resumes can be dragged in: drop a PDF or Word file on the **Resume** row in **Who joins** to upload it (or replace the one there). **Upload resume** still opens the file picker.
 - Owners get a desktop notification when a new interview comes in from a member's calendar (nobody on it yet). Clicking it opens the interview right here in the app, with the next steps in **Who joins**: **1 · Company and role** (suggested from your job links, or type them in), then **2 · Pick the caller**, which opens by itself with Teamwork's suggestion chosen. Assigning is still your click. Several at once arrive as one notification that opens the earliest.
 - Clicking **New interview assigned to you** now opens the interview in the app instead of the website.
+- **Use** on a job link suggestion now also shares that job's page (where it was found, e.g. Jobright, else the company's apply page) as the interview's link, so the caller can open it. A link already shared is left as it is.
 - The workspace admin sees what other members' busy time is: on each member's Teamwork calendar, their events show with title, time, place and guests instead of **Busy**. Clicking one shows just that, read-only (no status, notes, description or links). Everyone else still sees only **Busy**. The Teamwork card tells members what the admin sees. (Members' apps need this version to send it; until then their time stays **Busy**.)
 
 ## 1.2.4

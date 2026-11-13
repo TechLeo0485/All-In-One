@@ -317,11 +317,11 @@ function DetailsStep({ interviewId, hasProfile }: { interviewId: string; hasProf
     }
   }, [interviewId, hasProfile])
 
-  async function save(key: string, c: string, r: string) {
+  async function save(key: string, c: string, r: string, jobLinkId?: string) {
     setBusy(key)
     setError(null)
     try {
-      await window.api.caller.setInterviewDetails(interviewId, c, r)
+      await window.api.caller.setInterviewDetails(interviewId, c, r, jobLinkId)
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -362,7 +362,7 @@ function DetailsStep({ interviewId, hasProfile }: { interviewId: string; hasProf
                 <button
                   type="button"
                   disabled={busy !== null}
-                  onClick={() => void save(sg.linkId, sg.company, sg.role)}
+                  onClick={() => void save(sg.linkId, sg.company, sg.role, sg.linkId)}
                   className="shrink-0 rounded-md border border-slate-700 px-2 py-0.5 text-xs text-slate-200 hover:border-slate-500 hover:text-white disabled:opacity-60"
                 >
                   {busy === sg.linkId ? <Spinner className="text-slate-400" /> : 'Use'}
