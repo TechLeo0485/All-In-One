@@ -91,13 +91,23 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
   })
   handle(IPC.eventsGet, (_e, id) => eventRepository.get(v.id(id)))
   handle(IPC.eventsSearch, (_e, query) => eventRepository.search(v.str(query, 'Search', { max: 200 })))
-  handle(IPC.eventsCreateLocal, (_e, input) => withEventsChanged(localEventRepository.create(v.localEventInput(input))))
-  handle(IPC.eventsUpdateLocal, (_e, id, input, scope) =>
-    withEventsChanged(localEventRepository.update(v.id(id), v.localEventInput(input), v.recurrenceScope(scope)))
-  )
-  handle(IPC.eventsRemoveLocal, (_e, id, scope) =>
-    withEventsChanged(localEventRepository.remove(v.id(id), v.recurrenceScope(scope)))
-  )
+  handle(IPC.eventsCreateLocal, (_e, input) => {
+    const result = withEventsChanged(localEventRepository.create(v.localEventInput(input)))
+    // Local events count as busy time on Teamwork.
+    callerService.localEventsChanged()
+    return result
+  })
+  // A local event shared with a profile follows on Teamwork when it's changed or deleted.
+  handle(IPC.eventsUpdateLocal, (_e, id, input, scope) => {
+    const result = withEventsChanged(localEventRepository.update(v.id(id), v.localEventInput(input), v.recurrenceScope(scope)))
+    callerService.localEventsChanged()
+    return result
+  })
+  handle(IPC.eventsRemoveLocal, (_e, id, scope) => {
+    const result = withEventsChanged(localEventRepository.remove(v.id(id), v.recurrenceScope(scope)))
+    callerService.localEventsChanged()
+    return result
+  })
   handle(IPC.eventsSetStatus, (_e, id, status) => {
     const eid = v.id(id)
     if (!eventRepository.get(eid)) throw new Error('Event not found')

@@ -982,7 +982,8 @@ export function EventDetailsPanel() {
   const protonAccounts = useAppStore((s) => s.protonAccounts)
   const settings = useAppStore((s) => s.settings)
   const { event, loading, error } = useEventDetails(selectedEventId)
-  const [teamwork, setTeamwork] = useTeamworkShare(event && !event.isLocalEvent ? event.id : null)
+  // Local events can be shared with a profile too (one by one), like any calendar event.
+  const [teamwork, setTeamwork] = useTeamworkShare(event ? event.id : null)
   const teamworkInterview = teamwork?.signedIn ? (teamwork.teamwork?.interview ?? null) : null
   const cardRef = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
@@ -1137,9 +1138,7 @@ export function EventDetailsPanel() {
               <>
                 <ImportantToggle event={event} />
                 <StatusPicker event={event} />
-                {!event.isLocalEvent && (
-                  <TeamworkShare key={`share:${event.id}`} event={event} state={teamwork} setState={setTeamwork} />
-                )}
+                <TeamworkShare key={`share:${event.id}`} event={event} state={teamwork} setState={setTeamwork} />
               </>
             )}
           </section>

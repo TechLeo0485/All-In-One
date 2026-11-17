@@ -34,7 +34,7 @@ export interface BusyBlock {
 export const MAX_BUSY_GUESTS = 30
 
 /**
- * The member's busy time: timed events of their calendars that aren't shared
+ * The member's busy time: timed local events and timed events of their calendars that aren't shared
  * with a profile (those are interviews), aren't Teamwork's own, weren't picked
  * one by one, weren't declined, and aren't all-day or longer than `maxMs`.
  * Sorted by time; each with its title, place and guests (cut to Teamwork's limits).
@@ -46,7 +46,8 @@ export function busyBlocksFrom(
 ): BusyBlock[] {
   return events
     .filter((e) => {
-      if (!e.calendarId || exclude.calendarIds.has(e.calendarId) || exclude.eventIds.has(e.id)) return false
+      // Local events (no calendar) are the member's own time too; picked ones are interviews.
+      if ((e.calendarId && exclude.calendarIds.has(e.calendarId)) || exclude.eventIds.has(e.id)) return false
       if (e.allDay || e.myResponse === 'declined') return false
       const length = Date.parse(e.endTime) - Date.parse(e.startTime)
       return length > 0 && length <= maxMs

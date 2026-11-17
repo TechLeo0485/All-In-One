@@ -1617,7 +1617,11 @@ class CallerService {
     if (!source) return null
     const pickIds = ownPicks.get(source.connectionId)
     if (pickIds) {
-      return pickIds.find((id) => eventRepository.get(id)?.externalId === source.uid) ?? null
+      // Sent with its external id as the UID, or its own id when it has none (a local event).
+      return pickIds.find((id) => {
+        const e = eventRepository.get(id)
+        return Boolean(e) && (e!.externalId || e!.id) === source.uid
+      }) ?? null
     }
     const localCalendarId = ownCalendars.get(source.connectionId)
     if (!localCalendarId) return null
@@ -2322,6 +2326,29 @@ Click to open it.`
     await Promise.all([...touched].map((pid) => this.uploadPick(slug, pid)))
     this.scheduleBusy()
     return this.eventShare(eventId)
+  }
+
+  private localTimer: NodeJS.Timeout | null = null
+
+  /**
+   * A local event was changed or deleted: picks holding a local event (or one
+   * that's gone) are sent again, so Teamwork's interview follows it. Busy time too.
+   */
+  localEventsChanged(): void {
+    if (this.localTimer) clearTimeout(this.localTimer)
+    this.localTimer = setTimeout(() => {
+      this.localTimer = null
+      for (const [slug, forWorkspace] of Object.entries(this.allPicks())) {
+        for (const [profileId, pick] of Object.entries(forWorkspace)) {
+          const affected = pick.eventIds.some((id) => {
+            const event = eventRepository.get(id)
+            return !event || event.isLocalEvent
+          })
+          if (affected) void this.uploadPick(slug, profileId).catch((err) => console.warn('[teamwork] pick not sent:', errorText(err)))
+        }
+      }
+      this.scheduleBusy()
+    }, 1_000)
   }
 
   /** After a calendar synced: sends again every pick holding one of its events (or an event that left it). */

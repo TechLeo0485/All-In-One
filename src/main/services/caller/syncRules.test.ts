@@ -37,7 +37,7 @@ describe('busy time', () => {
     assert.deepEqual(Object.keys(got[0]).sort(), ['attendees', 'end', 'location', 'start', 'title'])
   })
 
-  it('leaves out shared calendars, Teamwork’s own, picked, declined, all-day, local, empty and multi-day events', () => {
+  it('leaves out shared calendars, Teamwork’s own, picked, declined, all-day, empty and multi-day events; keeps local ones', () => {
     const got = busyBlocksFrom(
       [
         ev('1', 'shared', '2026-11-12T09:00:00Z', 1),
@@ -53,7 +53,8 @@ describe('busy time', () => {
       exclude,
       16 * HOUR
     )
-    assert.equal(got.length, 1)
+    // The local event ('6', no calendar) and 'keep'.
+    assert.equal(got.length, 2)
   })
 })
 
