@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import type { EventSearchResult, SearchMatchField } from '@shared/types'
 import { findMatches, searchTerms } from '@shared/search'
-import { useAppStore } from '../stores/appStore'
+import { useAppStore, visibleCalendars } from '../stores/appStore'
 import { formatEventWhen } from '../utils/dates'
 import { errorMessage } from '../utils/errors'
 import { SearchIcon, XIcon } from './icons'
@@ -124,11 +124,10 @@ export function SearchBox({ autoFocus = false }: { autoFocus?: boolean }) {
   }, [open])
 
   // Only what the calendar shows: hidden calendars and hidden local events are left out.
-  const colors = useMemo(() => {
-    const hidden = new Set(settings?.hiddenCalendarIds ?? [])
-    return new Map(calendars.filter((c) => c.enabled && !hidden.has(c.id)).map((c) => [c.id, c.color]))
-  }, [calendars, settings?.hiddenCalendarIds])
-  const showLocal = settings?.showLocalEvents ?? true
+  const scope = useAppStore((s) => s.calendarScope)
+  const shown = useMemo(() => visibleCalendars(calendars, settings, scope), [calendars, settings, scope])
+  const colors = useMemo(() => new Map(shown.calendars.map((c) => [c.id, c.color])), [shown])
+  const showLocal = shown.showLocal
   const localColor = settings?.localEventColor ?? '#10b981'
   const colorOf = (r: EventSearchResult): string | undefined =>
     r.event.isLocalEvent ? (showLocal ? (r.event.color ?? localColor) : undefined) : colors.get(r.event.calendarId ?? '')

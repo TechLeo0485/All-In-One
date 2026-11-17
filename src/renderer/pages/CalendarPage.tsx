@@ -33,7 +33,7 @@ import { TeamDayBoard } from '../components/TeamDayBoard'
 import { OverviewDayBoard } from '../components/OverviewDayBoard'
 import { DEFAULT_EVENT_STATUSES, DEFAULT_IMPORTANT_COLOR, findStatus } from '@shared/eventStatus'
 import { clampHourHeight, DEFAULT_HOUR_HEIGHT, HOUR_HEIGHT_STEP } from '@shared/hourHeight'
-import { LOCAL_EVENTS_KEY, useAppStore, type EventCounts } from '../stores/appStore'
+import { LOCAL_EVENTS_KEY, useAppStore, visibleCalendars as visibleIn, type EventCounts } from '../stores/appStore'
 import { useNow } from '../hooks/useNow'
 import { DatePicker } from '../components/DatePicker'
 import { EventPreview, type EventPreviewData } from '../components/EventPreview'
@@ -72,14 +72,13 @@ export function CalendarPage() {
   const [viewType, setViewType] = useState(initialView)
   // Personal: this app's calendars, as always. Team: the Day view is Teamwork's board of the team's day.
   const { signedIn: teamworkSignedIn, overview } = useTeamworkSignedIn()
-  const [mode, setMode] = useState<'personal' | 'team'>(() => (localStorage.getItem(MODE_STORAGE_KEY) === 'team' ? 'team' : 'personal'))
-  const pickMode = useCallback((next: 'personal' | 'team') => {
-    localStorage.setItem(MODE_STORAGE_KEY, next)
-    setMode(next)
-  }, [])
+  // The sidebar's Mine / Team switch: in the Day view, Team is the team's board.
+  const scope = useAppStore((s) => s.calendarScope)
+  const setCalendarScope = useAppStore((s) => s.setCalendarScope)
+  const pickMode = useCallback((next: 'personal' | 'team') => setCalendarScope(next === 'team' ? 'team' : 'mine'), [setCalendarScope])
   // The switch shows only in the Day view, when connected to Teamwork; Week and Month are the same in both.
   const showSwitch = teamworkSignedIn && viewType === 'timeGridDay'
-  const teamDay = showSwitch && mode === 'team'
+  const teamDay = showSwitch && scope === 'team'
   const closePicker = useCallback(() => setPickerOpen(false), [])
   const onDatesSet = (arg: DatesSetArg): void => {
     localStorage.setItem(VIEW_STORAGE_KEY, arg.view.type)
@@ -109,10 +108,9 @@ export function CalendarPage() {
 
   // [calendarId, color] of enabled + visible calendars, as a string so that new but
   // equal arrays (after a sync or an unrelated settings change) don't trigger a refetch.
-  const visibleKey = useMemo(() => {
-    const hidden = new Set(settings?.hiddenCalendarIds ?? [])
-    return JSON.stringify(calendars.filter((c) => c.enabled && !hidden.has(c.id)).map((c) => [c.id, c.color]))
-  }, [calendars, settings?.hiddenCalendarIds])
+  // Mine or Team (the sidebar's switch) and each calendar's own show/hide.
+  const shown = useMemo(() => visibleIn(calendars, settings, scope), [calendars, settings, scope])
+  const visibleKey = useMemo(() => JSON.stringify(shown.calendars.map((c) => [c.id, c.color])), [shown])
   const visibleCalendars = useMemo(() => new Map<string, string>(JSON.parse(visibleKey)), [visibleKey])
 
   // Stripe color per status: events get a `status-<id>` class (ids and colors are
@@ -142,7 +140,7 @@ export function CalendarPage() {
     [timeZone, primaryLabel, secondaryZone, secondaryLabel]
   )
 
-  const showLocal = settings?.showLocalEvents ?? true
+  const showLocal = shown.showLocal
   const localColor = settings?.localEventColor ?? '#10b981'
 
   usePeriodStats(period, eventsVersion, now)
@@ -329,7 +327,7 @@ export function CalendarPage() {
         // A size container: the toolbar and date picker adapt to the calendar's own width (index.css).
         // has-selection: the other events dim while an event's details are open (index.css).
         className={`@container relative h-full rounded-xl border border-slate-800 bg-slate-900 p-3 shadow-sm lg:p-4 ${selectedEventId ? 'has-selection' : ''} ${
-          showSwitch ? `mode-${mode}` : ''
+          showSwitch ? `mode-${scope === 'team' ? 'team' : 'personal'}` : ''
         } ${teamDay ? 'team-day flex flex-col' : ''}`}
         style={{ '--hour-height': `${hourHeight}px` } as CSSProperties}
         onClick={onTitleActivate}
@@ -417,7 +415,6 @@ const PLUGINS = [dayGridPlugin, timeGridPlugin, interactionPlugin, intlTimeZoneP
 const HEADER_TOOLBAR = { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' }
 /** Day view, connected to Teamwork: the Personal / Team switch next to the views. */
 const TEAM_HEADER_TOOLBAR = { ...HEADER_TOOLBAR, right: 'personal,team dayGridMonth,timeGridWeek,timeGridDay' }
-const MODE_STORAGE_KEY = 'calendar.mode'
 const BUTTON_TEXT = { today: 'Today', month: 'Month', week: 'Week', day: 'Day' }
 const TIME_FORMAT = { hour: 'numeric', minute: '2-digit', meridiem: 'short' } as const
 

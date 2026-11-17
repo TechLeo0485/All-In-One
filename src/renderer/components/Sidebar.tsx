@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { LOCAL_EVENTS_KEY, useAppStore, type EventCounts, type PeriodStats, type View } from '../stores/appStore'
+import { scopeHides, LOCAL_EVENTS_KEY, useAppStore, type EventCounts, type PeriodStats, type View } from '../stores/appStore'
 import { formatAge, formatRelative } from '../utils/dates'
 import { isProtonStale } from '../utils/proton'
 import { DEFAULT_EVENT_STATUSES } from '@shared/eventStatus'
@@ -41,10 +41,13 @@ function CalendarRow({
   counts,
   flashKey,
   onColor,
-  colorTitle
+  colorTitle,
+  onOnly
 }: {
   name: string
   color: string
+  /** Shows this calendar alone (the others in view hidden). */
+  onOnly?: () => void
   /** Teamwork calendars: changes the caller's color on Teamwork (for members allowed to). */
   onColor?: () => void
   colorTitle?: string
@@ -101,6 +104,15 @@ function CalendarRow({
         )}
         {counts && <RowCounts counts={counts} dim={!visible} />}
       </button>
+      {onOnly && (
+        <button
+          onClick={onOnly}
+          title={`Show only ${name}`}
+          className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium text-slate-400 hover:bg-slate-700 hover:text-slate-100 ${onHover}`}
+        >
+          Only
+        </button>
+      )}
       <button onClick={onToggle} title={visible ? `Hide ${name}` : `Show ${name}`} className={`${iconButton} ${onHover}`}>
         {visible ? <EyeIcon size={14} /> : <EyeOffIcon size={14} />}
       </button>
@@ -508,8 +520,21 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
   const flash = useSelectedEventFlash()
   const flashKeyFor = (key: string): number | null => (flash?.key === key ? flash.token : null)
   const hidden = settings?.hiddenCalendarIds ?? []
-  const showLocal = settings?.showLocalEvents ?? true
-  const enabled = useMemo(() => calendars.filter((c) => c.enabled), [calendars])
+  const scope = useAppStore((s) => s.calendarScope)
+  const setCalendarScope = useAppStore((s) => s.setCalendarScope)
+  const showCalendars = useAppStore((s) => s.showCalendars)
+  const allEnabled = useMemo(() => calendars.filter((c) => c.enabled), [calendars])
+  // Mine / Team: once there are Teamwork calendars, the list shows one side at a time.
+  const hasTeam = allEnabled.some((c) => isTeamworkSource(c.sourceUrl))
+  const enabled = useMemo(() => allEnabled.filter((c) => !scopeHides(c, scope, hasTeam)), [allEnabled, scope, hasTeam])
+  const localInView = !hasTeam || scope === 'mine'
+  const showLocal = (settings?.showLocalEvents ?? true) && localInView
+  const inView = enabled.map((c) => c.id)
+  const allShown = enabled.every((c) => !hidden.includes(c.id)) && (!localInView || (settings?.showLocalEvents ?? true))
+  const noneShown = enabled.every((c) => hidden.includes(c.id)) && (!localInView || !(settings?.showLocalEvents ?? true))
+  const showAll = (): void => void showCalendars(inView, inView, localInView ? true : undefined)
+  const showNone = (): void => void showCalendars(inView, [], localInView ? false : undefined)
+  const showOnly = (id: string | null): void => void showCalendars(inView, id ? [id] : [], localInView ? id === null : undefined)
 
   // Totals of what the calendar shows: visible calendars plus local events (unless hidden).
   const summary = useMemo(() => {
@@ -610,6 +635,47 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
             {busy ? <Spinner /> : <RefreshIcon size={14} />}
           </button>
         </div>
+        <div className="mb-2 flex items-center gap-2 px-2">
+          {hasTeam && (
+            <div role="radiogroup" aria-label="Show calendars" className="flex flex-1 items-center gap-px rounded-md bg-slate-800 p-0.5">
+              {(['mine', 'team'] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  role="radio"
+                  aria-checked={scope === s}
+                  onClick={() => setCalendarScope(s)}
+                  title={s === 'mine' ? 'Your own calendars and local events' : 'The Teamwork calendars (and, in the Day view, the team board)'}
+                  className={`flex-1 rounded px-2 py-1 text-xs font-medium transition-colors ${
+                    scope === s ? 'bg-slate-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {s === 'mine' ? 'Mine' : 'Team'}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className={`flex shrink-0 items-center gap-1 text-[11px] ${hasTeam ? '' : 'ml-auto'}`}>
+            <button
+              type="button"
+              onClick={showAll}
+              disabled={allShown}
+              title="Show every calendar here"
+              className="rounded px-1.5 py-0.5 text-slate-400 hover:bg-slate-800 hover:text-slate-100 disabled:opacity-40 disabled:hover:bg-transparent"
+            >
+              All
+            </button>
+            <button
+              type="button"
+              onClick={showNone}
+              disabled={noneShown}
+              title="Hide every calendar here (then show the ones you want)"
+              className="rounded px-1.5 py-0.5 text-slate-400 hover:bg-slate-800 hover:text-slate-100 disabled:opacity-40 disabled:hover:bg-transparent"
+            >
+              None
+            </button>
+          </div>
+        </div>
 
         {groups.map((group) => (
           <div key={group.key} className="mb-2">
@@ -669,6 +735,7 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
                   syncTitle={c.accountId ? `Sync ${group.title ?? 'this Proton account'}` : `Sync ${c.name}`}
                   counts={periodStats ? (periodStats.counts[c.id] ?? NO_EVENTS) : undefined}
                   flashKey={flashKeyFor(c.id)}
+                  onOnly={inView.length + (localInView ? 1 : 0) > 1 ? () => showOnly(c.id) : undefined}
                 />
               ))}
             </ul>
@@ -676,7 +743,7 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
         ))}
 
         <ul className="space-y-0.5">
-          {settings && (
+          {settings && localInView && (
             <CalendarRow
               name="Local events"
               counts={periodStats ? (periodStats.counts[LOCAL_EVENTS_KEY] ?? NO_EVENTS) : undefined}
@@ -684,6 +751,7 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
               color={settings.localEventColor}
               visible={settings.showLocalEvents}
               onToggle={() => void updateSettings({ showLocalEvents: !settings.showLocalEvents })}
+              onOnly={inView.length ? () => showOnly(null) : undefined}
             />
           )}
         </ul>

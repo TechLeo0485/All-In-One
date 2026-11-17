@@ -11,11 +11,51 @@ import type {
   RecurrenceScope,
   SyncStatus
 } from '@shared/types'
+import { isTeamworkSource } from '@shared/sources'
 import { setDisplayTimeZone } from '../utils/dates'
 import { errorMessage } from '../utils/errors'
 import { applyTheme } from '../utils/theme'
 
 export type View = 'calendar' | 'pipeline' | 'calendars' | 'caller' | 'connections' | 'settings'
+
+/**
+ * What the calendar shows: Mine (this app's own calendars and local events) or
+ * Team (the Teamwork calendars: callers, bidders, or an overview's groups; in
+ * the Day view, the team's board). Each calendar's own show/hide applies on top.
+ */
+export type CalendarScope = 'mine' | 'team'
+const SCOPE_KEY = 'calendar.mode'
+
+function storedScope(): CalendarScope {
+  try {
+    return localStorage.getItem(SCOPE_KEY) === 'team' ? 'team' : 'mine'
+  } catch {
+    return 'mine'
+  }
+}
+
+/** Whether the scope leaves this calendar out (only once there are Teamwork calendars to split from). */
+export function scopeHides(calendar: Pick<CalendarSource, 'sourceUrl'>, scope: CalendarScope, hasTeam: boolean): boolean {
+  if (!hasTeam) return false
+  return scope === 'mine' ? isTeamworkSource(calendar.sourceUrl) : !isTeamworkSource(calendar.sourceUrl)
+}
+
+/**
+ * What the calendar, the sidebar and search show: enabled calendars that are
+ * in the scope and not hidden, and whether local events are (Mine only).
+ */
+export function visibleCalendars(
+  calendars: CalendarSource[],
+  settings: AppSettings | null,
+  scope: CalendarScope
+): { calendars: CalendarSource[]; showLocal: boolean } {
+  const hidden = new Set(settings?.hiddenCalendarIds ?? [])
+  const hasTeam = calendars.some((c) => c.enabled && isTeamworkSource(c.sourceUrl))
+  return {
+    calendars: calendars.filter((c) => c.enabled && !hidden.has(c.id) && !scopeHides(c, scope, hasTeam)),
+    showLocal: (settings?.showLocalEvents ?? true) && !(hasTeam && scope === 'team')
+  }
+}
 
 /** Tab of the Help popup (opened from the logo, or after an update). */
 export type HelpTab = 'guide' | 'whats-new'
@@ -104,6 +144,10 @@ interface AppState {
   toasts: Toast[]
   /** Open tab of the Help popup; null while it's closed. */
   helpTab: HelpTab | null
+  calendarScope: CalendarScope
+  setCalendarScope(scope: CalendarScope): void
+  /** Shows exactly these calendars of `among` (the rest of `among` hidden); local events on or off. */
+  showCalendars(among: string[], shown: string[], showLocal?: boolean): Promise<void>
 
   init(): Promise<void>
   setView(view: View): void
@@ -281,6 +325,23 @@ export const useAppStore = create<AppState>((set, get) => {
       if (!ok) return
       set((s) => ({ calendars: s.calendars.filter((c) => c.id !== id), selectedEventId: null }))
       get().refreshEvents()
+    },
+
+    calendarScope: storedScope(),
+    setCalendarScope(scope) {
+      try {
+        localStorage.setItem(SCOPE_KEY, scope)
+      } catch {
+        // Remembering the choice is a convenience only.
+      }
+      set({ calendarScope: scope })
+    },
+
+    async showCalendars(among, shown, showLocal) {
+      const keep = new Set(shown)
+      const others = (get().settings?.hiddenCalendarIds ?? []).filter((id) => !among.includes(id))
+      const hiddenCalendarIds = [...others, ...among.filter((id) => !keep.has(id))]
+      await get().updateSettings(showLocal === undefined ? { hiddenCalendarIds } : { hiddenCalendarIds, showLocalEvents: showLocal })
     },
 
     async toggleCalendarVisibility(id) {
