@@ -52,10 +52,10 @@ export const calendarRepository = {
     const id = randomUUID()
     getDb()
       .prepare(
-        `INSERT INTO calendars (id, name, color, source_url, enabled, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`
+        `INSERT INTO calendars (id, name, color, source_url, enabled, notify, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, input.name, input.color, input.sourceUrl, input.enabled ? 1 : 0, new Date().toISOString())
+      .run(id, input.name, input.color, input.sourceUrl, input.enabled ? 1 : 0, input.notify === false ? 0 : 1, new Date().toISOString())
     return this.get(id)!
   },
 

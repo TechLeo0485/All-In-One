@@ -25,6 +25,7 @@ import type {
   CallerTag,
   CallerWorkspace,
   OpenEventRequest,
+  TeamworkView,
   TeamworkInterview
 } from '@shared/types'
 import { accountRepository } from '../../database/accountRepository'
@@ -111,6 +112,12 @@ const TEAMWORK_CALENDAR_KEY = 'caller.teamworkCalendar'
 /** One Teamwork calendar per caller (and one for unassigned interviews): `byCaller[userId | 'unassigned']`. */
 const TEAMWORK_CALENDARS_KEY = 'caller.teamworkCalendars'
 const UNASSIGNED = 'unassigned'
+/** Owners' choice of how the Teamwork calendars are split. */
+const TEAMWORK_VIEW_KEY = 'caller.teamworkView'
+/** Set once the Teamwork calendars made before 1.2.6 (which all reminded) were switched to "assigned only". */
+const TEAMWORK_NOTIFY_FIXED_KEY = 'caller.teamworkNotifyFixed'
+/** Calendar keys of the "by bidder" view: `bidder:<userId>` (or `bidder:unknown`). */
+const BIDDER_PREFIX = 'bidder:'
 const UNASSIGNED_COLOR = '#94a3b8'
 type TeamworkCalendars = { slug: string; byCaller: Record<string, string> }
 /** Teamwork details of the member's own events: local event id → label and link. */
@@ -153,6 +160,11 @@ const BUSY_DEBOUNCE_MS = 5_000
 const BUSY_MAX_MS = 16 * 60 * 60 * 1000
 
 /** Members and calendar managers change colors on Teamwork. */
+/** Owners (and the admin, who is one too) may see the interviews by bidder. */
+function isOwnerOf(membership: { roles?: string[]; isAdmin?: boolean }): boolean {
+  return Boolean(membership.isAdmin) || Boolean(membership.roles?.includes('owner')) || Boolean(membership.roles?.includes('admin'))
+}
+
 function canSetColors(permissions: string[]): boolean {
   return permissions.includes('members.manage') || permissions.includes('calendar.manage')
 }
@@ -196,6 +208,8 @@ const RESUME_TYPES: Record<string, string> = {
 interface AppInterview {
   assignedToMe: boolean
   source: { connectionId: string; uid: string; recurrenceKey: string } | null
+  /** Who brought it in (whose calendar it came from, or who added it); missing from older Teamwork servers. */
+  bidder?: { userId: string; name: string; color: string } | null
   event: {
     id: string
     title: string
@@ -349,7 +363,9 @@ class CallerService {
     return { queued: false }
   }
 
-  private async sendColor(slug: string, key: string, color: string): Promise<void> {
+  private async sendColor(slug: string, rawKey: string, color: string): Promise<void> {
+    const key = rawKey.startsWith(BIDDER_PREFIX) ? rawKey.slice(BIDDER_PREFIX.length) : rawKey
+    if (key === 'unknown') throw new CallerError('This calendar has no member to color.')
     try {
       if (key === UNASSIGNED) {
         await this.request(`/workspaces/${slug}/calendar/colors`, { method: 'PUT', body: { unassigned: color.toLowerCase() } })
@@ -367,7 +383,7 @@ class CallerService {
   /** What this member may do here, and the workspace's Unassigned color (read on every full load). */
   private async refreshWorkspaceInfo(slug: string): Promise<void> {
     const [ctx, colors, members] = await Promise.all([
-      this.request<{ membership: { permissions: string[] } }>(`/workspaces/${slug}`),
+      this.request<{ membership: { permissions: string[]; roles?: string[]; isAdmin?: boolean } }>(`/workspaces/${slug}`),
       this.request<{ unassigned: string }>(`/workspaces/${slug}/calendar/colors`).catch(() => null),
       // The Team view's columns: every caller, with level and color (members who may list members).
       this.request<Array<{ userId: string; name: string; roles: string[]; callerLevel: number | null; status: string; color: string }>>(
@@ -381,9 +397,12 @@ class CallerService {
     }
     if (colors?.unassigned && /^#[0-9a-f]{6}$/i.test(colors.unassigned)) this.unassignedColor = colors.unassigned
     const can = canSetColors(ctx.membership.permissions)
+    const owner = isOwnerOf(ctx.membership)
     const c = this.connection()
-    if (c.workspaces.some((w) => w.slug === slug && w.canSetColors !== can)) {
-      this.saveConnection({ workspaces: c.workspaces.map((w) => (w.slug === slug ? { ...w, canSetColors: can } : w)) })
+    if (c.workspaces.some((w) => w.slug === slug && (w.canSetColors !== can || Boolean(w.isOwner) !== owner))) {
+      this.saveConnection({ workspaces: c.workspaces.map((w) => (w.slug === slug ? { ...w, canSetColors: can, isOwner: owner } : w)) })
+      // Became or stopped being an owner: the by-bidder choice now applies, or no longer does.
+      if (this.interviewsById.size) this.rebuildTeamwork(slug)
     }
   }
   private busyMembers: MemberBusy[] = []
@@ -501,6 +520,21 @@ class CallerService {
     this.pendingIds.clear()
     this.pendingAssigned.clear()
     this.pendingNew.clear()
+  }
+
+  /**
+   * The events in this app that show Teamwork interviews assigned to the member
+   * (not cancelled): reminded of like any event, whatever their calendar's
+   * reminder setting, in the Callers and the Bidders view alike.
+   */
+  assignedEventIds(): ReadonlySet<string> {
+    const ids = new Set<string>()
+    for (const i of this.interviewsById.values()) {
+      if (!i.assignedToMe || i.event.status === 'cancelled') continue
+      const eventId = this.eventIdByInterview[i.event.id]
+      if (eventId) ids.add(eventId)
+    }
+    return ids
   }
 
   /** How a notification opens an interview in the app's window. */
@@ -1426,6 +1460,8 @@ class CallerService {
     const annotations: Annotations = {}
     const tags: Record<string, CallerTag> = {}
     const eventIds: Record<string, string> = {}
+    const byBidder = this.teamworkView() === 'bidders'
+    const myId = this.connection().userId
     type Row = Parameters<typeof eventRepository.replaceCalendarEvents>[1][number]
     const groups = new Map<
       string,
@@ -1441,14 +1477,30 @@ class CallerService {
         eventIds[i.event.id] = own
         continue
       }
-      const caller = this.callerOf(i)
-      const key = i.event.interview?.caller?.userId ?? i.event.assignees[0]?.userId ?? UNASSIGNED
-      let group = groups.get(key)
-      if (!group) {
-        group = caller
-          ? { name: caller.mine ? `${caller.name} (you)` : caller.name, color: caller.color, mine: caller.mine, rows: [] }
-          : { name: 'Unassigned', color: this.unassignedColor, mine: false, rows: [] }
-        groups.set(key, group)
+      let key: string
+      let group
+      if (byBidder) {
+        // Owners, by bidder: on the calendar of who brought it in, in their color.
+        const bidder = i.bidder ?? null
+        key = `${BIDDER_PREFIX}${bidder?.userId ?? 'unknown'}`
+        group = groups.get(key)
+        if (!group) {
+          const mine = bidder?.userId === myId
+          group = bidder
+            ? { name: mine ? `${bidder.name} (you)` : bidder.name, color: bidder.color, mine: false, rows: [] }
+            : { name: 'Unknown bidder', color: this.unassignedColor, mine: false, rows: [] }
+          groups.set(key, group)
+        }
+      } else {
+        const caller = this.callerOf(i)
+        key = i.event.interview?.caller?.userId ?? i.event.assignees[0]?.userId ?? UNASSIGNED
+        group = groups.get(key)
+        if (!group) {
+          group = caller
+            ? { name: caller.mine ? `${caller.name} (you)` : caller.name, color: caller.color, mine: caller.mine, rows: [] }
+            : { name: 'Unassigned', color: this.unassignedColor, mine: false, rows: [] }
+          groups.set(key, group)
+        }
       }
       const meeting = i.event.meetingUrl ?? ''
       group.rows.push({
@@ -1467,8 +1519,8 @@ class CallerService {
         }
       })
     }
-    // Other members' busy time from their apps, on their calendars (times only).
-    for (const member of this.busyMembers) {
+    // Other members' busy time from their apps, on their calendars (times only). By bidder: none.
+    for (const member of byBidder ? [] : this.busyMembers) {
       if (member.mine) continue
       let group = groups.get(member.userId)
       if (!group) {
@@ -1524,10 +1576,12 @@ class CallerService {
     // Every caller has a calendar, empty ones too: an empty one means free (nothing assigned,
     // no busy time sent), not missing. The workspace's callers when the member list is readable,
     // else the callers this app knows from the interviews.
-    const myId = this.connection().userId
-    const everyCaller = this.callers.length
-      ? this.callers.map((c) => ({ userId: c.userId, name: c.name, color: c.color }))
-      : [...this.interviewsById.values()].flatMap((i) => (i.event.interview?.caller ? [i.event.interview.caller] : []))
+    // (By bidder: only the bidders who brought interviews in.)
+    const everyCaller = byBidder
+      ? []
+      : this.callers.length
+        ? this.callers.map((c) => ({ userId: c.userId, name: c.name, color: c.color }))
+        : [...this.interviewsById.values()].flatMap((i) => (i.event.interview?.caller ? [i.event.interview.caller] : []))
     for (const caller of everyCaller) {
       if (groups.has(caller.userId)) continue
       const mine = caller.userId === myId
@@ -1604,11 +1658,20 @@ class CallerService {
           color: group.color,
           sourceUrl: `${TEAMWORK_SOURCE_PREFIX}${slug}/${key}`,
           enabled: true,
-          notify: group.mine
+          // Reminders come for the interviews assigned to the member (see assignedEventIds), not whole calendars.
+          notify: false
         }).id
       }
     }
     for (const [key, id] of Object.entries(previous)) if (!byCaller[key]) this.removeCalendar(id)
+    // Before 1.2.6 every Teamwork calendar reminded of every interview on it: once, they stop.
+    // (A member who switches one back on afterwards keeps that.)
+    if (!settingsRepository.getInternal<boolean>(TEAMWORK_NOTIFY_FIXED_KEY, false)) {
+      for (const id of Object.values(byCaller)) {
+        if (calendarRepository.get(id)?.notify) calendarRepository.update(id, { notify: false })
+      }
+      settingsRepository.setInternal(TEAMWORK_NOTIFY_FIXED_KEY, true)
+    }
     settingsRepository.setInternal(TEAMWORK_CALENDARS_KEY, { slug, byCaller })
     return new Map(Object.entries(byCaller))
   }
@@ -1836,8 +1899,27 @@ Click to open it.`
         .filter((q) => q.slug === c.workspaceSlug)
         .map(({ id, kind, label, createdAt, interviewId }) => ({ id, kind, label, createdAt, interviewId })),
       cachedAt: this.liveUp ? null : this.cachedAt,
-      updateRequired: this.updateRequired
+      updateRequired: this.updateRequired,
+      teamworkView: this.teamworkView()
     }
+  }
+
+  /** How the Teamwork calendars are split: by bidder only for owners who chose it. */
+  private teamworkView(): TeamworkView {
+    const c = this.connection()
+    const owner = Boolean(c.workspaces.find((w) => w.slug === c.workspaceSlug)?.isOwner)
+    return owner && settingsRepository.getInternal<TeamworkView>(TEAMWORK_VIEW_KEY, 'callers') === 'bidders' ? 'bidders' : 'callers'
+  }
+
+  /** Owners: shows the Teamwork calendars by caller (and Unassigned) or by bidder. */
+  setTeamworkView(view: TeamworkView): CallerStatus {
+    const c = this.connection()
+    if (view === 'bidders' && !c.workspaces.find((w) => w.slug === c.workspaceSlug)?.isOwner) {
+      throw new CallerError('Only owners see the interviews by bidder.')
+    }
+    settingsRepository.setInternal(TEAMWORK_VIEW_KEY, view)
+    if (c.workspaceSlug && this.interviewsById.size) this.rebuildTeamwork(c.workspaceSlug)
+    return this.status()
   }
 
   async signIn(rawServerUrl: string, email: string, password: string): Promise<CallerStatus> {
@@ -1867,12 +1949,16 @@ Click to open it.`
     }>('/me', { token })
     const workspaces: CallerWorkspace[] = []
     for (const m of me.memberships) {
-      const ctx = await this.request<{ membership: { permissions: string[] } }>(`/workspaces/${m.workspace.slug}`, { token })
+      const ctx = await this.request<{ membership: { permissions: string[]; roles?: string[]; isAdmin?: boolean } }>(
+        `/workspaces/${m.workspace.slug}`,
+        { token }
+      )
       workspaces.push({
         slug: m.workspace.slug,
         name: m.workspace.name,
         canShareAny: ctx.membership.permissions.includes('calendarSources.manage'),
-        canSetColors: canSetColors(ctx.membership.permissions)
+        canSetColors: canSetColors(ctx.membership.permissions),
+        isOwner: isOwnerOf(ctx.membership)
       })
     }
     if (workspaces.length === 0) throw new CallerError('This account is not a member of any workspace yet.')

@@ -276,6 +276,8 @@ if (!app.requestSingleInstanceLock()) {
 
     // Teamwork: the live connection keeps the Teamwork calendar current (no polling).
     callerService.setOpenEvent(openEvent)
+    // Teamwork: reminders only for the interviews assigned to this member.
+    reminderService.setAlwaysRemind(() => callerService.assignedEventIds())
     callerService.startLive()
     // Calendar connections: listens for a platform asking for a fresh copy. Nothing
     // is opened when no platform is connected.

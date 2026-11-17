@@ -112,6 +112,7 @@ const api: CalendarApi = {
       ipcRenderer.invoke(IPC.callerUploadResume, interviewId, file ? webUtils.getPathForFile(file) : undefined),
     shareLink: (interviewId, url) => ipcRenderer.invoke(IPC.callerShareLink, interviewId, url),
     setColor: (calendarId, color) => ipcRenderer.invoke(IPC.callerSetColor, calendarId, color),
+    setTeamworkView: (view) => ipcRenderer.invoke(IPC.callerSetTeamworkView, view),
     cancelQueued: (id) => ipcRenderer.invoke(IPC.callerCancelQueued, id),
     teamBoard: (from, to) => ipcRenderer.invoke(IPC.callerTeamBoard, from, to),
     jobLinkSuggestions: (interviewId) => ipcRenderer.invoke(IPC.callerJobLinkSuggestions, interviewId),

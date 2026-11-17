@@ -4,7 +4,7 @@ import { formatAge, formatRelative } from '../utils/dates'
 import { isProtonStale } from '../utils/proton'
 import { DEFAULT_EVENT_STATUSES } from '@shared/eventStatus'
 import { isTeamworkSource } from '@shared/sources'
-import type { EventStatusDef, ProtonAccount } from '@shared/types'
+import type { EventStatusDef, ProtonAccount, TeamworkView } from '@shared/types'
 import { useNow } from '../hooks/useNow'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import {
@@ -267,15 +267,28 @@ function teamworkPerson(calendarName: string): string {
   return calendarName.replace(/^Teamwork · /, '').replace(/ \(you\)$/, '')
 }
 
-/** Whether the signed-in member may change Teamwork colors (owners, the admin, calendar managers). */
-function useCanSetTeamworkColors(): boolean {
-  const [can, setCan] = useState(false)
+/**
+ * What the signed-in member may do with the Teamwork calendars: change colors
+ * (owners, the admin, calendar managers), and, owners only, show them by bidder.
+ */
+interface TeamworkSidebarInfo {
+  canSetColors: boolean
+  isOwner: boolean
+  view: TeamworkView
+}
+
+function useTeamworkSidebarInfo(): TeamworkSidebarInfo {
+  const [info, setInfo] = useState<TeamworkSidebarInfo>({ canSetColors: false, isOwner: false, view: 'callers' })
   useEffect(() => {
     let alive = true
     const load = (): void => {
       void window.api.caller
         .status()
-        .then((s) => alive && setCan(Boolean(s.workspaces.find((w) => w.slug === s.workspaceSlug)?.canSetColors)))
+        .then((s) => {
+          if (!alive) return
+          const w = s.workspaces.find((x) => x.slug === s.workspaceSlug)
+          setInfo({ canSetColors: Boolean(w?.canSetColors), isOwner: Boolean(w?.isOwner), view: s.teamworkView })
+        })
         .catch(() => undefined)
     }
     load()
@@ -285,7 +298,44 @@ function useCanSetTeamworkColors(): boolean {
       off()
     }
   }, [])
-  return can
+  return info
+}
+
+/**
+ * Owners: the Teamwork calendars by caller (their interviews in their color,
+ * and Unassigned) or by bidder (who brought each interview in).
+ */
+function TeamworkViewSwitch({ view }: { view: TeamworkView }) {
+  const [pending, setPending] = useState<TeamworkView | null>(null)
+  const shown = pending ?? view
+  const pick = (next: TeamworkView): void => {
+    if (next === shown) return
+    setPending(next)
+    void window.api.caller
+      .setTeamworkView(next)
+      .catch(() => undefined)
+      .finally(() => setPending(null))
+  }
+  const option = (value: TeamworkView, label: string, title: string) => (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={shown === value}
+      onClick={() => pick(value)}
+      title={title}
+      className={`rounded px-1.5 py-px text-[10px] font-medium transition-colors ${
+        shown === value ? 'bg-slate-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+      }`}
+    >
+      {label}
+    </button>
+  )
+  return (
+    <div role="radiogroup" aria-label="Show Teamwork calendars by" className="flex shrink-0 items-center gap-px rounded-md bg-slate-800 p-px">
+      {option('callers', 'Callers', 'One calendar per caller, in their color, and Unassigned')}
+      {option('bidders', 'Bidders', 'One calendar per bidder: who brought each interview in')}
+    </div>
+  )
 }
 
 /** The member's own Teamwork calendar first, callers by name, Unassigned last. */
@@ -439,7 +489,8 @@ function SidebarRail({ onExpand }: { onExpand: (focusSearch: boolean) => void })
 }
 
 function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: boolean; toggleTitle: string; onToggle: () => void }) {
-  const canSetTeamworkColors = useCanSetTeamworkColors()
+  const teamworkInfo = useTeamworkSidebarInfo()
+  const canSetTeamworkColors = teamworkInfo.canSetColors
   const [coloring, setColoring] = useState<{ id: string; name: string; color: string } | null>(null)
   const now = useNow() // keeps "Last sync … ago" and the stale-sync badges current
   const calendars = useAppStore((s) => s.calendars)
@@ -573,6 +624,7 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
                     </span>
                   )}
                 </button>
+                {group.key === 'teamwork' && teamworkInfo.isOwner && <TeamworkViewSwitch view={teamworkInfo.view} />}
                 {group.account && isProtonStale(group.account, now) && (
                   // Proton only syncs on request: a gentle nudge once the data gets old.
                   <button

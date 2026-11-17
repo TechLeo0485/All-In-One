@@ -442,6 +442,8 @@ export interface CalendarApi {
     shareLink(interviewId: string, url: string | null): Promise<{ queued: boolean }>
     /** Changes the Teamwork color of a caller's (or the Unassigned) Teamwork calendar, for everyone. */
     setColor(calendarId: string, color: string): Promise<{ queued: boolean }>
+    /** Owners: the Teamwork calendars by caller, or by bidder. */
+    setTeamworkView(view: TeamworkView): Promise<CallerStatus>
     /** The Team view's Day board for the interviews between `from` and `to` (ISO). */
     teamBoard(from: string, to: string): Promise<TeamBoard>
     /** Job links the interview probably came from (only while company and role are empty). */
@@ -535,7 +537,15 @@ export interface CallerWorkspace {
   canShareAny: boolean
   /** May change callers' and the Unassigned color on Teamwork (members or calendar management). */
   canSetColors?: boolean
+  /** An owner (or the admin): may show the Teamwork calendars by bidder. */
+  isOwner?: boolean
 }
+
+/**
+ * How the Teamwork calendars are split: one per caller (and Unassigned), or,
+ * for owners, one per bidder (who brought each interview in).
+ */
+export type TeamworkView = 'callers' | 'bidders'
 
 export interface CallerStatus {
   signedIn: boolean
@@ -556,6 +566,8 @@ export interface CallerStatus {
   cachedAt: string | null
   /** Teamwork no longer accepts this version of the app: why, and what to do. Nothing syncs until it's updated. */
   updateRequired: string | null
+  /** How the Teamwork calendars are split now ("bidders" only for owners). */
+  teamworkView: TeamworkView
 }
 
 /** A job link the interview probably came from: its profile applied to it, and the invitation names the company. */

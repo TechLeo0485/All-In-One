@@ -246,6 +246,10 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
       dropped === undefined || dropped === null ? undefined : v.str(dropped, 'File', { max: 4096 })
     )
   )
+  handle(IPC.callerSetTeamworkView, (_e, view) => {
+    if (view !== 'callers' && view !== 'bidders') throw new Error('Pick callers or bidders.')
+    return callerService.setTeamworkView(view)
+  })
   handle(IPC.callerSetColor, (_e, calendarId, color) =>
     callerService.setColor(
       v.str(calendarId, 'Calendar', { required: true, max: 64 }),

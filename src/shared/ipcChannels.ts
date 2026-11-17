@@ -80,6 +80,7 @@ export const IPC = {
   callerUploadResume: 'caller:uploadResume',
   callerShareLink: 'caller:shareLink',
   callerSetColor: 'caller:setColor',
+  callerSetTeamworkView: 'caller:setTeamworkView',
   callerCancelQueued: 'caller:cancelQueued',
   callerTeamBoard: 'caller:teamBoard',
   callerJobLinkSuggestions: 'caller:jobLinkSuggestions',

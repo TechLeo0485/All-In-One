@@ -60,6 +60,16 @@ class ReminderService {
   private onOpen: ((request: OpenEventRequest) => void) | null = null
   private onTick: (() => void) | null = null
   private onStatusPicked: ((eventId: string, statusId: string) => void) | null = null
+  /** Events always reminded of, whatever their calendar's setting (Teamwork interviews assigned to the member). */
+  private alwaysRemindIds: (() => ReadonlySet<string>) | null = null
+
+  setAlwaysRemind(ids: () => ReadonlySet<string>): void {
+    this.alwaysRemindIds = ids
+  }
+
+  private alwaysRemind(): ReadonlySet<string> {
+    return this.alwaysRemindIds?.() ?? new Set()
+  }
 
   /** A status button was pressed on a "How did it go?" notification. */
   setStatusPickedHandler(handler: (eventId: string, statusId: string) => void): void {
@@ -192,6 +202,7 @@ class ReminderService {
         .filter((c) => c.enabled && c.notify)
         .map((c) => c.id)
     )
+    const always = this.alwaysRemind()
     const untilIso = new Date(until).toISOString()
     const sinceIso = new Date(since).toISOString()
     return eventRepository
@@ -202,7 +213,7 @@ class ReminderService {
           e.status === null &&
           e.endTime >= sinceIso &&
           e.endTime <= untilIso &&
-          (e.isLocalEvent || notifyCalendars.has(e.calendarId ?? '')) &&
+          (e.isLocalEvent || notifyCalendars.has(e.calendarId ?? '') || always.has(e.id)) &&
           (settings.statusPrompt === 'all' || e.attendees.length > 0)
       )
   }
@@ -269,14 +280,15 @@ class ReminderService {
         .filter((c) => c.enabled && c.notify)
         .map((c) => c.id)
     )
-    if (notifyCalendars.size === 0) return out
+    const always = this.alwaysRemind()
+    if (notifyCalendars.size === 0 && always.size === 0) return out
 
     // Look ahead far enough for the longest lead time (+1 day for all-day events).
     const lookAheadMs = Math.max(timedLead, 0) * 60_000 + 2 * 86_400_000
     const from = new Date(now - LATE_GRACE_MS - 86_400_000).toISOString()
     const to = new Date(now + lookAheadMs).toISOString()
     for (const event of eventRepository.listInRange(from, to)) {
-      if (event.isLocalEvent || !notifyCalendars.has(event.calendarId ?? '')) continue
+      if (event.isLocalEvent || !(notifyCalendars.has(event.calendarId ?? '') || always.has(event.id))) continue
       const start = parseStart(event)
       if (event.allDay) {
         if (allDayOffset !== null) out.push({ event, start, dueAt: start + allDayOffset, minutesBefore: null })

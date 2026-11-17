@@ -9,6 +9,10 @@ How to use this file:
 - Write for users: what they can now do, or what works better. Not file names or code.
 -->
 
+## 1.2.6
+- Owners can switch the **Teamwork** calendars in the sidebar between **Callers** and **Bidders** (the switch next to "Teamwork"). **Callers** is as before: each caller's interviews in their color, and **Unassigned**. **Bidders** puts each interview on the calendar of the member who brought it in (whose calendar it came from, or who added it on Teamwork), in their color, so you can see who made each interview. Other members always see the callers' calendars.
+- Teamwork reminders are for **your** interviews only: you're reminded before the interviews assigned to you (with your usual reminder time), not before every interview on every caller's calendar as until now. This works in both the Callers and the Bidders view. The **New interview assigned to you** notification is unchanged.
+
 ## 1.2.5
 - The app now tells Teamwork its version. If Teamwork no longer supports it, the Teamwork card says **Update required** and syncing pauses instead of half-working; changes waiting to be sent are kept and go once the app is updated.
 - A workspace with very many interviews no longer misses some: when Teamwork has more than one answer holds, the app loads them a week at a time.
