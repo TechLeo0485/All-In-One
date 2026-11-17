@@ -12,6 +12,7 @@ import { isFileSource } from '@shared/sources'
 import { findStatus } from '@shared/eventStatus'
 import { MAX_NOTE_IMAGE_BYTES, NOTE_IMAGE_TYPES } from '@shared/noteImages'
 import { callerService } from '../services/caller/callerService'
+import { overviewService } from '../services/overview/overviewService'
 import { connectionService } from '../services/connections/connectionService'
 import { fileSourceService } from '../services/fileSourceService'
 import { protonAccountService } from '../services/proton/protonAccountService'
@@ -244,6 +245,15 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
     callerService.uploadResume(
       v.str(interviewId, 'Interview', { required: true, max: 64 }),
       dropped === undefined || dropped === null ? undefined : v.str(dropped, 'File', { max: 4096 })
+    )
+  )
+  handle(IPC.overviewGroups, () => overviewService.groupList())
+  handle(IPC.overviewBoard, (_e, groupId, view, from, to) =>
+    overviewService.board(
+      v.str(groupId, 'Group', { required: true, max: 64 }),
+      view === 'bidders' ? 'bidders' : 'callers',
+      v.str(from, 'From', { required: true, max: 40 }),
+      v.str(to, 'To', { required: true, max: 40 })
     )
   )
   handle(IPC.callerSetTeamworkView, (_e, view) => {

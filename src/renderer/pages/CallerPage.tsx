@@ -61,7 +61,7 @@ export function TeamworkConnection() {
             sees each event&apos;s title, place and guests (never its description, links or notes).
           </p>
         </div>
-        {status?.signedIn && (
+        {status?.signedIn && !status.overview && (
           <span className={`text-xs ${LIVE[status.live].tone}`}>
             {LIVE[status.live].label}
             {status.lastCheckedAt && <span className="text-slate-500"> · checked {ago(status.lastCheckedAt)}</span>}
@@ -76,7 +76,7 @@ export function TeamworkConnection() {
             the app is updated (Settings → check for updates).
           </p>
         )}
-        {status?.signedIn && !status.updateRequired && status.live !== 'connected' && (
+        {status?.signedIn && !status.overview && !status.updateRequired && status.live !== 'connected' && (
           <p className="mb-4 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
             Teamwork can&apos;t be reached right now.
             {status.cachedAt && <> Showing what it had at {new Date(status.cachedAt).toLocaleString()}.</>} What you do here is saved
@@ -115,6 +115,8 @@ export function TeamworkConnection() {
         )}
         {!status ? (
           <Spinner />
+        ) : status.signedIn && status.overview ? (
+          <OverviewConnected status={status} onStatus={setStatus} onError={setError} />
         ) : status.signedIn ? (
           <Connected status={status} onStatus={setStatus} onError={setError} />
         ) : (
@@ -122,6 +124,56 @@ export function TeamworkConnection() {
         )}
       </div>
     </section>
+  )
+}
+
+/**
+ * Signed in with an overview account (e.g. the group's CEO): nothing of this
+ * computer is shared; its groups show read-only in the sidebar under Groups, and
+ * the Day view's Team switch dives into a group's day.
+ */
+function OverviewConnected({
+  status,
+  onStatus,
+  onError
+}: {
+  status: CallerStatus
+  onStatus: (s: CallerStatus) => void
+  onError: (message: string | null) => void
+}) {
+  const [busy, setBusy] = useState(false)
+  async function signOut() {
+    setBusy(true)
+    try {
+      onStatus(await window.api.caller.signOut())
+      onError(null)
+    } catch (err) {
+      onError(errorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="space-y-3 text-sm">
+      <p>
+        Signed in as <span className="font-medium text-slate-100">{status.userName}</span>{' '}
+        <span className="text-slate-500">({status.email})</span> · overview account
+      </p>
+      <ul className="list-disc space-y-1 pl-5 text-xs text-slate-400">
+        <li>
+          Your groups show in the sidebar under <span className="text-slate-200">Groups</span>, one calendar each, in their color.
+          Click an interview for its caller, bidder, round and what it&apos;s about.
+        </li>
+        <li>
+          In the <span className="text-slate-200">Day</span> view, <span className="text-slate-200">Team</span> shows one group&apos;s
+          day by caller or by bidder.
+        </li>
+        <li>Everything is read-only and stays current by itself. Nothing on this computer is shared.</li>
+      </ul>
+      <Button variant="ghost" onClick={() => void signOut()} disabled={busy}>
+        {busy && <Spinner />} Sign out
+      </Button>
+    </div>
   )
 }
 

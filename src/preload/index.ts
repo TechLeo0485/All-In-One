@@ -126,6 +126,10 @@ const api: CalendarApi = {
       return () => ipcRenderer.removeListener(IPC.callerChanged, listener)
     }
   },
+  overview: {
+    groups: () => ipcRenderer.invoke(IPC.overviewGroups),
+    board: (groupId, view, from, to) => ipcRenderer.invoke(IPC.overviewBoard, groupId, view, from, to)
+  },
   connections: {
     status: () => ipcRenderer.invoke(IPC.connectionsStatus),
     connect: (address, key, name) => ipcRenderer.invoke(IPC.connectionsConnect, address, key, name),

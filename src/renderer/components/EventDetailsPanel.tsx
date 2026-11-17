@@ -10,7 +10,7 @@ import type {
 } from '@shared/types'
 import { DEFAULT_EVENT_STATUSES, DEFAULT_IMPORTANT_COLOR, findStatus, FOLLOW_UP_ID } from '@shared/eventStatus'
 import { findMeetingUrl } from '@shared/meetingLink'
-import { isTeamworkSource } from '@shared/sources'
+import { isOverviewSource, isTeamworkSource } from '@shared/sources'
 import { describeRecurrence } from '@shared/recurrence'
 import { useAppStore } from '../stores/appStore'
 import { useEventDetails } from '../hooks/useEventDetails'
@@ -1060,6 +1060,9 @@ export function EventDetailsPanel() {
   // Another member's busy time on their Teamwork calendar: only what it is and when (the
   // upper part). Nothing of it is the viewer's to mark, note or share.
   const busyItem = Boolean(event && calendar && isTeamworkSource(calendar.sourceUrl) && event.externalId?.startsWith('busy:'))
+  // An overview account's group interview: who, what and what it's about (its description), read-only.
+  const overviewItem = Boolean(calendar && isOverviewSource(calendar.sourceUrl))
+  const readOnlyItem = busyItem || overviewItem
   const hasMoreDetails = !busyItem && Boolean(event && (meetingUrl || event.description || event.isLocalEvent))
   const color = event?.isLocalEvent ? (event.color ?? localColor) : (calendar?.color ?? '#64748b')
 
@@ -1130,7 +1133,7 @@ export function EventDetailsPanel() {
               />
             )}
             {event.attendees.length > 0 && <GuestList key={`guests:${event.id}`} attendees={event.attendees} />}
-            {!busyItem && (
+            {!readOnlyItem && (
               <>
                 <ImportantToggle event={event} />
                 <StatusPicker event={event} />
@@ -1142,7 +1145,7 @@ export function EventDetailsPanel() {
           </section>
 
           {/* Notes sit right under the event summary so they're visible without scrolling past long descriptions. */}
-          {!busyItem && (
+          {!readOnlyItem && (
             <>
               <hr className="border-slate-800" />
               <NotesEditor eventId={event.id} />

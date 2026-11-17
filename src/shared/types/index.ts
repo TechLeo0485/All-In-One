@@ -470,6 +470,11 @@ export interface CalendarApi {
     /** The Teamwork calendar or interview details changed (live update from the workspace). */
     onChanged(callback: () => void): () => void
   }
+  /** Overview accounts: their groups, and one group's day by caller or by bidder (read-only). */
+  overview: {
+    groups(): Promise<OverviewGroup[]>
+    board(groupId: string, view: TeamworkView, from: string, to: string): Promise<TeamBoard>
+  }
   connections: {
     status(): Promise<ConnectionsStatus>
     /** Pairs this app with a platform's calendar connection address. The API key may be ''. */
@@ -568,6 +573,18 @@ export interface CallerStatus {
   updateRequired: string | null
   /** How the Teamwork calendars are split now ("bidders" only for owners). */
   teamworkView: TeamworkView
+  /**
+   * Signed in with an overview account (e.g. the group's CEO): no workspace; the
+   * groups it was given show as read-only calendars, and the Team view dives into one.
+   */
+  overview: boolean
+}
+
+/** A group an overview account sees: its label (never the workspace's name) and color. */
+export interface OverviewGroup {
+  id: string
+  label: string
+  color: string
 }
 
 /** A job link the interview probably came from: its profile applied to it, and the invitation names the company. */
@@ -622,6 +639,8 @@ export interface TeamBoard {
   canAssign: boolean
   /** Color of the Unassigned column (the workspace's). */
   unassignedColor: string
+  /** Name of the column of cards with nobody ("Unassigned"; "No bidder" by bidder). */
+  unassignedLabel?: string
   /** Not connected: as Teamwork had it at this time. */
   offlineSince: string | null
 }

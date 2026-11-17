@@ -3,7 +3,7 @@ import { LOCAL_EVENTS_KEY, useAppStore, type EventCounts, type PeriodStats, type
 import { formatAge, formatRelative } from '../utils/dates'
 import { isProtonStale } from '../utils/proton'
 import { DEFAULT_EVENT_STATUSES } from '@shared/eventStatus'
-import { isTeamworkSource } from '@shared/sources'
+import { isOverviewSource, isTeamworkSource } from '@shared/sources'
 import type { EventStatusDef, ProtonAccount, TeamworkView } from '@shared/types'
 import { useNow } from '../hooks/useNow'
 import { useMediaQuery } from '../hooks/useMediaQuery'
@@ -542,7 +542,10 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
       .sort((a, b) => teamworkRank(a) - teamworkRank(b) || a.name.localeCompare(b.name))
     const other = enabled.filter((c) => !isTeamworkSource(c.sourceUrl) && (!c.accountId || !accounts.some((a) => a.id === c.accountId)))
     if (other.length) result.push({ key: 'other', title: result.length || teamwork.length ? 'Other calendars' : null, items: other })
-    if (teamwork.length) result.push({ key: 'teamwork', title: 'Teamwork', items: teamwork })
+    // An overview account's calendars are its groups (labels, never the workspaces' names).
+    if (teamwork.length) {
+      result.push({ key: 'teamwork', title: teamwork.every((c) => isOverviewSource(c.sourceUrl)) ? 'Groups' : 'Teamwork', items: teamwork })
+    }
     return result
   }, [accounts, enabled])
 

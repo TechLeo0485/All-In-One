@@ -34,6 +34,7 @@ import { eventRepository } from '../../database/eventRepository'
 import { settingsRepository } from '../../database/settingsRepository'
 import { makeEventId } from '../../sync/icsParser'
 import { syncService } from '../../sync/syncService'
+import { overviewService } from '../overview/overviewService'
 import { protonAccountService } from '../proton/protonAccountService'
 import { createNotification } from '../windowsIdentity'
 import { buildIcs } from './icsBuilder'
@@ -74,6 +75,8 @@ interface Connection {
   workspaces: CallerWorkspace[]
   workspaceSlug: string | null
   lastSyncAt: string | null
+  /** Signed in with an overview account: no workspace, the overview service shows its groups. */
+  overview?: boolean
 }
 
 interface StoredShare {
@@ -1900,8 +1903,27 @@ Click to open it.`
         .map(({ id, kind, label, createdAt, interviewId }) => ({ id, kind, label, createdAt, interviewId })),
       cachedAt: this.liveUp ? null : this.cachedAt,
       updateRequired: this.updateRequired,
-      teamworkView: this.teamworkView()
+      teamworkView: this.teamworkView(),
+      overview: Boolean(c.overview && c.serverUrl && this.token())
     }
+  }
+
+  /** The overview account's session, for the overview service (null for members). */
+  overviewSession(): { serverUrl: string; token: string } | null {
+    const c = this.connection()
+    const token = this.token()
+    return c.overview && c.serverUrl && token ? { serverUrl: c.serverUrl, token } : null
+  }
+
+  /** A request as the overview account (its sign-in ending signs it out here). */
+  overviewRequest<T>(path: string): Promise<T> {
+    return this.request<T>(path)
+  }
+
+  /** The overview account's sign-in ended. */
+  overviewSignedOut(): void {
+    this.saveToken(null)
+    this.notifyChanged()
   }
 
   /** How the Teamwork calendars are split: by bidder only for owners who chose it. */
@@ -1944,9 +1966,28 @@ Click to open it.`
 
     this.saveConnection({ serverUrl })
     const me = await this.request<{
-      user: { id: string; name: string; email: string }
+      user: { id: string; name: string; email: string; platformRole?: string }
       memberships: Array<{ workspace: { slug: string; name: string } }>
     }>('/me', { token })
+    // An overview account (e.g. the group's CEO): no workspace of its own; its groups show read-only.
+    if (me.user.platformRole === 'viewer') {
+      const before = this.connection().userId
+      if (before && before !== me.user.id) this.switchAccount(before, me.user.id)
+      this.stopLive()
+      this.clearTeamwork()
+      this.saveToken(token)
+      this.saveConnection({
+        email: me.user.email,
+        userName: me.user.name,
+        userId: me.user.id,
+        workspaces: [],
+        workspaceSlug: null,
+        overview: true
+      })
+      overviewService.start()
+      this.notifyChanged()
+      return this.status()
+    }
     const workspaces: CallerWorkspace[] = []
     for (const m of me.memberships) {
       const ctx = await this.request<{ membership: { permissions: string[]; roles?: string[]; isAdmin?: boolean } }>(
@@ -1966,9 +2007,12 @@ Click to open it.`
     // back when it signs in again); nothing of one account is shown to, or sent as, the other.
     const before = this.connection().userId
     if (before && before !== me.user.id) this.switchAccount(before, me.user.id)
+    // Was an overview account here: its group calendars go.
+    if (this.connection().overview) overviewService.clear()
     this.saveToken(token)
     const previous = this.connection().workspaceSlug
     this.saveConnection({
+      overview: false,
       email: me.user.email,
       userName: me.user.name,
       userId: me.user.id,
@@ -2010,6 +2054,10 @@ Click to open it.`
     if (token) await this.request('/auth/sign-out', { method: 'POST', body: {}, token }).catch(() => undefined)
     this.saveToken(null)
     this.clearTeamwork()
+    if (this.connection().overview) {
+      overviewService.clear()
+      this.saveConnection({ overview: false })
+    }
     return this.status()
   }
 

@@ -52,6 +52,17 @@ export function isTeamworkSource(url: string): boolean {
   return url.startsWith(TEAMWORK_SOURCE_PREFIX)
 }
 
+/**
+ * An overview account's group calendars (one per group, read-only). They are
+ * Teamwork calendars too, so everything that leaves those alone (syncing,
+ * sharing, busy time) leaves these alone.
+ */
+export const OVERVIEW_SOURCE_PREFIX = `${TEAMWORK_SOURCE_PREFIX}overview/`
+
+export function isOverviewSource(url: string): boolean {
+  return url.startsWith(OVERVIEW_SOURCE_PREFIX)
+}
+
 export function isFileSource(url: string): boolean {
   return url.trim().toLowerCase().startsWith('file:')
 }

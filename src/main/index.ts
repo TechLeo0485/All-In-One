@@ -16,6 +16,7 @@ import { settingsRepository } from './database/settingsRepository'
 import { protonAccountService } from './services/proton/protonAccountService'
 import { registerIpcHandlers } from './ipc/registerHandlers'
 import { callerService } from './services/caller/callerService'
+import { overviewService } from './services/overview/overviewService'
 import { connectionService } from './services/connections/connectionService'
 import { syncService } from './sync/syncService'
 import { hostBackoff } from './sync/hostBackoff'
@@ -276,6 +277,13 @@ if (!app.requestSingleInstanceLock()) {
 
     // Teamwork: the live connection keeps the Teamwork calendar current (no polling).
     callerService.setOpenEvent(openEvent)
+    // Overview accounts: their groups' read-only calendars (nothing runs for members).
+    overviewService.setHost({
+      session: () => callerService.overviewSession(),
+      request: (path) => callerService.overviewRequest(path),
+      signedOut: () => callerService.overviewSignedOut()
+    })
+    overviewService.start()
     // Teamwork: reminders only for the interviews assigned to this member.
     reminderService.setAlwaysRemind(() => callerService.assignedEventIds())
     callerService.startLive()

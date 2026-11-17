@@ -30,6 +30,7 @@ import type { EventResizeDoneArg } from '@fullcalendar/interaction'
 import type { AttendeeStatus, CalendarEvent, CallerTag, LocalEventInput } from '@shared/types'
 import { CallerTagChip } from '../components/CallerTag'
 import { TeamDayBoard } from '../components/TeamDayBoard'
+import { OverviewDayBoard } from '../components/OverviewDayBoard'
 import { DEFAULT_EVENT_STATUSES, DEFAULT_IMPORTANT_COLOR, findStatus } from '@shared/eventStatus'
 import { clampHourHeight, DEFAULT_HOUR_HEIGHT, HOUR_HEIGHT_STEP } from '@shared/hourHeight'
 import { LOCAL_EVENTS_KEY, useAppStore, type EventCounts } from '../stores/appStore'
@@ -70,7 +71,7 @@ export function CalendarPage() {
   const [period, setPeriod] = useState<Period | null>(null)
   const [viewType, setViewType] = useState(initialView)
   // Personal: this app's calendars, as always. Team: the Day view is Teamwork's board of the team's day.
-  const teamworkSignedIn = useTeamworkSignedIn()
+  const { signedIn: teamworkSignedIn, overview } = useTeamworkSignedIn()
   const [mode, setMode] = useState<'personal' | 'team'>(() => (localStorage.getItem(MODE_STORAGE_KEY) === 'team' ? 'team' : 'personal'))
   const pickMode = useCallback((next: 'personal' | 'team') => {
     localStorage.setItem(MODE_STORAGE_KEY, next)
@@ -399,7 +400,13 @@ export function CalendarPage() {
             ...(arg.event.extendedProps.important === true ? [IMPORTANT_CLASS] : [])
           ]}
         />
-        {teamDay && period && <TeamDayBoard from={period.start} to={period.end} timeZone={timeZone === 'local' ? undefined : timeZone} hourHeight={hourHeight} />}
+        {teamDay &&
+          period &&
+          (overview ? (
+            <OverviewDayBoard from={period.start} to={period.end} timeZone={timeZone === 'local' ? undefined : timeZone} hourHeight={hourHeight} />
+          ) : (
+            <TeamDayBoard from={period.start} to={period.end} timeZone={timeZone === 'local' ? undefined : timeZone} hourHeight={hourHeight} />
+          ))}
       </div>
     </div>
   )
@@ -780,14 +787,20 @@ const TITLE_SELECTOR = '.fc-toolbar-title'
 const VIEWS = ['dayGridMonth', 'timeGridWeek', 'timeGridDay']
 
 /** Whether the app is signed in to a Teamwork workspace (the Team view needs it). */
-function useTeamworkSignedIn(): boolean {
-  const [signedIn, setSignedIn] = useState(false)
+/** Connected to a Teamwork workspace, or signed in with an overview account (its groups' Team view). */
+function useTeamworkSignedIn(): { signedIn: boolean; overview: boolean } {
+  const [state, setState] = useState({ signedIn: false, overview: false })
   useEffect(() => {
     let alive = true
     const load = (): void => {
       void window.api.caller
         .status()
-        .then((s) => alive && setSignedIn(s.signedIn && Boolean(s.workspaceSlug)))
+        .then((s) => {
+          if (!alive) return
+          const overview = s.signedIn && s.overview
+          const signedIn = overview || (s.signedIn && Boolean(s.workspaceSlug))
+          setState((prev) => (prev.signedIn === signedIn && prev.overview === overview ? prev : { signedIn, overview }))
+        })
         .catch(() => undefined)
     }
     load()
@@ -797,7 +810,7 @@ function useTeamworkSignedIn(): boolean {
       off()
     }
   }, [])
-  return signedIn
+  return state
 }
 
 /** Restores the last used Month/Week/Day view. */

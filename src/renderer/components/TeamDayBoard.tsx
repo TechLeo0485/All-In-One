@@ -68,7 +68,8 @@ export function TeamDayBoard({
   from,
   to,
   timeZone,
-  hourHeight
+  hourHeight,
+  source
 }: {
   /** The day's midnight and the next (ISO), in the calendar's time zone. */
   from: string
@@ -76,6 +77,8 @@ export function TeamDayBoard({
   timeZone: string | undefined
   /** Height of one hour, in px (the calendar's zoom). */
   hourHeight: number
+  /** Where the board comes from: the workspace's (default), or an overview group's (read-only). */
+  source?: (from: string, to: string) => Promise<TeamBoard>
 }) {
   const selectEvent = useAppStore((s) => s.selectEvent)
   const selectedEventId = useAppStore((s) => s.selectedEventId)
@@ -89,14 +92,13 @@ export function TeamDayBoard({
   const scroller = useRef<HTMLDivElement>(null)
 
   const load = useCallback(() => {
-    void window.api.caller
-      .teamBoard(from, to)
+    void (source ?? window.api.caller.teamBoard)(from, to)
       .then((b) => {
         setBoard(b)
         setError(null)
       })
       .catch((err) => setError(errorMessage(err)))
-  }, [from, to])
+  }, [from, to, source])
   useEffect(() => {
     load()
     const offCaller = window.api.caller.onChanged(load)
@@ -122,7 +124,7 @@ export function TeamDayBoard({
       else none.push(card)
     }
     return [
-      { id: UNASSIGNED, name: 'Unassigned', callerId: null, color: board.unassignedColor, mine: false, cards: none },
+      { id: UNASSIGNED, name: board.unassignedLabel ?? 'Unassigned', callerId: null, color: board.unassignedColor, mine: false, cards: none },
       ...board.callers.map((c) => ({ id: c.userId, name: c.name, callerId: c.userId, color: c.color, mine: c.mine, cards: byCaller.get(c.userId) ?? [] }))
     ] satisfies Column[]
   }, [board])
@@ -228,7 +230,9 @@ export function TeamDayBoard({
                   <p className={`text-xs ${column.callerId === null && column.cards.length ? 'text-amber-300' : 'text-slate-400'}`}>
                     {column.cards.length === 0
                       ? column.callerId === null
-                        ? 'Nothing to assign'
+                        ? board.canAssign
+                          ? 'Nothing to assign'
+                          : 'None'
                         : 'Free all day'
                       : `${column.cards.length} ${column.cards.length === 1 ? 'event' : 'events'}`}
                   </p>
