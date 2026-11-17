@@ -21,6 +21,8 @@ interface Column {
   color: string
   mine: boolean
   cards: TeamBoardCard[]
+  /** All groups at once (overview accounts): the column's group. */
+  group?: { label: string; color: string }
 }
 
 /** "Hector Ruiz" → "HR", "hong" → "HO". */
@@ -125,8 +127,16 @@ export function TeamDayBoard({
     }
     return [
       { id: UNASSIGNED, name: board.unassignedLabel ?? 'Unassigned', callerId: null, color: board.unassignedColor, mine: false, cards: none },
-      ...board.callers.map((c) => ({ id: c.userId, name: c.name, callerId: c.userId, color: c.color, mine: c.mine, cards: byCaller.get(c.userId) ?? [] }))
-    ] satisfies Column[]
+      ...board.callers.map((c) => ({
+        id: c.userId,
+        name: c.name,
+        callerId: c.userId,
+        color: c.color,
+        mine: c.mine,
+        cards: byCaller.get(c.userId) ?? [],
+        group: c.group
+      }))
+    ] as Column[]
   }, [board])
 
   // Open on the current time today, else at 8 AM; only when the day or the zoom changes.
@@ -223,6 +233,12 @@ export function TeamDayBoard({
                   {column.callerId === null ? '?' : initials(column.name)}
                 </span>
                 <div className="min-w-0">
+                  {column.group && (
+                    <p className="flex items-center gap-1 text-[10px] font-medium tracking-wide text-slate-400 uppercase">
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: column.group.color }} aria-hidden />
+                      <span className="truncate">{column.group.label}</span>
+                    </p>
+                  )}
                   <p className="truncate text-sm font-semibold text-slate-100">
                     {column.name}
                     {column.mine && <span className="ml-1 text-xs font-normal text-slate-500">(you)</span>}
@@ -293,7 +309,7 @@ export function TeamDayBoard({
                           e.dataTransfer.effectAllowed = 'move'
                         }}
                         onClick={() => card.eventId && selectEvent(card.eventId)}
-                        title={`${card.title}\n${when}${card.company ? ` · ${card.company}` : ''}${status ? `\n${status.label}` : ''}${
+                        title={`${card.group ? `${card.group.label}\n` : ''}${card.title}\n${when}${card.company ? ` · ${card.company}` : ''}${status ? `\n${status.label}` : ''}${
                           card.lockedTo ? `\nStays with ${card.lockedTo.name} (later round)` : ''
                         }${card.pending ? '\nWaiting to send' : ''}`}
                         className={`absolute z-[5] overflow-hidden rounded-md border border-l-[3px] px-2 text-left text-xs text-slate-100 transition-[box-shadow,opacity] hover:z-20 hover:shadow-lg focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none ${
@@ -338,6 +354,14 @@ export function TeamDayBoard({
                             <span className="shrink-0 rounded border px-1 text-[10px] leading-4 font-semibold" style={{ borderColor: `${column.color}99` }}>
                               {card.round}
                             </span>
+                          )}
+                          {card.group && column.callerId === null && (
+                            <span
+                              className="h-2 w-2 shrink-0 rounded-full"
+                              style={{ background: card.group.color }}
+                              title={card.group.label}
+                              aria-label={card.group.label}
+                            />
                           )}
                           <span className={`min-w-0 flex-1 truncate font-medium ${card.cancelled ? 'line-through' : ''}`}>{card.title}</span>
                           {card.pending && <span className="shrink-0 text-[10px] text-sky-300" aria-label="Waiting to send">⏳</span>}

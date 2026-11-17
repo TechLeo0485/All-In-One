@@ -628,6 +628,8 @@ export interface TeamBoardCaller {
   level: number | null
   color: string
   mine: boolean
+  /** Overview accounts, all groups at once: the group this person's column belongs to. */
+  group?: { label: string; color: string }
 }
 
 /** One interview on the Team view's Day board. */
@@ -653,6 +655,8 @@ export interface TeamBoardCard {
   pending: boolean
   /** A member's own calendar event (overview accounts), not an interview. */
   own?: boolean
+  /** Overview accounts, all groups at once: the interview's group. */
+  group?: { label: string; color: string }
 }
 
 /** The Team view's Day board: callers by level and the interviews of the day. */

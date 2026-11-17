@@ -4,6 +4,7 @@ import { TeamDayBoard } from './TeamDayBoard'
 
 const GROUP_KEY = 'overview.group'
 const VIEW_KEY = 'overview.view'
+const ALL = 'all'
 
 function stored(key: string): string | null {
   try {
@@ -44,7 +45,10 @@ export function OverviewDayBoard({
     return window.api.caller.onChanged(load)
   }, [])
 
-  const current = groups?.find((g) => g.id === groupId) ?? groups?.[0] ?? null
+  // All groups at once (the default), or one.
+  const allGroups = groupId === null || groupId === ALL
+  const current = allGroups ? null : (groups?.find((g) => g.id === groupId) ?? null)
+  const boardId = current?.id ?? ALL
   const pickGroup = (id: string): void => {
     setGroupId(id)
     try {
@@ -62,8 +66,8 @@ export function OverviewDayBoard({
     }
   }
   const source = useCallback(
-    (a: string, b: string) => window.api.overview.board(current?.id ?? '', view, a, b),
-    [current?.id, view]
+    (a: string, b: string) => window.api.overview.board(boardId, view, a, b),
+    [boardId, view]
   )
 
   if (groups && groups.length === 0) {
@@ -78,6 +82,17 @@ export function OverviewDayBoard({
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
         <div role="radiogroup" aria-label="Group" className="flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={allGroups || !current}
+            onClick={() => pickGroup(ALL)}
+            className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+              allGroups || !current ? 'border-transparent bg-slate-600 text-white' : 'border-slate-700 text-slate-300 hover:border-slate-500 hover:text-white'
+            }`}
+          >
+            All groups
+          </button>
           {(groups ?? []).map((g) => {
             const on = current?.id === g.id
             return (
@@ -116,7 +131,7 @@ export function OverviewDayBoard({
           ))}
         </div>
       </div>
-      {current && <TeamDayBoard key={`${current.id}:${view}`} from={from} to={to} timeZone={timeZone} hourHeight={hourHeight} source={source} />}
+      {groups && <TeamDayBoard key={`${boardId}:${view}`} from={from} to={to} timeZone={timeZone} hourHeight={hourHeight} source={source} />}
     </div>
   )
 }

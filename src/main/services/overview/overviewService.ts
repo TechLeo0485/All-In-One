@@ -70,6 +70,8 @@ const SILENCE_MS = 70_000
 const LIVE_DEBOUNCE_MS = 400
 
 const ATTENDEE_STATUSES: readonly string[] = ['accepted', 'declined', 'tentative', 'needs-action']
+/** The board of every group at once. */
+const ALL_GROUPS = 'all'
 
 /**
  * The overview account in the app (e.g. the group's CEO): one read-only
@@ -175,8 +177,32 @@ class OverviewService {
     return this.groups.map(({ id, label, color }) => ({ id, label, color }))
   }
 
-  /** One group's day, by caller (and Unassigned) or by bidder (who brought each in). Read-only. */
+  /** Every group's day on one board: each group's columns in turn, tagged with the group. */
+  private allGroupsBoard(view: TeamworkView, from: string, to: string): TeamBoard {
+    const boards = this.groups.map((g) => ({ g, board: this.board(g.id, view, from, to) }))
+    const tag = (g: Group) => ({ label: g.label, color: g.color })
+    return {
+      signedIn: Boolean(this.host?.session()),
+      // A person in two groups gets a column in each: ids are made per group.
+      callers: boards.flatMap(({ g, board }) => board.callers.map((c) => ({ ...c, userId: `${g.id}:${c.userId}`, group: tag(g) }))),
+      cards: boards.flatMap(({ g, board }) =>
+        board.cards.map((c) => ({
+          ...c,
+          interviewId: c.own ? `${g.id}:${c.interviewId}` : c.interviewId,
+          callerId: c.callerId ? `${g.id}:${c.callerId}` : null,
+          group: tag(g)
+        }))
+      ),
+      canAssign: false,
+      unassignedColor: '#94a3b8',
+      unassignedLabel: view === 'bidders' ? 'No bidder' : 'Unassigned',
+      offlineSince: null
+    }
+  }
+
+  /** One group's day (or every group's: `all`), by caller (and Unassigned) or by bidder. Read-only. */
   board(groupId: string, view: TeamworkView, from: string, to: string): TeamBoard {
+    if (groupId === ALL_GROUPS) return this.allGroupsBoard(view, from, to)
     const group = this.groups.find((g) => g.id === groupId)
     const signedIn = Boolean(this.host?.session())
     if (!group) return { signedIn, callers: [], cards: [], canAssign: false, unassignedColor: '#94a3b8', offlineSince: null }
