@@ -1,7 +1,7 @@
 import { app, BrowserWindow, powerMonitor } from 'electron'
 import { IPC } from '@shared/ipcChannels'
 import { isOverviewSource, OVERVIEW_SOURCE_PREFIX } from '@shared/sources'
-import type { OverviewGroup, TeamBoard, TeamBoardCard, TeamworkView } from '@shared/types'
+import type { AttendeeStatus, OverviewGroup, OverviewInterviewInfo, TeamBoard, TeamBoardCard, TeamworkView } from '@shared/types'
 import { calendarRepository } from '../../database/calendarRepository'
 import { eventRepository } from '../../database/eventRepository'
 import { makeEventId } from '../../sync/icsParser'
@@ -29,8 +29,22 @@ interface Interview {
   role: string | null
   round: number | null
   summary: string
+  /** Missing from older servers: the summary stands in. */
+  description?: string
+  meetingInstructions?: string
+  location?: string
+  attendees?: Array<{ name: string; email: string; status: string; isOrganizer: boolean; optional: boolean }>
+  profile?: string | null
+  link?: string | null
   caller: { id: string; name: string; color: string } | null
   bidder: { id: string; name: string; color: string } | null
+}
+
+/** A member's own calendar time in a group (from their desktop app). */
+interface Busy {
+  groupId: string
+  person: { id: string; name: string; color: string }
+  events: Array<{ start: string; end: string; title: string; location: string; attendees: Array<{ name: string; email: string; status: string; isOrganizer: boolean }> }>
 }
 
 /** How the overview reaches Teamwork: the signed-in session (callerService holds the token). */
@@ -47,7 +61,7 @@ export interface OverviewHost {
 
 const DAY_MS = 86_400_000
 /** Days before and after today the group calendars hold. */
-const PAST_DAYS = 14
+const PAST_DAYS = 31
 const FUTURE_DAYS = 60
 const RETRY_MIN_MS = 2_000
 const RETRY_MAX_MS = 60_000
@@ -55,7 +69,7 @@ const RETRY_MAX_MS = 60_000
 const SILENCE_MS = 70_000
 const LIVE_DEBOUNCE_MS = 400
 
-const STATE_LABEL: Record<Interview['state'], string> = { upcoming: 'Upcoming', done: 'Done', cancelled: 'Cancelled' }
+const ATTENDEE_STATUSES: readonly string[] = ['accepted', 'declined', 'tentative', 'needs-action']
 
 /**
  * The overview account in the app (e.g. the group's CEO): one read-only
@@ -68,6 +82,8 @@ class OverviewService {
   private host: OverviewHost | null = null
   private groups: Group[] = []
   private interviews = new Map<string, Interview>()
+  private busy: Busy[] = []
+  private busyTimer: NodeJS.Timeout | null = null
   private live: AbortController | null = null
   private lastEventId: string | null = null
   private pending = new Set<string>()
@@ -105,9 +121,54 @@ class OverviewService {
     this.stop()
     this.groups = []
     this.interviews.clear()
+    this.busy = []
     this.lastEventId = null
     for (const c of calendarRepository.list()) if (isOverviewSource(c.sourceUrl)) calendarRepository.remove(c.id)
     this.changed()
+  }
+
+  /** The group interview behind an event of the group calendars, for its details card. */
+  interviewInfo(eventId: string): OverviewInterviewInfo | null {
+    const event = eventRepository.get(eventId)
+    const calendar = event?.calendarId ? calendarRepository.get(event.calendarId) : null
+    if (!event?.externalId || !calendar || !isOverviewSource(calendar.sourceUrl)) return null
+    // A member's own event: whose calendar, in which group.
+    if (event.externalId.startsWith('busy:')) {
+      const ownerId = event.externalId.split(':')[1]
+      const groupId = calendar.sourceUrl.slice(OVERVIEW_SOURCE_PREFIX.length)
+      const group = this.groups.find((g) => g.id === groupId)
+      const owner = this.busy.find((b) => b.groupId === groupId && b.person.id === ownerId)?.person
+      if (!group) return null
+      return {
+        kind: 'own',
+        owner: owner ? { name: owner.name, color: owner.color } : null,
+        group: { id: group.id, label: group.label, color: group.color },
+        state: Date.parse(event.endTime) <= Date.now() ? 'done' : 'upcoming',
+        caller: null,
+        bidder: null,
+        round: null,
+        company: null,
+        role: null,
+        profile: null,
+        link: null
+      }
+    }
+    const i = this.interviews.get(event.externalId)
+    const group = this.groups.find((g) => g.id === i?.groupId)
+    if (!i || !group) return null
+    return {
+      kind: 'interview',
+      owner: null,
+      group: { id: group.id, label: group.label, color: group.color },
+      state: i.state,
+      caller: i.caller ? { name: i.caller.name, color: i.caller.color } : null,
+      bidder: i.bidder ? { name: i.bidder.name, color: i.bidder.color } : null,
+      round: i.round,
+      company: i.company,
+      role: i.role,
+      profile: i.profile ?? null,
+      link: i.link ?? null
+    }
   }
 
   groupList(): OverviewGroup[] {
@@ -142,6 +203,32 @@ class OverviewService {
     // Columns: the group's callers (by level) or bidders, plus anyone else who has a card today.
     const people = group.people.filter((p) => (byBidder ? p.isBidder : p.isCaller))
     const ids = new Set(people.map((p) => p.id))
+    // Each person's own calendar time, in their column (behind nothing: shown as their own events).
+    for (const b of this.busy) {
+      if (b.groupId !== groupId || !ids.has(b.person.id)) continue
+      b.events.forEach((e, n) => {
+        if (!(e.start < to && e.end > from)) return
+        const key = `busy:${b.person.id}:${e.start}:${n}`
+        cards.push({
+          interviewId: key,
+          eventId: calendarId ? makeEventId(calendarId, key) : null,
+          start: e.start,
+          end: e.end,
+          title: e.title || 'Busy',
+          company: null,
+          profile: null,
+          round: null,
+          status: null,
+          lockedTo: null,
+          callerId: b.person.id,
+          needsDetails: false,
+          cancelled: false,
+          canAssign: false,
+          pending: false,
+          own: true
+        })
+      })
+    }
     for (const i of items) {
       const who = byBidder ? i.bidder : i.caller
       if (who && !ids.has(who.id)) {
@@ -243,6 +330,16 @@ class OverviewService {
       void this.reload().catch((err) => console.warn('[overview] reload failed:', String(err)))
       return
     }
+    if (event === 'overview.busy') {
+      if (this.busyTimer) return
+      this.busyTimer = setTimeout(() => {
+        this.busyTimer = null
+        void this.loadBusy()
+          .then(() => this.rebuild())
+          .catch((err) => console.warn('[overview] busy time failed:', String(err)))
+      }, LIVE_DEBOUNCE_MS)
+      return
+    }
     if (event !== 'overview.changed' || !data) return
     try {
       for (const id of (JSON.parse(data) as { ids?: string[] }).ids ?? []) this.pending.add(id)
@@ -289,7 +386,16 @@ class OverviewService {
     }
     await load(from, to)
     this.interviews = next
+    await this.loadBusy().catch((err) => console.warn('[overview] busy time failed:', String(err)))
     this.rebuild()
+  }
+
+  /** Members' own calendar time in the window (as the workspace's admin sees it). */
+  private async loadBusy(): Promise<void> {
+    if (!this.host) return
+    const from = new Date(Date.now() - PAST_DAYS * DAY_MS).toISOString()
+    const to = new Date(Date.now() + FUTURE_DAYS * DAY_MS).toISOString()
+    this.busy = await this.host.request<Busy[]>(`/overview/busy?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
   }
 
   /** One calendar per group (label and color from Teamwork), its interviews as read-only events. */
@@ -316,32 +422,54 @@ class OverviewService {
           id: makeEventId(calendarId, i.id),
           externalId: i.id,
           title: i.title || 'Interview',
-          description: this.describe(group, i),
+          // The whole invitation (its details card shows who, what and the status above it).
+          description: [i.description ?? i.summary, i.meetingInstructions ? `Meeting instructions:\n${i.meetingInstructions}` : '']
+            .filter(Boolean)
+            .join('\n\n'),
           startTime: i.start,
           endTime: i.end,
           allDay: false,
-          location: '',
-          attendees: [],
+          location: i.location ?? '',
+          attendees: (i.attendees ?? []).map((a) => ({
+            name: a.name,
+            email: a.email,
+            status: (ATTENDEE_STATUSES.includes(a.status) ? a.status : 'needs-action') as AttendeeStatus,
+            isOrganizer: a.isOrganizer,
+            optional: a.optional
+          })),
           myResponse: null
         }))
+      // Members' own calendar time, as the workspace's admin sees it: "Sam: Dentist".
+      for (const b of this.busy) {
+        if (b.groupId !== group.id) continue
+        b.events.forEach((e, n) => {
+          const key = `busy:${b.person.id}:${e.start}:${n}`
+          rows.push({
+            id: makeEventId(calendarId, key),
+            externalId: key,
+            title: `${b.person.name}: ${e.title || 'Busy'}`,
+            description: '',
+            startTime: e.start,
+            endTime: e.end,
+            allDay: false,
+            location: e.location,
+            attendees: e.attendees.map((a) => ({
+              name: a.name,
+              email: a.email,
+              status: (ATTENDEE_STATUSES.includes(a.status) ? a.status : 'needs-action') as AttendeeStatus,
+              isOrganizer: a.isOrganizer,
+              optional: false
+            })),
+            myResponse: null
+          })
+        })
+      }
       eventRepository.replaceCalendarEvents(calendarId, rows)
       calendarRepository.setSyncSuccess(calendarId, null)
     }
     // Groups no longer given to this account.
     for (const c of existing.values()) calendarRepository.remove(c.id)
     this.changed()
-  }
-
-  /** What the details card shows of an interview: who, what and what it's about. */
-  private describe(group: Group, i: Interview): string {
-    const lines = [
-      `Group: ${group.label}`,
-      `Caller: ${i.caller?.name ?? 'Nobody yet'}`,
-      `Bidder: ${i.bidder?.name ?? 'Unknown'}`,
-      [i.round ? `Round ${i.round}` : null, i.company && i.role ? `${i.company} – ${i.role}` : i.company].filter(Boolean).join(' · '),
-      `Status: ${STATE_LABEL[i.state]}`
-    ].filter(Boolean)
-    return [lines.join('\n'), i.summary].filter(Boolean).join('\n\n')
   }
 
   private calendarIdOf(groupId: string): string | null {

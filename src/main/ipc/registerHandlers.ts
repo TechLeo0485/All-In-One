@@ -258,6 +258,7 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
     )
   )
   handle(IPC.overviewGroups, () => overviewService.groupList())
+  handle(IPC.overviewInterview, (_e, eventId) => overviewService.interviewInfo(v.id(eventId)))
   handle(IPC.overviewBoard, (_e, groupId, view, from, to) =>
     overviewService.board(
       v.str(groupId, 'Group', { required: true, max: 64 }),

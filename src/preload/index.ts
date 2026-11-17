@@ -128,7 +128,8 @@ const api: CalendarApi = {
   },
   overview: {
     groups: () => ipcRenderer.invoke(IPC.overviewGroups),
-    board: (groupId, view, from, to) => ipcRenderer.invoke(IPC.overviewBoard, groupId, view, from, to)
+    board: (groupId, view, from, to) => ipcRenderer.invoke(IPC.overviewBoard, groupId, view, from, to),
+    interview: (eventId) => ipcRenderer.invoke(IPC.overviewInterview, eventId)
   },
   connections: {
     status: () => ipcRenderer.invoke(IPC.connectionsStatus),

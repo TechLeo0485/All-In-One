@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent } from 'react'
 import type {
+  OverviewInterviewInfo,
   AttendeeStatus,
   CalendarEvent,
   CallerCandidate,
@@ -291,6 +292,121 @@ const SUGGESTION_REASON: Record<JobLinkSuggestion['reason'], string> = {
 }
 
 const inputClass = 'min-w-0 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200'
+
+const OVERVIEW_STATE: Record<OverviewInterviewInfo['state'], { label: string; className: string }> = {
+  upcoming: { label: 'Upcoming', className: 'border-sky-500/40 bg-sky-500/10 text-sky-300' },
+  done: { label: 'Done', className: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300' },
+  cancelled: { label: 'Cancelled', className: 'border-red-500/40 bg-red-500/10 text-red-300' }
+}
+
+/**
+ * An overview account's group interview, at the top of the card: its group and
+ * status, who takes it and who brought it in (by the names given for overview
+ * accounts), the profile, company, role and round, and the shared link.
+ */
+function OverviewFacts({ eventId }: { eventId: string }) {
+  const [info, setInfo] = useState<OverviewInterviewInfo | null>(null)
+  useEffect(() => {
+    let alive = true
+    const load = (): void => {
+      void window.api.overview
+        .interview(eventId)
+        .then((i) => alive && setInfo(i))
+        .catch(() => undefined)
+    }
+    load()
+    const off = window.api.caller.onChanged(load)
+    return () => {
+      alive = false
+      off()
+    }
+  }, [eventId])
+  if (!info) return null
+  const state = OVERVIEW_STATE[info.state]
+  if (info.kind === 'own') {
+    return (
+      <div className="ml-6 flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-slate-700 bg-slate-800/20 p-3 text-sm">
+        <span
+          className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium text-white"
+          style={{ background: `color-mix(in srgb, ${info.group.color} 60%, #0f172a)` }}
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-white/80" aria-hidden />
+          {info.group.label}
+        </span>
+        {info.owner && (
+          <span className="flex items-center gap-1.5 text-slate-200">
+            <ColorDot color={info.owner.color} size={10} />
+            <span className="font-medium">{info.owner.name}</span>
+            <span className="text-slate-500">· their own calendar</span>
+          </span>
+        )}
+      </div>
+    )
+  }
+  const person = (p: { name: string; color: string } | null, none: string) =>
+    p ? (
+      <span className="flex min-w-0 items-center gap-1.5">
+        <ColorDot color={p.color} size={10} />
+        <span className="truncate font-medium text-slate-100">{p.name}</span>
+      </span>
+    ) : (
+      <span className="text-amber-300">{none}</span>
+    )
+  return (
+    <div className="ml-6 space-y-3 rounded-lg border border-slate-800 bg-slate-800/30 p-3 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium text-white"
+          style={{ background: `color-mix(in srgb, ${info.group.color} 60%, #0f172a)` }}
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-white/80" aria-hidden />
+          {info.group.label}
+        </span>
+        <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${state.className}`}>{state.label}</span>
+        {info.round && (
+          <span className="rounded-full border border-slate-600 px-2 py-0.5 text-[11px] font-semibold text-slate-300">Round {info.round}</span>
+        )}
+      </div>
+      {(info.company || info.role) && (
+        <p className="leading-snug">
+          <span className="font-semibold text-slate-100">{info.company ?? 'Company not set'}</span>
+          {info.role && <span className="text-slate-300"> · {info.role}</span>}
+        </p>
+      )}
+      <dl className="grid grid-cols-[4.5rem_1fr] gap-x-2 gap-y-1.5 text-[13px]">
+        <dt className="text-slate-500">Caller</dt>
+        <dd className="min-w-0">{person(info.caller, 'Nobody yet')}</dd>
+        <dt className="text-slate-500">Bidder</dt>
+        <dd className="min-w-0">{person(info.bidder, 'Unknown')}</dd>
+        {info.profile && (
+          <>
+            <dt className="text-slate-500">Profile</dt>
+            <dd className="min-w-0 truncate text-slate-200">{info.profile}</dd>
+          </>
+        )}
+        {info.link && (
+          <>
+            <dt className="text-slate-500">Link</dt>
+            <dd className="min-w-0">
+              <a href={info.link} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-1 text-blue-400 hover:underline">
+                <ExternalIcon size={11} />
+                <span className="truncate">{linkHost(info.link)}</span>
+              </a>
+            </dd>
+          </>
+        )}
+      </dl>
+    </div>
+  )
+}
+
+function linkHost(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '')
+  } catch {
+    return url
+  }
+}
 
 /**
  * Step 1 for an interview that just came in: its company and role. Job links
@@ -1126,6 +1242,7 @@ export function EventDetailsPanel() {
             {/* Who joins (Teamwork interviews), then the guests and their replies, above the status.
                 Keys reset each part's state per event; siblings need distinct keys, or React can
                 leave stale copies behind (the guest list showed up several times). */}
+            {overviewItem && <OverviewFacts key={`overview:${event.id}`} eventId={event.id} />}
             {teamworkInterview && (
               <WhoJoins
                 key={`joins:${teamworkInterview.id}`}

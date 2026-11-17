@@ -299,15 +299,31 @@ export function TeamDayBoard({
                         className={`absolute z-[5] overflow-hidden rounded-md border border-l-[3px] px-2 text-left text-xs text-slate-100 transition-[box-shadow,opacity] hover:z-20 hover:shadow-lg focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none ${
                           tall ? 'py-1' : 'flex items-center'
                         } ${selected ? 'z-20 ring-2 ring-blue-500' : ''} ${ended || card.cancelled ? 'opacity-60' : ''}`}
-                        style={{
-                          top: top + 1,
-                          height: Math.max(height - 2, 1),
-                          left: `calc(${lane.lane * width}% + 3px)`,
-                          width: `calc(${width}% - 6px)`,
-                          borderColor: `${column.color}66`,
-                          borderLeftColor: column.color,
-                          background: `color-mix(in srgb, ${column.color} 16%, #0f172a)`
-                        }}
+                        style={
+                          card.own
+                            ? {
+                                // A member's own calendar time (overview accounts): grey, dashed, hatched.
+                                top: top + 1,
+                                height: Math.max(height - 2, 1),
+                                left: `calc(${lane.lane * width}% + 3px)`,
+                                width: `calc(${width}% - 6px)`,
+                                borderColor: '#475569',
+                                borderStyle: 'dashed',
+                                borderLeftWidth: 1,
+                                background:
+                                  'repeating-linear-gradient(135deg, rgba(148,163,184,0.06) 0 6px, rgba(148,163,184,0.12) 6px 7px), #111827',
+                                color: '#cbd5e1'
+                              }
+                            : {
+                                top: top + 1,
+                                height: Math.max(height - 2, 1),
+                                left: `calc(${lane.lane * width}% + 3px)`,
+                                width: `calc(${width}% - 6px)`,
+                                borderColor: `${column.color}66`,
+                                borderLeftColor: column.color,
+                                background: `color-mix(in srgb, ${column.color} 16%, #0f172a)`
+                              }
+                        }
                       >
                         {/* Its status, in the corner. */}
                         {status && (

@@ -474,6 +474,8 @@ export interface CalendarApi {
   overview: {
     groups(): Promise<OverviewGroup[]>
     board(groupId: string, view: TeamworkView, from: string, to: string): Promise<TeamBoard>
+    /** The group interview behind one of the group calendars' events; null for other events. */
+    interview(eventId: string): Promise<OverviewInterviewInfo | null>
   }
   connections: {
     status(): Promise<ConnectionsStatus>
@@ -587,6 +589,26 @@ export interface OverviewGroup {
   color: string
 }
 
+/**
+ * What an overview account's details card shows of a group calendar's event
+ * (beside its time, place and guests): an interview, or a member's own event.
+ */
+export interface OverviewInterviewInfo {
+  kind: 'interview' | 'own'
+  /** Own events: whose calendar it is (by the name given for overview accounts). */
+  owner: { name: string; color: string } | null
+  group: OverviewGroup
+  state: 'upcoming' | 'done' | 'cancelled'
+  /** Null: nobody yet. Names are the ones given for overview accounts. */
+  caller: { name: string; color: string } | null
+  bidder: { name: string; color: string } | null
+  round: number | null
+  company: string | null
+  role: string | null
+  profile: string | null
+  link: string | null
+}
+
 /** A job link the interview probably came from: its profile applied to it, and the invitation names the company. */
 export interface JobLinkSuggestion {
   linkId: string
@@ -629,6 +651,8 @@ export interface TeamBoardCard {
   canAssign: boolean
   /** Changes made here while offline, waiting to be sent. */
   pending: boolean
+  /** A member's own calendar event (overview accounts), not an interview. */
+  own?: boolean
 }
 
 /** The Team view's Day board: callers by level and the interviews of the day. */

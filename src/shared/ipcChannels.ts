@@ -83,6 +83,7 @@ export const IPC = {
   callerSetTeamworkView: 'caller:setTeamworkView',
   overviewGroups: 'overview:groups',
   overviewBoard: 'overview:board',
+  overviewInterview: 'overview:interview',
   callerCancelQueued: 'caller:cancelQueued',
   callerTeamBoard: 'caller:teamBoard',
   callerJobLinkSuggestions: 'caller:jobLinkSuggestions',
