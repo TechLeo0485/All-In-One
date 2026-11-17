@@ -1449,11 +1449,11 @@ class CallerService {
   }
 
   /**
-   * Writes the Teamwork calendars: workspace interviews that aren't already the
-   * member's own events, one calendar per caller (and one for unassigned ones),
-   * so whoever assigns sees when each caller is busy. An interview that came
-   * from one of the member's shared calendars or picked events is shown on that
-   * event instead (its details card).
+   * Writes the Teamwork calendars: every workspace interview, one calendar per
+   * caller (and one for unassigned ones), so whoever assigns sees when each
+   * caller is busy. An interview that came from one of the member's shared
+   * calendars or picked events also gets that event's details card (Mine shows
+   * that event, Team the Teamwork copy).
    */
   private rebuildTeamwork(slug: string): void {
     const shares = this.allShares()[slug] ?? {}
@@ -1474,11 +1474,14 @@ class CallerService {
       if (i.event.status === 'cancelled') continue
       const own = this.ownEventOf(i, ownCalendars, ownPicks)
       const label = this.detailsOf(i)
+      // From one of the member's own calendars (or a picked event): its own event carries the
+      // details, and stays the one reminders and notifications open. It's on the Teamwork
+      // calendar too, so the Team side (and the caller's count) shows every interview; Mine and
+      // Team never show at once, so it never appears twice.
       if (own) {
         annotations[own] = { label, url: this.urlOf(slug, i.event.id), interviewId: i.event.id }
         tags[own] = this.tagOf(i)
         eventIds[i.event.id] = own
-        continue
       }
       let key: string
       let group
@@ -1596,7 +1599,7 @@ class CallerService {
       for (const r of group.rows) {
         if (!r.tag) continue
         tags[makeEventId(calendarId, r.key)] = r.tag
-        eventIds[r.key] = makeEventId(calendarId, r.key)
+        eventIds[r.key] ??= makeEventId(calendarId, r.key)
       }
       eventRepository.replaceCalendarEvents(
         calendarId,
