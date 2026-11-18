@@ -399,6 +399,9 @@ class CallerService {
       this.callers = members
         .filter((m) => m.status === 'active' && m.roles.includes('caller'))
         .map((m) => ({ userId: m.userId, name: m.name, level: m.callerLevel ?? null, color: m.color }))
+      this.bidders = members
+        .filter((m) => m.status === 'active' && m.roles.includes('bidder'))
+        .map((m) => ({ userId: m.userId, name: m.name, color: m.color }))
     }
     if (colors?.unassigned && /^#[0-9a-f]{6}$/i.test(colors.unassigned)) this.unassignedColor = colors.unassigned
     const can = canSetColors(ctx.membership.permissions)
@@ -649,8 +652,9 @@ class CallerService {
       else if (line.startsWith('event:')) event = line.slice(6).trim()
       else if (line.startsWith('data:')) data += line.slice(5).trim()
     }
-    if (event === 'resync') {
-      // Teamwork restarted, or this app missed more than it keeps: check everything.
+    if (event === 'resync' || event === 'apps.sync') {
+      // Teamwork restarted, this app missed more than it keeps, or the admin asked every app to
+      // sync now: check everything against Teamwork (as on every reconnect).
       void this.reconcile(slug)
       return
     }
@@ -1210,6 +1214,8 @@ class CallerService {
 
   /** Every caller of the workspace (from the members list), for the Team view's columns. */
   private callers: Array<{ userId: string; name: string; level: number | null; color: string }> = []
+  /** Every bidder of the workspace (owners' by-bidder view gives each a calendar, empty ones too). */
+  private bidders: Array<{ userId: string; name: string; color: string }> = []
   /** Interview id → the event in this app that shows it. */
   private eventIdByInterview: Record<string, string> = {}
 
@@ -1587,7 +1593,14 @@ class CallerService {
     // Every caller has a calendar, empty ones too: an empty one means free (nothing assigned,
     // no busy time sent), not missing. The workspace's callers when the member list is readable,
     // else the callers this app knows from the interviews.
-    // (By bidder: only the bidders who brought interviews in.)
+    // By bidder: every bidder has a calendar too, empty ones (nothing brought in) as well.
+    if (byBidder) {
+      for (const b of this.bidders) {
+        const key = `${BIDDER_PREFIX}${b.userId}`
+        if (groups.has(key)) continue
+        groups.set(key, { name: b.userId === myId ? `${b.name} (you)` : b.name, color: b.color, mine: false, rows: [] })
+      }
+    }
     const everyCaller = byBidder
       ? []
       : this.callers.length

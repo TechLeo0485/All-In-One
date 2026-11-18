@@ -9,6 +9,10 @@ How to use this file:
 - Write for users: what they can now do, or what works better. Not file names or code.
 -->
 
+## 1.2.8
+- Owners' **Bidders** view shows every bidder, each with a calendar even with nothing on it (an empty one means that bidder brought nothing in). Interviews are still on the calendar of whoever brought them in.
+- The workspace's admin can make every connected app sync with Teamwork at once (website → Settings → **Desktop apps** → **Sync all apps**). Each app reloads interviews and busy time, sends what's waiting, and sends again any shared calendar, picked event or busy time Teamwork doesn't have the latest of. Apps that aren't running do the same when they next connect.
+
 ## 1.2.7
 - **Mine** now also shows the Teamwork interviews assigned to you from other members' calendars, on a **Teamwork · Assigned to me** calendar in your color, with **Who joins** on each. Interviews from your own calendars were already there on your own events. **Team** still has every interview on the caller calendars, so nothing shows twice.
 
