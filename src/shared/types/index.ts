@@ -470,6 +470,12 @@ export interface CalendarApi {
     /** The Teamwork calendar or interview details changed (live update from the workspace). */
     onChanged(callback: () => void): () => void
   }
+  /** "Get availability": whose busy time can be looked at, and that busy time. */
+  availability: {
+    people(): Promise<AvailabilityPeople>
+    /** `who`: 'me', 'any' (every caller), or a caller's user id. */
+    busy(who: string, from: string, to: string): Promise<AvailabilityBusy[]>
+  }
   /** Overview accounts: their groups, and one group's day by caller or by bidder (read-only). */
   overview: {
     groups(): Promise<OverviewGroup[]>
@@ -807,4 +813,28 @@ export interface CallerSyncResult {
   name: string
   ok: boolean
   message: string
+}
+
+/** "Get availability": a caller whose free time can be looked up. */
+export interface AvailabilityPerson {
+  userId: string
+  name: string
+  color: string
+  mine: boolean
+  /** Their app sends busy time to Teamwork (seen by this member); otherwise only their interviews count. */
+  hasApp: boolean
+}
+
+export interface AvailabilityPeople {
+  /** Connected to a Teamwork workspace: callers can be picked. */
+  connected: boolean
+  callers: AvailabilityPerson[]
+}
+
+/** One person's busy time in a range (ISO instants). */
+export interface AvailabilityBusy {
+  userId: string | null
+  name: string
+  hasApp: boolean
+  blocks: Array<{ start: string; end: string }>
 }

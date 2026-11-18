@@ -12,6 +12,7 @@ How to use this file:
 ## 1.2.8
 - Owners' **Bidders** view shows every bidder, each with a calendar even with nothing on it (an empty one means that bidder brought nothing in). Interviews are still on the calendar of whoever brought them in.
 - The workspace's admin can make every connected app sync with Teamwork at once (website → Settings → **Desktop apps** → **Sync all apps**). Each app reloads interviews and busy time, sends what's waiting, and sends again any shared calendar, picked event or busy time Teamwork doesn't have the latest of. Apps that aren't running do the same when they next connect.
+- **Availability** (next to Today) writes your free times as a message to send: for you, one caller, or any caller (when at least one is free). Pick the days, the hours, the recruiter's time zone (times are converted for you), the slot length (long free time becomes 2-hour slots with breaks, e.g. 9–11 AM, 1–3 PM), the shortest slot, a buffer around meetings and how many slots per day; take out any slot; then copy. The message's wording is yours to change under **Message format**, and is remembered.
 
 ## 1.2.7
 - **Mine** now also shows the Teamwork interviews assigned to you from other members' calendars, on a **Teamwork · Assigned to me** calendar in your color, with **Who joins** on each. Interviews from your own calendars were already there on your own events. **Team** still has every interview on the caller calendars, so nothing shows twice.

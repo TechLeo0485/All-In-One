@@ -31,6 +31,7 @@ import type { AttendeeStatus, CalendarEvent, CallerTag, LocalEventInput } from '
 import { CallerTagChip } from '../components/CallerTag'
 import { TeamDayBoard } from '../components/TeamDayBoard'
 import { OverviewDayBoard } from '../components/OverviewDayBoard'
+import { AvailabilityDialog } from '../components/AvailabilityDialog'
 import { DEFAULT_EVENT_STATUSES, DEFAULT_IMPORTANT_COLOR, findStatus } from '@shared/eventStatus'
 import { clampHourHeight, DEFAULT_HOUR_HEIGHT, HOUR_HEIGHT_STEP } from '@shared/hourHeight'
 import { LOCAL_EVENTS_KEY, useAppStore, visibleCalendars as visibleIn, type EventCounts } from '../stores/appStore'
@@ -67,6 +68,7 @@ export function CalendarPage() {
   // Clicking the title ("Sep 27 – Oct 3, 2026") opens a date picker to jump anywhere.
   const [range, setRange] = useState<{ start: Date; end: Date } | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [availabilityOpen, setAvailabilityOpen] = useState(false)
   // The period itself (not the extra days a month grid shows), for the sidebar's event counts.
   const [period, setPeriod] = useState<Period | null>(null)
   const [viewType, setViewType] = useState(initialView)
@@ -335,6 +337,7 @@ export function CalendarPage() {
       >
         <style>{statusCss}</style>
         {preview && <EventPreview data={preview} />}
+        {availabilityOpen && <AvailabilityDialog onClose={() => setAvailabilityOpen(false)} />}
         {pickerOpen && range && (
           <div className="absolute top-14 left-1/2 z-30 -translate-x-1/2 @max-2xl:top-24">
             <DatePicker
@@ -361,7 +364,8 @@ export function CalendarPage() {
           headerToolbar={showSwitch ? TEAM_HEADER_TOOLBAR : HEADER_TOOLBAR}
           customButtons={{
             personal: { text: 'Personal', hint: 'Your calendars', click: () => pickMode('personal') },
-            team: { text: 'Team', hint: "The team's day by caller, as on Teamwork (Day view)", click: () => pickMode('team') }
+            team: { text: 'Team', hint: "The team's day by caller, as on Teamwork (Day view)", click: () => pickMode('team') },
+            availability: { text: 'Availability', hint: 'Free times as a message to send', click: () => setAvailabilityOpen(true) }
           }}
           buttonText={BUTTON_TEXT}
           height={teamDay ? 'auto' : '100%'}
@@ -412,7 +416,7 @@ export function CalendarPage() {
 
 // Kept outside the component: FullCalendar re-applies options whose identity changes.
 const PLUGINS = [dayGridPlugin, timeGridPlugin, interactionPlugin, intlTimeZonePlugin]
-const HEADER_TOOLBAR = { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' }
+const HEADER_TOOLBAR = { left: 'prev,next today availability', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' }
 /** Day view, connected to Teamwork: the Personal / Team switch next to the views. */
 const TEAM_HEADER_TOOLBAR = { ...HEADER_TOOLBAR, right: 'personal,team dayGridMonth,timeGridWeek,timeGridDay' }
 const BUTTON_TEXT = { today: 'Today', month: 'Month', week: 'Week', day: 'Day' }

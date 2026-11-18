@@ -81,6 +81,8 @@ export const IPC = {
   callerShareLink: 'caller:shareLink',
   callerSetColor: 'caller:setColor',
   callerSetTeamworkView: 'caller:setTeamworkView',
+  availabilityPeople: 'availability:people',
+  availabilityBusy: 'availability:busy',
   overviewGroups: 'overview:groups',
   overviewBoard: 'overview:board',
   overviewInterview: 'overview:interview',

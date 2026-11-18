@@ -288,6 +288,14 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
       jobLinkId === undefined || jobLinkId === null ? undefined : v.str(jobLinkId, 'Job link', { required: true, max: 64 })
     )
   )
+  handle(IPC.availabilityPeople, () => callerService.availabilityPeople())
+  handle(IPC.availabilityBusy, (_e, who, from, to) =>
+    callerService.availabilityBusy(
+      v.str(who, 'Who', { required: true, max: 64 }),
+      v.str(from, 'From', { required: true, max: 40 }),
+      v.str(to, 'To', { required: true, max: 40 })
+    )
+  )
   handle(IPC.callerTeamBoard, (_e, from, to) =>
     callerService.teamBoard(v.str(from, 'From', { required: true, max: 40 }), v.str(to, 'To', { required: true, max: 40 }))
   )

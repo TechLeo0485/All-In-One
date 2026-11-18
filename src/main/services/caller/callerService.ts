@@ -6,6 +6,9 @@ import { IPC } from '@shared/ipcChannels'
 import { ASSIGNED_SOURCE_PREFIX, hostOf, isFileSource, isTeamworkSource, TEAMWORK_SOURCE_PREFIX } from '@shared/sources'
 import type {
   AttendeeStatus,
+  AvailabilityBusy,
+  AvailabilityPeople,
+  AvailabilityPerson,
   CalendarEvent,
   EventAttendee,
   CalendarSource,
@@ -1068,6 +1071,80 @@ class CallerService {
         .filter((q) => q.interviewId === i.event.id)
         .map((q) => q.label)
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Get availability
+
+  /** Whose free time can be looked up: the member, and (connected) each caller. */
+  availabilityPeople(): AvailabilityPeople {
+    const c = this.connection()
+    if (!c.serverUrl || !this.token() || !c.workspaceSlug) return { connected: false, callers: [] }
+    const withApp = new Set(this.busyMembers.map((m) => m.userId))
+    const byId = new Map<string, AvailabilityPerson>()
+    for (const k of this.callers) {
+      byId.set(k.userId, { userId: k.userId, name: k.name, color: k.color, mine: k.userId === c.userId, hasApp: k.userId === c.userId || withApp.has(k.userId) })
+    }
+    if (byId.size === 0) {
+      for (const i of this.interviewsById.values()) {
+        const k = i.event.interview?.caller
+        if (k && !byId.has(k.userId)) {
+          byId.set(k.userId, { userId: k.userId, name: k.name, color: k.color, mine: k.userId === c.userId, hasApp: k.userId === c.userId || withApp.has(k.userId) })
+        }
+      }
+    }
+    return { connected: true, callers: [...byId.values()].sort((a, b) => a.name.localeCompare(b.name)) }
+  }
+
+  /**
+   * Busy time between `from` and `to`. `me`: every timed event of this app's
+   * calendars that are switched on (not Teamwork's team calendars), local
+   * events, and the interviews assigned to the member. A caller: the busy time
+   * their app sends to Teamwork and the interviews given to them. `any`: each caller.
+   */
+  availabilityBusy(who: string, from: string, to: string): AvailabilityBusy[] {
+    const start = Date.parse(from)
+    const end = Date.parse(to)
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) throw new CallerError('Pick a valid range')
+    const c = this.connection()
+    const me = (): AvailabilityBusy => ({ userId: c.userId || null, name: 'Me', hasApp: true, blocks: this.myBusy(from, to) })
+    if (who === 'me') return [me()]
+    const people = this.availabilityPeople().callers
+    const pick = who === 'any' ? people : people.filter((p) => p.userId === who)
+    if (pick.length === 0) throw new CallerError(who === 'any' ? 'No callers in this workspace yet' : 'That caller is not in this workspace')
+    return pick.map((p) => (p.mine ? { ...me(), name: p.name } : this.callerBusy(p, start, end)))
+  }
+
+  private myBusy(from: string, to: string): Array<{ start: string; end: string }> {
+    const calendars = new Map(calendarRepository.list().map((cal) => [cal.id, cal]))
+    const blocks = eventRepository
+      .listInRange(from, to)
+      .filter((e) => {
+        if (e.allDay || e.myResponse === 'declined') return false
+        if (!e.calendarId) return true
+        const cal = calendars.get(e.calendarId)
+        // Teamwork's team calendars hold everyone's interviews: the member's own come below.
+        return Boolean(cal?.enabled) && !isTeamworkSource(cal!.sourceUrl)
+      })
+      .map((e) => ({ start: e.startTime, end: e.endTime }))
+    const start = Date.parse(from)
+    const end = Date.parse(to)
+    for (const i of this.interviewsById.values()) {
+      if (!i.assignedToMe || i.event.status === 'cancelled') continue
+      if (Date.parse(i.event.start) < end && Date.parse(i.event.end) > start) blocks.push({ start: i.event.start, end: i.event.end })
+    }
+    return blocks
+  }
+
+  private callerBusy(p: AvailabilityPerson, start: number, end: number): AvailabilityBusy {
+    const inRange = (b: { start: string; end: string }): boolean => Date.parse(b.start) < end && Date.parse(b.end) > start
+    const blocks = (this.busyMembers.find((m) => m.userId === p.userId)?.blocks ?? []).filter(inRange).map((b) => ({ start: b.start, end: b.end }))
+    for (const i of this.interviewsById.values()) {
+      if (i.event.status === 'cancelled') continue
+      const callerId = i.event.interview?.caller?.userId ?? i.event.assignees[0]?.userId
+      if (callerId === p.userId && inRange(i.event)) blocks.push({ start: i.event.start, end: i.event.end })
+    }
+    return { userId: p.userId, name: p.name, hasApp: p.hasApp, blocks }
   }
 
   /** The callers to choose from, as Teamwork's assignment rule ranks them (recommended first). */
