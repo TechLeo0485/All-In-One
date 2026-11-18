@@ -11,7 +11,7 @@ import type {
   RecurrenceScope,
   SyncStatus
 } from '@shared/types'
-import { isTeamworkSource } from '@shared/sources'
+import { isAssignedSource, isTeamworkSource } from '@shared/sources'
 import { setDisplayTimeZone } from '../utils/dates'
 import { errorMessage } from '../utils/errors'
 import { applyTheme } from '../utils/theme'
@@ -37,7 +37,9 @@ function storedScope(): CalendarScope {
 /** Whether the scope leaves this calendar out (only once there are Teamwork calendars to split from). */
 export function scopeHides(calendar: Pick<CalendarSource, 'sourceUrl'>, scope: CalendarScope, hasTeam: boolean): boolean {
   if (!hasTeam) return false
-  return scope === 'mine' ? isTeamworkSource(calendar.sourceUrl) : !isTeamworkSource(calendar.sourceUrl)
+  // "Assigned to me" belongs with Mine; the Team side has those interviews on the caller calendars.
+  const team = isTeamworkSource(calendar.sourceUrl) && !isAssignedSource(calendar.sourceUrl)
+  return scope === 'mine' ? team : !team
 }
 
 /**

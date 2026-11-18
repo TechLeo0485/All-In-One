@@ -59,6 +59,17 @@ export function isTeamworkSource(url: string): boolean {
  */
 export const OVERVIEW_SOURCE_PREFIX = `${TEAMWORK_SOURCE_PREFIX}overview/`
 
+/**
+ * "Teamwork · Assigned to me": interviews from other members' calendars that
+ * are assigned to the member. Shown with the member's own calendars (Mine);
+ * the Team side has the same interviews on the caller calendars.
+ */
+export const ASSIGNED_SOURCE_PREFIX = `${TEAMWORK_SOURCE_PREFIX}assigned/`
+
+export function isAssignedSource(url: string): boolean {
+  return url.startsWith(ASSIGNED_SOURCE_PREFIX)
+}
+
 export function isOverviewSource(url: string): boolean {
   return url.startsWith(OVERVIEW_SOURCE_PREFIX)
 }

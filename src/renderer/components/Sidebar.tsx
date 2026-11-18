@@ -3,7 +3,7 @@ import { scopeHides, LOCAL_EVENTS_KEY, useAppStore, type EventCounts, type Perio
 import { formatAge, formatRelative } from '../utils/dates'
 import { isProtonStale } from '../utils/proton'
 import { DEFAULT_EVENT_STATUSES } from '@shared/eventStatus'
-import { isOverviewSource, isTeamworkSource } from '@shared/sources'
+import { isAssignedSource, isOverviewSource, isTeamworkSource } from '@shared/sources'
 import type { EventStatusDef, ProtonAccount, TeamworkView } from '@shared/types'
 import { useNow } from '../hooks/useNow'
 import { useMediaQuery } from '../hooks/useMediaQuery'
@@ -717,7 +717,7 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
                   error={c.lastSyncError}
                   onToggle={() => void toggleVisibility(c.id)}
                   onColor={
-                    group.key === 'teamwork' && canSetTeamworkColors
+                    group.key === 'teamwork' && canSetTeamworkColors && !isAssignedSource(c.sourceUrl)
                       ? () => setColoring({ id: c.id, name: teamworkPerson(c.name), color: c.color })
                       : undefined
                   }

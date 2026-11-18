@@ -3,7 +3,7 @@ import { readFile, stat, writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { app, BrowserWindow, dialog, net, Notification, powerMonitor, safeStorage, shell } from 'electron'
 import { IPC } from '@shared/ipcChannels'
-import { hostOf, isFileSource, isTeamworkSource, TEAMWORK_SOURCE_PREFIX } from '@shared/sources'
+import { ASSIGNED_SOURCE_PREFIX, hostOf, isFileSource, isTeamworkSource, TEAMWORK_SOURCE_PREFIX } from '@shared/sources'
 import type {
   AttendeeStatus,
   CalendarEvent,
@@ -114,6 +114,8 @@ const ACCOUNT_STASH_KEY = 'caller.accountStash'
 const TEAMWORK_CALENDAR_KEY = 'caller.teamworkCalendar'
 /** One Teamwork calendar per caller (and one for unassigned interviews): `byCaller[userId | 'unassigned']`. */
 const TEAMWORK_CALENDARS_KEY = 'caller.teamworkCalendars'
+/** The "Teamwork · Assigned to me" calendar (shown with Mine): `{ slug, id }`. */
+const ASSIGNED_CALENDAR_KEY = 'caller.assignedCalendar'
 const UNASSIGNED = 'unassigned'
 /** Owners' choice of how the Teamwork calendars are split. */
 const TEAMWORK_VIEW_KEY = 'caller.teamworkView'
@@ -1470,6 +1472,8 @@ class CallerService {
       string,
       { name: string; color: string; mine: boolean; rows: Array<{ key: string; tag: CallerTag | null; row: Omit<Row, 'id'> }> }
     >()
+    // Interviews from others' calendars assigned to the member: also on "Assigned to me" (Mine).
+    const assignedRows: Array<{ key: string; tag: CallerTag | null; row: Omit<Row, 'id'> }> = []
     for (const i of this.interviewsById.values()) {
       if (i.event.status === 'cancelled') continue
       const own = this.ownEventOf(i, ownCalendars, ownPicks)
@@ -1524,6 +1528,7 @@ class CallerService {
           myResponse: null
         }
       })
+      if (i.assignedToMe && !own) assignedRows.push(group.rows[group.rows.length - 1]!)
     }
     // Other members' busy time from their apps, on their calendars (times only). By bidder: none.
     for (const member of byBidder ? [] : this.busyMembers) {
@@ -1607,6 +1612,15 @@ class CallerService {
       )
       calendarRepository.setSyncSuccess(calendarId, null)
     }
+    // Mine: "Teamwork · Assigned to me", in the member's caller color (no reminders of its own:
+    // assigned interviews remind through assignedEventIds).
+    const assignedId = this.assignedCalendar(slug)
+    for (const r of assignedRows) if (r.tag) tags[makeEventId(assignedId, r.key)] = r.tag
+    eventRepository.replaceCalendarEvents(
+      assignedId,
+      assignedRows.map(({ key: rowKey, row }) => ({ ...row, id: makeEventId(assignedId, rowKey) }))
+    )
+    calendarRepository.setSyncSuccess(assignedId, null)
     settingsRepository.setInternal(ANNOTATIONS_KEY, annotations)
     this.tagsByEvent = tags
     this.eventIdByInterview = eventIds
@@ -1698,8 +1712,32 @@ class CallerService {
   }
 
   /** Signing out: the Teamwork calendars and the Teamwork details of own events go away. */
+  /** The "Teamwork · Assigned to me" calendar of this workspace: made the first time, in the member's color. */
+  private assignedCalendar(slug: string): string {
+    const stored = settingsRepository.getInternal<{ slug: string; id: string } | null>(ASSIGNED_CALENDAR_KEY, null)
+    const color = this.callers.find((c) => c.userId === this.connection().userId)?.color ?? '#2563eb'
+    const existing = stored ? calendarRepository.get(stored.id) : null
+    if (existing && stored!.slug === slug) {
+      if (existing.color.toLowerCase() !== color.toLowerCase()) calendarRepository.update(existing.id, { color })
+      return existing.id
+    }
+    if (existing) this.removeCalendar(existing.id)
+    const id = calendarRepository.create({
+      name: 'Teamwork · Assigned to me',
+      color,
+      sourceUrl: `${ASSIGNED_SOURCE_PREFIX}${slug}`,
+      enabled: true,
+      notify: false
+    }).id
+    settingsRepository.setInternal(ASSIGNED_CALENDAR_KEY, { slug, id })
+    return id
+  }
+
   private clearTeamwork(): void {
     this.removeLegacyTeamworkCalendar()
+    const assigned = settingsRepository.getInternal<{ slug: string; id: string } | null>(ASSIGNED_CALENDAR_KEY, null)
+    if (assigned) this.removeCalendar(assigned.id)
+    settingsRepository.setInternal(ASSIGNED_CALENDAR_KEY, null)
     const stored = settingsRepository.getInternal<TeamworkCalendars | null>(TEAMWORK_CALENDARS_KEY, null)
     for (const id of Object.values(stored?.byCaller ?? {})) this.removeCalendar(id)
     settingsRepository.setInternal(TEAMWORK_CALENDARS_KEY, null)

@@ -9,6 +9,9 @@ How to use this file:
 - Write for users: what they can now do, or what works better. Not file names or code.
 -->
 
+## 1.2.7
+- **Mine** now also shows the Teamwork interviews assigned to you from other members' calendars, on a **Teamwork · Assigned to me** calendar in your color, with **Who joins** on each. Interviews from your own calendars were already there on your own events. **Team** still has every interview on the caller calendars, so nothing shows twice.
+
 ## 1.2.6
 - **Mine | Team** at the top of the sidebar, under Calendars, once you're connected to Teamwork. **Mine** shows your own calendars and local events, in their colors. **Team** shows only the Teamwork calendars (callers, or bidders, or an overview's groups), and in the Day view the team's board. The Day view's Personal / Team buttons are the same switch.
 - Picking calendars is quicker. **All** and **None** show or hide every calendar in view at once, and **Only** on a calendar (when you point at it) shows just that one. Click **All** to see them all again.
