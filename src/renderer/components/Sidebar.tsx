@@ -24,6 +24,7 @@ import {
   SettingsIcon
 } from './icons'
 import { Button, ColorDot, Spinner } from './ui'
+import { errorMessage } from '../utils/errors'
 import { AppLogo } from './AppLogo'
 import { TeamworkColorDialog } from './TeamworkColorDialog'
 import { SearchBox } from './SearchBox'
@@ -313,47 +314,39 @@ function useTeamworkSidebarInfo(): TeamworkSidebarInfo {
   return info
 }
 
-/**
- * Owners: the Teamwork calendars by caller (their interviews in their color,
- * and Unassigned) or by bidder (who brought each interview in).
- */
-function TeamworkViewSwitch({ view }: { view: TeamworkView }) {
-  const [pending, setPending] = useState<TeamworkView | null>(null)
-  const shown = pending ?? view
-  const pick = (next: TeamworkView): void => {
-    if (next === shown) return
-    setPending(next)
-    void window.api.caller
-      .setTeamworkView(next)
-      .catch(() => undefined)
-      .finally(() => setPending(null))
-  }
-  const option = (value: TeamworkView, label: string, title: string) => (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={shown === value}
-      onClick={() => pick(value)}
-      title={title}
-      className={`rounded px-1.5 py-px text-[10px] font-medium transition-colors ${
-        shown === value ? 'bg-slate-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
-      }`}
-    >
-      {label}
-    </button>
-  )
-  return (
-    <div role="radiogroup" aria-label="Show Teamwork calendars by" className="flex shrink-0 items-center gap-px rounded-md bg-slate-800 p-px">
-      {option('callers', 'Callers', 'One calendar per caller, in their color, and Unassigned')}
-      {option('bidders', 'Bidders', 'One calendar per bidder: who brought each interview in')}
-    </div>
-  )
-}
-
 /** The member's own Teamwork calendar first, callers by name, Unassigned last. */
 function teamworkRank(c: { name: string; sourceUrl: string }): number {
   if (c.sourceUrl.endsWith('/unassigned')) return 2
   return c.name.endsWith('(you)') ? 0 : 1
+}
+
+/**
+ * The Teamwork calendars' Sync button (owners and the admin): reloads the
+ * interviews from Teamwork into this app now. Nobody's calendars are synced.
+ */
+function TeamworkReload() {
+  const notify = useAppStore((s) => s.notify)
+  const [busy, setBusy] = useState(false)
+  const reload = (): void => {
+    setBusy(true)
+    window.api.caller
+      .refreshInterviews()
+      .catch((err) => notify(`Could not reload from Teamwork: ${errorMessage(err)}`, 'error'))
+      .finally(() => setBusy(false))
+  }
+  return (
+    <button
+      type="button"
+      onClick={reload}
+      disabled={busy}
+      title="Reload the interviews from Teamwork now (only this app; nobody's calendars are synced)"
+      aria-label="Reload the interviews from Teamwork"
+      className="flex shrink-0 items-center gap-1 rounded px-1 text-[10px] text-slate-400 hover:bg-slate-800 hover:text-slate-200 disabled:opacity-60"
+    >
+      <RefreshIcon size={10} className={busy ? 'animate-spin' : ''} />
+      Sync
+    </button>
+  )
 }
 
 export function Sidebar() {
@@ -693,7 +686,7 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
                     </span>
                   )}
                 </button>
-                {group.key === 'teamwork' && teamworkInfo.isOwner && <TeamworkViewSwitch view={teamworkInfo.view} />}
+                {group.key === 'teamwork' && teamworkInfo.isOwner && <TeamworkReload />}
                 {group.account && isProtonStale(group.account, now) && (
                   // Proton only syncs on request: a gentle nudge once the data gets old.
                   <button

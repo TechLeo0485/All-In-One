@@ -5,7 +5,6 @@ import { app, BrowserWindow, dialog, net, Notification, powerMonitor, safeStorag
 import { IPC } from '@shared/ipcChannels'
 import { ASSIGNED_SOURCE_PREFIX, hostOf, isFileSource, isTeamworkSource, TEAMWORK_SOURCE_PREFIX } from '@shared/sources'
 import type {
-  AttendeeStatus,
   AvailabilityBusy,
   AvailabilityPeople,
   AvailabilityPerson,
@@ -13,8 +12,6 @@ import type {
   EventAttendee,
   CalendarSource,
   CallerEventShare,
-  CallerPick,
-  CallerProfile,
   CallerShareRow,
   CallerShares,
   CallerStatus,
@@ -41,7 +38,7 @@ import { overviewService } from '../overview/overviewService'
 import { protonAccountService } from '../proton/protonAccountService'
 import { createNotification } from '../windowsIdentity'
 import { buildIcs } from './icsBuilder'
-import { backoff, busyBlocksFrom, type BusyBlock, missedSummary, queuedOutcome, teamworkHasLatest } from './syncRules'
+import { backoff, type BusyBlock, missedSummary, queuedOutcome, teamworkHasLatest } from './syncRules'
 
 /**
  * Connection to Teamwork (the Caller website). Any member signs in here and
@@ -160,12 +157,23 @@ interface Cache {
 }
 /** Busy time sent last, per workspace: skip sending when nothing changed. */
 const BUSY_HASH_KEY = 'caller.busyHash'
-/** Busy time sent and shown: yesterday to 60 days ahead (the server keeps 90). */
-const BUSY_FUTURE_DAYS = 60
 /** Calendars sync in bursts; busy time is sent once they settle. */
 const BUSY_DEBOUNCE_MS = 5_000
-/** Longer than this is not a meeting (all-day or multi-day): never sent. */
-const BUSY_MAX_MS = 16 * 60 * 60 * 1000
+/** Calendars (and LOCAL_PICK for local events) the member turned off: slug → ids. Every other one is sent. */
+const NOT_SENT_KEY = 'caller.notSent'
+/** Local events go to Teamwork as one calendar, kept with the picks under this key. */
+const LOCAL_PICK = 'local'
+/** Local events sent: from this long ago, up to a year ahead. */
+const LOCAL_PAST_DAYS = 30
+const LOCAL_FUTURE_DAYS = 366
+
+/** The one role shown on a member's Teamwork calendar. */
+function roleLabel(roles: string[]): string {
+  if (roles.includes('admin') || roles.includes('owner')) return 'Owner'
+  if (roles.includes('caller')) return 'Caller'
+  if (roles.includes('bidder')) return 'Bidder'
+  return 'Member'
+}
 
 /** Members and calendar managers change colors on Teamwork. */
 /** Owners (and the admin, who is one too) may see the interviews by bidder. */
@@ -187,9 +195,6 @@ interface MemberBusy {
   /** The admin only: the events behind the busy time (title, place, guests). */
   events?: BusyBlock[]
 }
-const ATTENDEE_STATUSES: readonly AttendeeStatus[] = ['accepted', 'declined', 'tentative', 'needs-action']
-const attendeeStatusOf = (status: string): AttendeeStatus =>
-  (ATTENDEE_STATUSES as readonly string[]).includes(status) ? (status as AttendeeStatus) : 'needs-action'
 /** Days before and after today the Teamwork calendar holds. */
 const LIVE_PAST_DAYS = 7
 const LIVE_FUTURE_DAYS = 60
@@ -324,7 +329,11 @@ class CallerService {
     syncService.onCalendarSynced((calendar, ics) => {
       void this.uploadShared(calendar, ics)
       void this.uploadPicksOf(calendar.id)
-      this.scheduleBusy()
+      // A calendar not on Teamwork yet (new, or added while offline): shared now, then sent.
+      const slug = this.connection().workspaceSlug
+      if (slug && this.token() && !this.allShares()[slug]?.[calendar.id] && this.wantsSent(slug, calendar)) {
+        void this.ensureShares(slug).catch((err) => console.warn('[teamwork] calendar not shared:', errorText(err)))
+      }
     })
   }
 
@@ -402,9 +411,9 @@ class CallerService {
       this.callers = members
         .filter((m) => m.status === 'active' && m.roles.includes('caller'))
         .map((m) => ({ userId: m.userId, name: m.name, level: m.callerLevel ?? null, color: m.color }))
-      this.bidders = members
-        .filter((m) => m.status === 'active' && m.roles.includes('bidder'))
-        .map((m) => ({ userId: m.userId, name: m.name, color: m.color }))
+      this.members = members
+        .filter((m) => m.status === 'active')
+        .map((m) => ({ userId: m.userId, name: m.name, color: m.color, role: roleLabel(m.roles) }))
     }
     if (colors?.unassigned && /^#[0-9a-f]{6}$/i.test(colors.unassigned)) this.unassignedColor = colors.unassigned
     const can = canSetColors(ctx.membership.permissions)
@@ -431,14 +440,13 @@ class CallerService {
     }, BUSY_DEBOUNCE_MS)
   }
 
-  /** The member's busy time: timed events of calendars not shared with a profile (not declined, not picked). */
-  private busyBlocks(slug: string): BusyBlock[] {
-    const shared = new Set(Object.keys(this.allShares()[slug] ?? {}))
-    const picked = new Set(Object.values(this.allPicks()[slug] ?? {}).flatMap((p) => p.eventIds))
-    const teamwork = new Set(calendarRepository.list().filter((c) => isTeamworkSource(c.sourceUrl)).map((c) => c.id))
-    const from = new Date(Date.now() - DAY_MS).toISOString()
-    const to = new Date(Date.now() + BUSY_FUTURE_DAYS * DAY_MS).toISOString()
-    return busyBlocksFrom(eventRepository.listInRange(from, to), { calendarIds: new Set([...shared, ...teamwork]), eventIds: picked }, BUSY_MAX_MS)
+  /**
+   * The member's busy time: none any more. Every event goes to Teamwork as an
+   * interview, so there is nothing left to send as busy; an empty list clears
+   * what earlier versions sent.
+   */
+  private busyBlocks(_slug: string): BusyBlock[] {
+    return []
   }
 
   /** Sends the member's busy time to the chosen workspace (only when it changed, unless `force`). */
@@ -767,6 +775,7 @@ class CallerService {
         await this.refreshInterviews(slug).catch(step('reload failed'))
         await this.notifyMissed(slug).catch(step('missed notifications not read'))
         if (!(await this.flushQueue(slug))) ok = false
+        await this.ensureShares(slug).catch(step('sharing calendars failed'))
         await this.reconcileUploads(slug).catch(step('check of shared calendars failed'))
         await this.reconcileBusy(slug).catch(step('check of busy time failed'))
         this.lastCheckedAt = new Date().toISOString()
@@ -1291,8 +1300,8 @@ class CallerService {
 
   /** Every caller of the workspace (from the members list), for the Team view's columns. */
   private callers: Array<{ userId: string; name: string; level: number | null; color: string }> = []
-  /** Every bidder of the workspace (owners' by-bidder view gives each a calendar, empty ones too). */
-  private bidders: Array<{ userId: string; name: string; color: string }> = []
+  /** Every active member of the workspace with the one role shown: each has a Teamwork calendar. */
+  private members: Array<{ userId: string; name: string; color: string; role: string }> = []
   /** Interview id → the event in this app that shows it. */
   private eventIdByInterview: Record<string, string> = {}
 
@@ -1548,8 +1557,13 @@ class CallerService {
     const annotations: Annotations = {}
     const tags: Record<string, CallerTag> = {}
     const eventIds: Record<string, string> = {}
-    const byBidder = this.teamworkView() === 'bidders'
     const myId = this.connection().userId
+    const memberById = new Map(this.members.map((m) => [m.userId, m]))
+    const memberGroup = (userId: string, fallback: { name: string; color: string }) => {
+      const m = memberById.get(userId)
+      const name = m ? `${m.name} · ${m.role}` : fallback.name
+      return { name: userId === myId ? `${name} (you)` : name, color: m?.color ?? fallback.color, mine: false, rows: [] }
+    }
     type Row = Parameters<typeof eventRepository.replaceCalendarEvents>[1][number]
     const groups = new Map<
       string,
@@ -1570,30 +1584,13 @@ class CallerService {
         tags[own] = this.tagOf(i)
         eventIds[i.event.id] = own
       }
-      let key: string
-      let group
-      if (byBidder) {
-        // Owners, by bidder: on the calendar of who brought it in, in their color.
-        const bidder = i.bidder ?? null
-        key = `${BIDDER_PREFIX}${bidder?.userId ?? 'unknown'}`
-        group = groups.get(key)
-        if (!group) {
-          const mine = bidder?.userId === myId
-          group = bidder
-            ? { name: mine ? `${bidder.name} (you)` : bidder.name, color: bidder.color, mine: false, rows: [] }
-            : { name: 'Unknown bidder', color: this.unassignedColor, mine: false, rows: [] }
-          groups.set(key, group)
-        }
-      } else {
-        const caller = this.callerOf(i)
-        key = i.event.interview?.caller?.userId ?? i.event.assignees[0]?.userId ?? UNASSIGNED
-        group = groups.get(key)
-        if (!group) {
-          group = caller
-            ? { name: caller.mine ? `${caller.name} (you)` : caller.name, color: caller.color, mine: caller.mine, rows: [] }
-            : { name: 'Unassigned', color: this.unassignedColor, mine: false, rows: [] }
-          groups.set(key, group)
-        }
+      // On the calendar of the member it came from (whose calendar, or who added it), in their color.
+      const bidder = i.bidder ?? null
+      const key = `${BIDDER_PREFIX}${bidder?.userId ?? 'unknown'}`
+      let group = groups.get(key)
+      if (!group) {
+        group = bidder ? memberGroup(bidder.userId, bidder) : { name: 'Someone else', color: this.unassignedColor, mine: false, rows: [] }
+        groups.set(key, group)
       }
       const meeting = i.event.meetingUrl ?? ''
       group.rows.push({
@@ -1613,80 +1610,10 @@ class CallerService {
       })
       if (i.assignedToMe && !own) assignedRows.push(group.rows[group.rows.length - 1]!)
     }
-    // Other members' busy time from their apps, on their calendars (times only). By bidder: none.
-    for (const member of byBidder ? [] : this.busyMembers) {
-      if (member.mine) continue
-      let group = groups.get(member.userId)
-      if (!group) {
-        group = { name: member.name, color: member.color, mine: false, rows: [] }
-        groups.set(member.userId, group)
-      }
-      if (member.events?.length) {
-        // The admin: each event as it is on the member's calendar (title, place, guests).
-        member.events.forEach((e, n) => {
-          const key = `busy:${member.userId}:${e.start}:${n}`
-          group!.rows.push({
-            key,
-            tag: null,
-            row: {
-              externalId: key,
-              title: e.title || 'Busy',
-              description: '',
-              startTime: e.start,
-              endTime: e.end,
-              allDay: false,
-              location: e.location,
-              attendees: e.attendees.map((a) => ({
-                name: a.name,
-                email: a.email,
-                status: attendeeStatusOf(a.status),
-                isOrganizer: a.isOrganizer,
-                optional: false
-              })),
-              myResponse: null
-            }
-          })
-        })
-        continue
-      }
-      for (const block of member.blocks) {
-        group.rows.push({
-          key: `busy:${member.userId}:${block.start}`,
-          tag: null,
-          row: {
-            externalId: `busy:${member.userId}:${block.start}`,
-            title: 'Busy',
-            description: `${member.name} is busy (from their own calendar on Teamwork).`,
-            startTime: block.start,
-            endTime: block.end,
-            allDay: false,
-            location: '',
-            attendees: [],
-            myResponse: null
-          }
-        })
-      }
-    }
-    // Every caller has a calendar, empty ones too: an empty one means free (nothing assigned,
-    // no busy time sent), not missing. The workspace's callers when the member list is readable,
-    // else the callers this app knows from the interviews.
-    // By bidder: every bidder has a calendar too, empty ones (nothing brought in) as well.
-    if (byBidder) {
-      for (const b of this.bidders) {
-        const key = `${BIDDER_PREFIX}${b.userId}`
-        if (groups.has(key)) continue
-        groups.set(key, { name: b.userId === myId ? `${b.name} (you)` : b.name, color: b.color, mine: false, rows: [] })
-      }
-    }
-    const everyCaller = byBidder
-      ? []
-      : this.callers.length
-        ? this.callers.map((c) => ({ userId: c.userId, name: c.name, color: c.color }))
-        : [...this.interviewsById.values()].flatMap((i) => (i.event.interview?.caller ? [i.event.interview.caller] : []))
-    for (const caller of everyCaller) {
-      if (groups.has(caller.userId)) continue
-      const mine = caller.userId === myId
-      groups.set(caller.userId, { name: mine ? `${caller.name} (you)` : caller.name, color: caller.color, mine, rows: [] })
+    // Every member of the workspace has a calendar, empty ones too.
+    for (const m of this.members) {
+      const key = `${BIDDER_PREFIX}${m.userId}`
+      if (!groups.has(key)) groups.set(key, memberGroup(m.userId, m))
     }
     const calendarIds = this.teamworkCalendars(slug, groups)
     for (const [key, group] of groups) {
@@ -2215,110 +2142,178 @@ Click to open it.`
   // ---------------------------------------------------------------------------
   // Sharing
 
-  /** Members share only to the profiles they work; owners and the admin to any. */
-  private async allowedProfiles(slug: string): Promise<CallerProfile[]> {
-    const profiles = await this.request<Array<{ id: string; fullName: string; bidders: Array<{ id: string }> }>>(
-      `/workspaces/${slug}/profiles`
-    )
-    const { workspaces, userId } = this.connection()
-    const canShareAny = workspaces.find((w) => w.slug === slug)?.canShareAny ?? false
-    return profiles
-      .filter((p) => canShareAny || p.bidders.some((b) => b.id === userId))
-      .map((p) => ({ id: p.id, fullName: p.fullName }))
-      .sort((a, b) => a.fullName.localeCompare(b.fullName))
+  /** Calendars (and local events) the member turned off for this workspace. */
+  private notSent(slug: string): Set<string> {
+    return new Set(settingsRepository.getInternal<Record<string, string[]>>(NOT_SENT_KEY, {})[slug] ?? [])
   }
 
-  /** This app's calendars with what each shares in the chosen workspace, the profiles to share to, and the picked events. */
+  private saveNotSent(slug: string, ids: Set<string>): void {
+    const all = settingsRepository.getInternal<Record<string, string[]>>(NOT_SENT_KEY, {})
+    settingsRepository.setInternal(NOT_SENT_KEY, { ...all, [slug]: [...ids] })
+  }
+
+  /** Why a calendar can't go to Teamwork (it comes from Teamwork), or null. */
+  private blockedReason(calendar: CalendarSource): string | null {
+    if (isTeamworkSource(calendar.sourceUrl)) return 'This is a Teamwork calendar.'
+    const teamworkHost = hostOf(this.connection().serverUrl)
+    return teamworkHost && hostOf(calendar.sourceUrl) === teamworkHost ? 'This is a Teamwork feed; its interviews are on Teamwork already.' : null
+  }
+
+  /** Sent unless turned off; Teamwork's own calendars and switched-off calendars never. */
+  private wantsSent(slug: string, calendar: CalendarSource): boolean {
+    return calendar.enabled && !this.blockedReason(calendar) && !this.notSent(slug).has(calendar.id)
+  }
+
+  private ensuring: Promise<void> | null = null
+  private ensureAgain = false
+
+  /**
+   * Makes Teamwork hold what this app sends: every calendar switched on (and
+   * the local events, as one calendar) is shared, without a profile; turned
+   * off or removed ones stop. Events picked one by one for a profile (before
+   * profiles went away) now go with their calendars. One run at a time.
+   */
+  private ensureShares(slug: string): Promise<void> {
+    if (this.ensuring) {
+      this.ensureAgain = true
+      return this.ensuring
+    }
+    this.ensuring = (async () => {
+      try {
+        do {
+          this.ensureAgain = false
+          await this.applyShares(slug)
+        } while (this.ensureAgain)
+      } finally {
+        this.ensuring = null
+      }
+    })()
+    return this.ensuring
+  }
+
+  private async applyShares(slug: string): Promise<void> {
+    if (!this.token() || this.connection().workspaceSlug !== slug) return
+    const off = this.notSent(slug)
+    const calendars = calendarRepository.list()
+    const byId = new Map(calendars.map((c) => [c.id, c]))
+    for (const [key, pick] of Object.entries(this.allPicks()[slug] ?? {})) {
+      if (key === LOCAL_PICK) continue
+      await this.deleteConnection(slug, pick.connectionId)
+      this.savePick(slug, key, null)
+    }
+    for (const [localId, share] of Object.entries(this.allShares()[slug] ?? {})) {
+      const calendar = byId.get(localId)
+      // Switched off in the sidebar only: kept (it syncs again once switched on).
+      if (calendar && !off.has(localId) && !this.blockedReason(calendar)) continue
+      await this.deleteConnection(slug, share.connectionId)
+      this.saveShare(slug, localId, null)
+    }
+    const added: CalendarSource[] = []
+    for (const calendar of calendars) {
+      if (this.allShares()[slug]?.[calendar.id] || !this.wantsSent(slug, calendar)) continue
+      const server = await this.request<ServerCalendar>(`/workspaces/${slug}/calendar/connections/shared`, {
+        method: 'POST',
+        body: { name: calendar.name.slice(0, 80) || 'Calendar' }
+      })
+      this.saveShare(slug, calendar.id, {
+        connectionId: server.id,
+        profileId: '',
+        profileName: '',
+        lastUploadAt: null,
+        lastError: null,
+        eventCount: null
+      })
+      added.push(calendar)
+    }
+    const local = this.allPicks()[slug]?.[LOCAL_PICK]
+    if (off.has(LOCAL_PICK)) {
+      if (local) {
+        await this.deleteConnection(slug, local.connectionId)
+        this.savePick(slug, LOCAL_PICK, null)
+      }
+    } else if (!local) {
+      const name = `${this.connection().userName || 'Member'} · Local events`.slice(0, 80)
+      const created = await this.request<ServerCalendar>(`/workspaces/${slug}/calendar/connections/shared`, { method: 'POST', body: { name } })
+      this.savePick(slug, LOCAL_PICK, { connectionId: created.id, profileName: '', eventIds: [], lastUploadAt: null, lastError: null })
+      void this.uploadPick(slug, LOCAL_PICK)
+    }
+    // Their uploads follow the sync (see the constructor).
+    if (added.length) await this.syncLocal(added)
+  }
+
+  /** Removes a calendar from Teamwork: its upcoming interviews nobody worked on go, the others stay. */
+  private async deleteConnection(slug: string, connectionId: string): Promise<void> {
+    await this.request(`/workspaces/${slug}/calendar/connections/${connectionId}`, { method: 'DELETE' }).catch((err) => {
+      // Already removed on the website: nothing left to stop.
+      if (!(err instanceof CallerError && err.status === 404)) throw err
+    })
+  }
+
+  /** This app's calendars and local events, and whether and how each goes to Teamwork. */
   async listShares(): Promise<CallerShares> {
     const slug = this.requireWorkspace()
-    const allowed = await this.allowedProfiles(slug)
+    await this.ensureShares(slug).catch((err) => console.warn('[teamwork] calendars not shared:', errorText(err)))
     const shares = this.allShares()[slug] ?? {}
-    const picks: CallerPick[] = Object.entries(this.allPicks()[slug] ?? {})
-      .filter(([, pick]) => pick.eventIds.length > 0)
-      .map(([profileId, pick]) => ({
-        profileId,
-        profileName: pick.profileName,
-        lastUploadAt: pick.lastUploadAt,
-        lastError: pick.lastError,
-        events: pick.eventIds
-          .map((id) => {
-            const event = eventRepository.get(id)
-            return { id, title: event?.title ?? 'Removed from its calendar', startTime: event?.startTime ?? '', missing: !event }
-          })
-          .sort((a, b) => a.startTime.localeCompare(b.startTime))
+    const off = this.notSent(slug)
+    const calendars: CallerShareRow[] = calendarRepository
+      .list()
+      .filter((c) => !isTeamworkSource(c.sourceUrl))
+      .map((c) => ({
+        localCalendarId: c.id,
+        name: c.name,
+        color: c.color,
+        source: sourceLabel(c),
+        blocked: this.blockedReason(c),
+        send: !off.has(c.id) && !this.blockedReason(c),
+        share: shares[c.id] ?? null
       }))
-    const teamworkHost = hostOf(this.connection().serverUrl)
-    const calendars: CallerShareRow[] = calendarRepository.list().map((c) => ({
-      localCalendarId: c.id,
-      name: c.name,
-      color: c.color,
-      source: isTeamworkSource(c.sourceUrl) ? 'Teamwork' : sourceLabel(c),
-      // Sharing these would send Teamwork its own interviews again, as duplicates.
-      blocked: isTeamworkSource(c.sourceUrl)
-        ? 'This is the Teamwork calendar itself.'
-        : teamworkHost && hostOf(c.sourceUrl) === teamworkHost
-          ? 'This is a Teamwork feed; its interviews are on Teamwork already.'
-          : null,
-      share: shares[c.id] ?? null
-    }))
-    return { calendars, profiles: allowed, picks }
-  }
-
-  /** Shares a calendar with a profile (or moves it to another one), then syncs it so its events go up right away. */
-  async share(localCalendarId: string, profileId: string): Promise<CallerShares> {
-    const slug = this.requireWorkspace()
-    const calendar = calendarRepository.get(localCalendarId)
-    if (!calendar) throw new CallerError('This calendar is gone')
-    const teamworkHost = hostOf(this.connection().serverUrl)
-    if (isTeamworkSource(calendar.sourceUrl) || (teamworkHost && hostOf(calendar.sourceUrl) === teamworkHost)) {
-      throw new CallerError('This calendar comes from Teamwork, so its interviews are there already.')
-    }
-    const current = this.allShares()[slug]?.[localCalendarId]
-    const server = current
-      ? await this.request<ServerCalendar>(`/workspaces/${slug}/calendar/connections/${current.connectionId}`, {
-          method: 'PATCH',
-          body: { profileId }
-        })
-      : await this.request<ServerCalendar>(`/workspaces/${slug}/calendar/connections/shared`, {
-          method: 'POST',
-          body: { name: calendar.name.slice(0, 80) || 'Calendar', profileId }
-        })
-    this.saveShare(slug, localCalendarId, {
-      connectionId: server.id,
-      profileId,
-      profileName: server.profile?.fullName ?? 'Profile',
-      lastUploadAt: current?.lastUploadAt ?? null,
-      lastError: null,
-      eventCount: current?.eventCount ?? null
-    })
-    // Events of this calendar picked one by one now go with the whole calendar: drop them from the picks.
-    for (const [pid, pick] of Object.entries(this.allPicks()[slug] ?? {})) {
-      const rest = pick.eventIds.filter((id) => eventRepository.get(id)?.calendarId !== localCalendarId)
-      if (rest.length !== pick.eventIds.length) {
-        this.savePick(slug, pid, { ...pick, eventIds: rest })
-        await this.uploadPick(slug, pid)
+    const local = this.allPicks()[slug]?.[LOCAL_PICK]
+    return {
+      calendars,
+      local: {
+        send: !off.has(LOCAL_PICK),
+        eventCount: local ? local.eventIds.length : null,
+        lastUploadAt: local?.lastUploadAt ?? null,
+        lastError: local?.lastError ?? null
       }
     }
-    // The upload follows the sync (see the constructor).
-    await this.syncLocal([calendar])
-    await this.uploads.get(localCalendarId)
-    this.scheduleBusy()
+  }
+
+  /** Sends a calendar (or LOCAL_PICK: the local events) to Teamwork again, as an interview each event. */
+  async share(localCalendarId: string): Promise<CallerShares> {
+    return this.setSent(localCalendarId, true)
+  }
+
+  /** Stops sending it: Teamwork removes its upcoming interviews nobody worked on. */
+  async unshare(localCalendarId: string): Promise<CallerShares> {
+    return this.setSent(localCalendarId, false)
+  }
+
+  private async setSent(id: string, on: boolean): Promise<CallerShares> {
+    const slug = this.requireWorkspace()
+    if (id !== LOCAL_PICK) {
+      const calendar = calendarRepository.get(id)
+      if (!calendar) throw new CallerError('This calendar is gone')
+      if (on && this.blockedReason(calendar)) throw new CallerError(this.blockedReason(calendar)!)
+    }
+    const off = this.notSent(slug)
+    if (on) off.delete(id)
+    else off.add(id)
+    this.saveNotSent(slug, off)
+    await this.ensureShares(slug)
     return this.listShares()
   }
 
-  /** Stops sharing: Teamwork removes the upcoming interviews nobody worked on. */
-  async unshare(localCalendarId: string): Promise<CallerShares> {
+  /**
+   * The Teamwork calendars' Sync button: reloads the interviews from Teamwork
+   * now and redraws them. Only this app: no calendar is synced or sent, here
+   * or on anyone else's computer.
+   */
+  async reloadInterviews(): Promise<void> {
     const slug = this.requireWorkspace()
-    const current = this.allShares()[slug]?.[localCalendarId]
-    if (current) {
-      await this.request(`/workspaces/${slug}/calendar/connections/${current.connectionId}`, { method: 'DELETE' }).catch((err) => {
-        // Already removed on the website: nothing left to stop.
-        if (!(err instanceof CallerError && err.status === 404)) throw err
-      })
-      this.saveShare(slug, localCalendarId, null)
-    }
-    this.scheduleBusy()
-    return this.listShares()
+    await this.refreshInterviews(slug)
+    this.lastCheckedAt = new Date().toISOString()
+    this.notifyChanged()
   }
 
   /** Syncs every calendar shared in any workspace; their uploads follow. */
@@ -2342,15 +2337,16 @@ Click to open it.`
         const s = shares[c.id]!
         return s.lastError
           ? { name: c.name, ok: false, message: s.lastError }
-          : { name: c.name, ok: true, message: `${s.eventCount ?? 0} events sent to ${s.profileName}` }
+          : { name: c.name, ok: true, message: `${s.eventCount ?? 0} events sent` }
       })
-    const pickResults = Object.values((slug && this.allPicks()[slug]) || {})
-      .filter((p) => p.eventIds.length > 0)
-      .map((p) =>
-        p.lastError
-          ? { name: `Picked for ${p.profileName}`, ok: false, message: p.lastError }
-          : { name: `Picked for ${p.profileName}`, ok: true, message: `${p.eventIds.length} picked ${p.eventIds.length === 1 ? 'event' : 'events'} sent` }
-      )
+    const local = slug ? this.allPicks()[slug]?.[LOCAL_PICK] : undefined
+    const pickResults = local
+      ? [
+          local.lastError
+            ? { name: 'Local events', ok: false, message: local.lastError }
+            : { name: 'Local events', ok: true, message: `${local.eventIds.length} ${local.eventIds.length === 1 ? 'event' : 'events'} sent` }
+        ]
+      : []
     return [...calendarResults, ...pickResults]
   }
 
@@ -2381,17 +2377,17 @@ Click to open it.`
       ...empty,
       signedIn: true,
       workspaceName: c.workspaces.find((w) => w.slug === slug)?.name ?? null,
-      profileId: Object.entries(this.allPicks()[slug] ?? {}).find(([, p]) => p.eventIds.includes(eventId))?.[0] ?? null,
-      calendarSharedWith: event?.calendarId ? (this.allShares()[slug]?.[event.calendarId]?.profileName ?? null) : null,
+      profileId: null,
+      // Sent to Teamwork: its calendar is, or (a local event) the local events are.
+      calendarSharedWith: (
+        event?.isLocalEvent ? this.allPicks()[slug]?.[LOCAL_PICK] : event?.calendarId ? this.allShares()[slug]?.[event.calendarId] : null
+      )
+        ? 'Teamwork'
+        : null,
       fromTeamwork: Boolean(event?.calendarId && isTeamworkSource(calendarRepository.get(event.calendarId)?.sourceUrl ?? '')),
       teamwork: this.teamworkInfo(slug, event)
     }
-    if (base.fromTeamwork) return base
-    try {
-      return { ...base, profiles: await this.allowedProfiles(slug) }
-    } catch (err) {
-      return { ...base, error: err instanceof Error ? err.message : String(err) }
-    }
+    return base
   }
 
   /** The workspace interview behind an event: its own Teamwork event, or the member's event that became one. */
@@ -2471,15 +2467,24 @@ Click to open it.`
       this.localTimer = null
       for (const [slug, forWorkspace] of Object.entries(this.allPicks())) {
         for (const [profileId, pick] of Object.entries(forWorkspace)) {
-          const affected = pick.eventIds.some((id) => {
-            const event = eventRepository.get(id)
-            return !event || event.isLocalEvent
-          })
+          const affected =
+            profileId === LOCAL_PICK ||
+            pick.eventIds.some((id) => {
+              const event = eventRepository.get(id)
+              return !event || event.isLocalEvent
+            })
           if (affected) void this.uploadPick(slug, profileId).catch((err) => console.warn('[teamwork] pick not sent:', errorText(err)))
         }
       }
       this.scheduleBusy()
     }, 1_000)
+  }
+
+  /** The member's local events Teamwork gets: a month back to a year ahead. */
+  private localEvents(): CalendarEvent[] {
+    const from = new Date(Date.now() - LOCAL_PAST_DAYS * DAY_MS).toISOString()
+    const to = new Date(Date.now() + LOCAL_FUTURE_DAYS * DAY_MS).toISOString()
+    return eventRepository.listInRange(from, to).filter((e) => e.isLocalEvent)
   }
 
   /** After a calendar synced: sends again every pick holding one of its events (or an event that left it). */
@@ -2513,12 +2518,15 @@ Click to open it.`
     const run = previous.then(async () => {
       const pick = this.allPicks()[slug]?.[profileId]
       if (!pick) return
-      const events = pick.eventIds.map((id) => eventRepository.get(id)).filter((e): e is CalendarEvent => Boolean(e))
+      const events =
+        profileId === LOCAL_PICK
+          ? this.localEvents()
+          : pick.eventIds.map((id) => eventRepository.get(id)).filter((e): e is CalendarEvent => Boolean(e))
       const kept = events.map((e) => e.id)
-      const ics = buildIcs(events, `Picked for ${pick.profileName}`)
+      const ics = buildIcs(events, profileId === LOCAL_PICK ? 'Local events' : `Picked for ${pick.profileName}`)
       // The stamp line changes every time; the fingerprint ignores it.
       const hash = fingerprint(ics.replace(/^DTSTAMP:.*$/gm, ''))
-      if (pick.lastHash === hash && !pick.lastError && kept.length === pick.eventIds.length) return
+      if (pick.lastHash === hash && !pick.lastError && kept.length === pick.eventIds.length && kept.every((id, n) => pick.eventIds[n] === id)) return
       try {
         const result = await this.request<ServerCalendar>(`/workspaces/${slug}/calendar/connections/${pick.connectionId}/ics`, {
           method: 'POST',

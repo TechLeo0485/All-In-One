@@ -73,6 +73,7 @@ export const IPC = {
   callerShare: 'caller:share',
   callerUnshare: 'caller:unshare',
   callerSyncShared: 'caller:syncShared',
+  callerRefreshInterviews: 'caller:refreshInterviews',
   callerEventShare: 'caller:eventShare',
   callerShareEvent: 'caller:shareEvent',
   callerTags: 'caller:tags',

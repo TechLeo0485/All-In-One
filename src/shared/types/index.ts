@@ -424,14 +424,16 @@ export interface CalendarApi {
     signIn(serverUrl: string, email: string, password: string): Promise<CallerStatus>
     signOut(): Promise<CallerStatus>
     selectWorkspace(slug: string): Promise<CallerStatus>
-    /** This app's calendars with what each shares in the chosen workspace, and the profiles it can share to. */
+    /** This app's calendars and local events, and whether each goes to Teamwork. */
     listShares(): Promise<CallerShares>
-    /** Shares a calendar with a profile; it is uploaded right away and on every later sync. */
-    share(localCalendarId: string, profileId: string): Promise<CallerShares>
+    /** Sends the calendar's events to Teamwork ('local': the local events). */
+    share(localCalendarId: string): Promise<CallerShares>
     /** Stops sharing (upcoming interviews nobody worked on are removed in the workspace). */
     unshare(localCalendarId: string): Promise<CallerShares>
     /** Syncs every shared calendar now (Proton accounts are exported first); each upload follows. */
     syncShared(): Promise<CallerSyncResult[]>
+    /** Reloads the interviews from Teamwork now (nobody's calendars are synced or sent). */
+    refreshInterviews(): Promise<void>
     /** Whether one event is shared on its own, and the profiles it can be shared with. */
     eventShare(eventId: string): Promise<CallerEventShare>
     /** Caller tags of the events that are Teamwork interviews. */
@@ -698,6 +700,8 @@ export interface CallerShareRow {
   source: string
   /** Why it can't be shared (it is the Teamwork calendar, or a Teamwork feed), or null. */
   blocked: string | null
+  /** Its events go to Teamwork as interviews (on unless the member turned it off). */
+  send: boolean
   share: {
     connectionId: string
     profileId: string
@@ -715,10 +719,8 @@ export interface CallerProfile {
 
 export interface CallerShares {
   calendars: CallerShareRow[]
-  /** Profiles the member may share to in the chosen workspace. */
-  profiles: CallerProfile[]
-  /** Single events shared without their calendar, per profile. */
-  picks: CallerPick[]
+  /** The member's local events, sent as one calendar. */
+  local: { send: boolean; eventCount: number | null; lastUploadAt: string | null; lastError: string | null }
 }
 
 /** Events shared one by one with a profile (sent as one "picked interviews" calendar). */

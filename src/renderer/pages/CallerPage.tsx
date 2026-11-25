@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { CallerShareRow, CallerShares, CallerStatus, CallerSyncResult } from '@shared/types'
+import type { CallerShares, CallerStatus, CallerSyncResult } from '@shared/types'
 import { CloudUploadIcon } from '../components/icons'
-import { Button, ColorDot, Field, inputClass, Spinner, TextInput } from '../components/ui'
+import { Button, ColorDot, Field, inputClass, Spinner, TextInput, Toggle } from '../components/ui'
 import { useAppStore } from '../stores/appStore'
 import { errorMessage } from '../utils/errors'
 
@@ -23,8 +23,8 @@ const LIVE: Record<CallerStatus['live'], { label: string; tone: string }> = {
 
 /**
  * Teamwork, on the Connections page: sign in, pick the workspace, connect.
- * Then which calendar goes to which profile (every other calendar counts as
- * busy time), single events shared one by one, and the live connection's state.
+ * Then which calendars (and the local events) go to Teamwork, every event as
+ * an interview, and the live connection's state.
  * Every time the connection opens, everything is checked against Teamwork and
  * whatever it doesn't hold in its latest copy is sent again.
  */
@@ -56,9 +56,8 @@ export function TeamworkConnection() {
             <CloudUploadIcon size={16} /> Teamwork
           </h2>
           <p className="mt-0.5 max-w-2xl text-xs text-slate-400">
-            Your Teamwork workspace. Calendars you share with a profile become its interviews; every other calendar counts as
-            busy time, so whoever assigns knows when you&apos;re free. They see only &quot;Busy&quot;; the workspace admin also
-            sees each event&apos;s title, place and guests (never its description, links or notes).
+            Your Teamwork workspace. Every event of the calendars you send becomes an interview there, on your calendar in the
+            team view. If you are a caller it is assigned to you; otherwise it waits unassigned for an owner to give it a caller.
           </p>
         </div>
         {status?.signedIn && !status.overview && (
@@ -80,7 +79,7 @@ export function TeamworkConnection() {
           <p className="mb-4 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
             Teamwork can&apos;t be reached right now.
             {status.cachedAt && <> Showing what it had at {new Date(status.cachedAt).toLocaleString()}.</>} What you do here is saved
-            and sent the moment it&apos;s back; your calendars and busy time catch up by themselves.
+            and sent the moment it&apos;s back; your calendars catch up by themselves.
           </p>
         )}
         {status?.signedIn && status.queue.length > 0 && (
@@ -297,7 +296,7 @@ function Connected({
     }
   }
 
-  const sharedCount = (shares?.calendars.filter((c) => c.share).length ?? 0) + (shares?.picks.length ?? 0)
+  const sharedCount = (shares?.calendars.filter((c) => c.share).length ?? 0) + (shares?.local.send ? 1 : 0)
 
   return (
     <div className="space-y-6">
@@ -362,14 +361,15 @@ function Connected({
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold">Shared calendars</h2>
+            <h2 className="text-sm font-semibold">Sent to Teamwork</h2>
             <p className="text-xs text-slate-400">
-              {status.lastSyncAt ? `Last sent ${new Date(status.lastSyncAt).toLocaleString()}. ` : ''}
-              Shared calendars are also sent whenever they sync on their own.
+              Every event of the calendars switched on becomes an interview on Teamwork, yours to see. If you are a caller, it is
+              assigned to you; otherwise it waits unassigned.
+              {status.lastSyncAt ? ` Last sent ${new Date(status.lastSyncAt).toLocaleString()}.` : ''}
             </p>
           </div>
           <Button variant="primary" onClick={() => void syncShared()} disabled={syncing || sharedCount === 0}>
-            {syncing ? <Spinner /> : <CloudUploadIcon />} Sync shared calendars
+            {syncing ? <Spinner /> : <CloudUploadIcon />} Send now
           </Button>
         </div>
 
@@ -385,132 +385,83 @@ function Connected({
 
         {!shares ? (
           <Spinner />
-        ) : shares.calendars.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-slate-700 px-6 py-10 text-center text-sm text-slate-400">
-            Add calendars under Manage calendars first, then share them here.
-          </p>
         ) : (
-          <>
-            {shares.profiles.length === 0 && (
-              <p className="mb-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-                You don&apos;t work any profile in this workspace, so you can&apos;t share calendars yet. Ask an owner to assign you
-                a profile.
-              </p>
-            )}
-            <ul className="space-y-2">
-              {shares.calendars.map((c) => (
-                <ShareRow
-                  key={c.localCalendarId}
-                  row={c}
-                  profiles={shares.profiles}
-                  busy={busyId === c.localCalendarId}
-                  onShare={(profileId) => void act(c.localCalendarId, () => window.api.caller.share(c.localCalendarId, profileId))}
-                  onUnshare={() => void act(c.localCalendarId, () => window.api.caller.unshare(c.localCalendarId))}
-                />
-              ))}
-            </ul>
-          </>
+          <ul className="space-y-2">
+            {shares.calendars.map((c) => (
+              <ShareRow
+                key={c.localCalendarId}
+                name={c.name}
+                color={c.color}
+                source={c.source}
+                send={c.send}
+                blocked={c.blocked}
+                sent={c.share ? { lastUploadAt: c.share.lastUploadAt, eventCount: c.share.eventCount, lastError: c.share.lastError } : null}
+                busy={busyId === c.localCalendarId}
+                onChange={(on) =>
+                  void act(c.localCalendarId, () =>
+                    on ? window.api.caller.share(c.localCalendarId) : window.api.caller.unshare(c.localCalendarId)
+                  )
+                }
+              />
+            ))}
+            <ShareRow
+              name="Local events"
+              color="#10b981"
+              source="Made in this app"
+              send={shares.local.send}
+              blocked={null}
+              sent={shares.local.send && shares.local.eventCount !== null ? shares.local : null}
+              busy={busyId === 'local'}
+              onChange={(on) => void act('local', () => (on ? window.api.caller.share('local') : window.api.caller.unshare('local')))}
+            />
+          </ul>
         )}
       </section>
-
-      {shares && shares.picks.length > 0 && (
-        <section>
-          <h2 className="text-sm font-semibold">Shared one by one</h2>
-          <p className="mb-3 text-xs text-slate-400">
-            Single events shared without their calendar (share one from its details card). They&apos;re sent again whenever their
-            calendar syncs.
-          </p>
-          <div className="space-y-3">
-            {shares.picks.map((pick) => (
-              <div key={pick.profileId} className="rounded-lg border border-slate-800 p-3">
-                <p className="text-sm font-medium">
-                  {pick.profileName}
-                  <span className="ml-2 text-xs font-normal text-slate-400">
-                    {pick.lastUploadAt ? `sent ${new Date(pick.lastUploadAt).toLocaleString()}` : 'not sent yet'}
-                  </span>
-                </p>
-                {pick.lastError && <p className="text-xs text-red-300">{pick.lastError}</p>}
-                <ul className="mt-2 space-y-1">
-                  {pick.events.map((e) => (
-                    <li key={e.id} className="flex items-center gap-3 text-sm">
-                      <span className="w-40 shrink-0 text-xs text-slate-400 tabular-nums">
-                        {e.startTime ? new Date(e.startTime).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : ''}
-                      </span>
-                      <span className={`min-w-0 flex-1 truncate ${e.missing ? 'text-slate-500 italic' : ''}`}>{e.title}</span>
-                      <Button
-                        disabled={busyId === e.id}
-                        onClick={() =>
-                          void act(e.id, async () => {
-                            await window.api.caller.shareEvent(e.id, null)
-                            return window.api.caller.listShares()
-                          })
-                        }
-                      >
-                        Stop sharing
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
     </div>
   )
 }
 
 function ShareRow({
-  row,
-  profiles,
+  name,
+  color,
+  source,
+  send,
+  blocked,
+  sent,
   busy,
-  onShare,
-  onUnshare
+  onChange
 }: {
-  row: CallerShareRow
-  profiles: CallerShares['profiles']
+  name: string
+  color: string
+  source: string
+  send: boolean
+  blocked: string | null
+  sent: { lastUploadAt: string | null; eventCount: number | null; lastError: string | null } | null
   busy: boolean
-  onShare: (profileId: string) => void
-  onUnshare: () => void
+  onChange: (on: boolean) => void
 }) {
-  const share = row.share
-  // A profile shared before but no longer offered (e.g. an owner moved it) still shows.
-  const options = share && !profiles.some((p) => p.id === share.profileId) ? [...profiles, { id: share.profileId, fullName: share.profileName }] : profiles
   return (
     <li className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-800 p-3">
-      <ColorDot color={row.color} />
+      <ColorDot color={color} />
       <div className="min-w-0 flex-1">
-        <p className="truncate font-medium">{row.name}</p>
+        <p className="truncate font-medium">{name}</p>
         <p className="truncate text-xs text-slate-400">
-          {row.source}
-          {share
-            ? share.lastUploadAt
-              ? ` · sent ${new Date(share.lastUploadAt).toLocaleString()}${share.eventCount !== null ? ` · ${share.eventCount} events` : ''}`
-              : ' · not sent yet'
-            : ' · busy time only'}
+          {source}
+          {!send
+            ? ' · not sent'
+            : sent?.lastUploadAt
+              ? ` · sent ${new Date(sent.lastUploadAt).toLocaleString()}${sent.eventCount !== null ? ` · ${sent.eventCount} events` : ''}`
+              : ' · not sent yet'}
         </p>
-        {share?.lastError && <p className="text-xs text-red-300">{share.lastError}</p>}
-        {row.blocked && <p className="text-xs text-slate-500">{row.blocked}</p>}
+        {send && sent?.lastError && <p className="text-xs text-red-300">{sent.lastError}</p>}
+        {blocked && <p className="text-xs text-slate-500">{blocked}</p>}
       </div>
       {busy && <Spinner />}
-      <select
-        className={`${inputClass} w-56`}
-        aria-label={`Profile for ${row.name}`}
-        value={share?.profileId ?? ''}
-        disabled={busy || Boolean(row.blocked) || (options.length === 0 && !share)}
-        onChange={(e) => {
-          if (e.target.value) onShare(e.target.value)
-          else onUnshare()
-        }}
-      >
-        <option value="">Busy time only</option>
-        {options.map((p) => (
-          <option key={p.id} value={p.id}>
-            Share with {p.fullName}
-          </option>
-        ))}
-      </select>
+      {!blocked && (
+        <span className={busy ? 'pointer-events-none opacity-60' : ''}>
+          <Toggle checked={send} onChange={onChange} label={`Send ${name} to Teamwork`} />
+        </span>
+      )}
     </li>
   )
 }

@@ -9,6 +9,14 @@ How to use this file:
 - Write for users: what they can now do, or what works better. Not file names or code.
 -->
 
+## 1.2.9
+- **No more profiles in the app.** Every event of your calendars goes to Teamwork as an interview, and your local events too. Each calendar has a **Send to Teamwork** switch on the Teamwork page (on unless you turn it off). Choosing a profile per calendar, or per event, is gone.
+- New interviews go to **you** if you are a caller; otherwise they wait **unassigned**. Interviews from calendars sent before this version get the same rule once; one already given to another caller keeps that caller.
+- **Team** shows one calendar per member of the workspace, named with their role (**Teamwork · Ann · Caller**), holding the interviews from their calendars. The Callers | Bidders switch is gone.
+- **Mine** shows your own calendars and **Teamwork · Assigned to me** (interviews from other members' calendars that are assigned to you).
+- Busy time is no longer sent: every event is an interview now.
+- Owners and the admin have a **Sync** button next to the Teamwork calendars in the sidebar: it reloads the interviews from Teamwork into this app at once. Nobody's calendars are synced or sent.
+
 ## 1.2.8
 - Owners' **Bidders** view shows every bidder, each with a calendar even with nothing on it (an empty one means that bidder brought nothing in). Interviews are still on the calendar of whoever brought them in.
 - The workspace's admin can make every connected app sync with Teamwork at once (website → Settings → **Desktop apps** → **Sync all apps**). Each app reloads interviews and busy time, sends what's waiting, and sends again any shared calendar, picked event or busy time Teamwork doesn't have the latest of. Apps that aren't running do the same when they next connect.

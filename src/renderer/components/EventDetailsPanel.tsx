@@ -172,34 +172,12 @@ function StatusPicker({ event }: { event: CalendarEvent }) {
 }
 
 /**
- * Shares just this event with a Teamwork profile, without sharing its calendar.
- * Shown only while signed in to Teamwork (the Teamwork page in the sidebar).
+ * Whether this event is on Teamwork (as an interview): its calendar, or the
+ * local events, are sent unless turned off on the Teamwork page. Shown only
+ * while signed in to Teamwork.
  */
-function TeamworkShare({
-  event,
-  state,
-  setState
-}: {
-  event: CalendarEvent
-  state: CallerEventShare | null
-  setState: (state: CallerEventShare) => void
-}) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
+function TeamworkShare({ state }: { state: CallerEventShare | null }) {
   if (!state?.signedIn) return null
-
-  async function pick(profileId: string | null) {
-    setBusy(true)
-    setError(null)
-    try {
-      setState(await window.api.caller.shareEvent(event.id, profileId))
-    } catch (err) {
-      setError(errorMessage(err))
-    } finally {
-      setBusy(false)
-    }
-  }
 
   const info = state.teamwork && (
     <p className="flex flex-wrap items-center gap-2 text-slate-300">
@@ -222,32 +200,14 @@ function TeamworkShare({
   return (
     <div className="space-y-1 pl-6 text-xs">
       {info}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-slate-400">Teamwork{state.workspaceName ? ` · ${state.workspaceName}` : ''}</span>
+      <p className="text-slate-400">
+        Teamwork{state.workspaceName ? ` · ${state.workspaceName}` : ''}:{' '}
         {state.calendarSharedWith ? (
-          <span className="text-slate-300">Shared with {state.calendarSharedWith} (whole calendar)</span>
+          <span className="text-slate-300">sent as an interview</span>
         ) : (
-          <select
-            className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200"
-            aria-label="Share this event with a profile"
-            value={state.profileId ?? ''}
-            disabled={busy || (state.profiles.length === 0 && !state.profileId)}
-            onChange={(e) => void pick(e.target.value || null)}
-          >
-            <option value="">Not shared</option>
-            {state.profiles.map((p) => (
-              <option key={p.id} value={p.id}>
-                Share with {p.fullName}
-              </option>
-            ))}
-          </select>
+          <span>not sent (its calendar is turned off on the Teamwork page)</span>
         )}
-        {busy && <Spinner className="text-slate-500" />}
-      </div>
-      {state.profiles.length === 0 && !state.calendarSharedWith && !state.error && (
-        <p className="text-slate-500">You don&apos;t work any profile in this workspace yet.</p>
-      )}
-      {(error ?? state.error) && <p className="text-red-300">{error ?? state.error}</p>}
+      </p>
     </div>
   )
 }
@@ -1099,7 +1059,7 @@ export function EventDetailsPanel() {
   const settings = useAppStore((s) => s.settings)
   const { event, loading, error } = useEventDetails(selectedEventId)
   // Local events can be shared with a profile too (one by one), like any calendar event.
-  const [teamwork, setTeamwork] = useTeamworkShare(event ? event.id : null)
+  const [teamwork] = useTeamworkShare(event ? event.id : null)
   const teamworkInterview = teamwork?.signedIn ? (teamwork.teamwork?.interview ?? null) : null
   const cardRef = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
@@ -1255,7 +1215,7 @@ export function EventDetailsPanel() {
               <>
                 <ImportantToggle event={event} />
                 <StatusPicker event={event} />
-                <TeamworkShare key={`share:${event.id}`} event={event} state={teamwork} setState={setTeamwork} />
+                <TeamworkShare key={`share:${event.id}`} state={teamwork} />
               </>
             )}
           </section>

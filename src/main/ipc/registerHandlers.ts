@@ -241,11 +241,10 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
   handle(IPC.callerSignOut, () => callerService.signOut())
   handle(IPC.callerSelectWorkspace, (_e, slug) => callerService.selectWorkspace(v.str(slug, 'Workspace', { required: true, max: 64 })))
   handle(IPC.callerListShares, () => callerService.listShares())
-  handle(IPC.callerShare, (_e, localCalendarId, profileId) =>
-    callerService.share(v.id(localCalendarId), v.str(profileId, 'Profile', { required: true, max: 64 }))
-  )
+  handle(IPC.callerShare, (_e, localCalendarId) => callerService.share(v.id(localCalendarId)))
   handle(IPC.callerUnshare, (_e, localCalendarId) => callerService.unshare(v.id(localCalendarId)))
   handle(IPC.callerSyncShared, () => callerService.syncShared())
+  handle(IPC.callerRefreshInterviews, () => callerService.reloadInterviews())
   handle(IPC.callerEventShare, (_e, eventId) => callerService.eventShare(v.id(eventId)))
   handle(IPC.callerTags, () => callerService.tags())
   handle(IPC.callerDownloadResume, (_e, interviewId) =>
