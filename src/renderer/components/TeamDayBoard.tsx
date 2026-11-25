@@ -217,7 +217,8 @@ export function TeamDayBoard({
         </p>
       )}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-800" aria-label="Interviews of the day by caller">
-        <div ref={scroller} className="min-h-0 flex-1 overflow-auto">
+        {/* data-hour-zoom: Ctrl + mouse wheel changes the hour height here too (CalendarPage). */}
+        <div ref={scroller} data-hour-zoom className="min-h-0 flex-1 overflow-auto">
           <div className="min-w-max" style={{ display: 'grid', gridTemplateColumns: gridTemplate }}>
             {/* Header: who, and how busy. Sticks to the top while the day scrolls. */}
             <div className="sticky top-0 left-0 z-30 border-b border-slate-800 bg-slate-900" />

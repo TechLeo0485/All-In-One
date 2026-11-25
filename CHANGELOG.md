@@ -9,6 +9,15 @@ How to use this file:
 - Write for users: what they can now do, or what works better. Not file names or code.
 -->
 
+## 1.2.10
+- The **Sync** button next to the Teamwork calendars now asks every connected app to send Teamwork its current calendars (from the copy it has, nothing is downloaded again); Teamwork updates the interviews and every connected app reloads them, so all show the same.
+- Your own events no longer show twice: an interview made from one of your events (local events too) shows only as that event, with its Teamwork details, not again on your team calendar.
+- An event deleted from a member's calendar is now deleted from Teamwork and the team calendars too, instead of staying as cancelled.
+- Team calendars are just **Ann · Caller**, with the member's picture (set on the website under Account).
+- A company and role can be **removed** from an interview (Remove, next to them). **None of these** on the job link suggestions is remembered: they aren't offered again for that interview.
+- In the Team view's Day board, **Ctrl + mouse wheel** changes the hour height, as in the calendar.
+- A Proton account with a single calendar shows as one calendar named after the account, like a Google calendar.
+
 ## 1.2.9
 - **No more profiles in the app.** Every event of your calendars goes to Teamwork as an interview, and your local events too. Each calendar has a **Send to Teamwork** switch on the Teamwork page (on unless you turn it off). Choosing a profile per calendar, or per event, is gone.
 - New interviews go to **you** if you are a caller; otherwise they wait **unassigned**. Interviews from calendars sent before this version get the same rule once; one already given to another caller keeps that caller.

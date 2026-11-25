@@ -43,10 +43,13 @@ function CalendarRow({
   flashKey,
   onColor,
   colorTitle,
-  onOnly
+  onOnly,
+  avatar
 }: {
   name: string
   color: string
+  /** A Teamwork member's picture, shown small next to the name. */
+  avatar?: string | null
   /** Shows this calendar alone (the others in view hidden). */
   onOnly?: () => void
   /** Teamwork calendars: changes the caller's color on Teamwork (for members allowed to). */
@@ -97,6 +100,9 @@ function CalendarRow({
           className="flex h-4 w-4 shrink-0 items-center justify-center rounded border-2"
           style={{ borderColor: color, backgroundColor: visible ? color : 'transparent' }}
         />
+        {avatar && (
+          <img src={avatar} alt="" className={`h-4 w-4 shrink-0 rounded-full object-cover ${visible ? '' : 'opacity-50'}`} />
+        )}
         <span className={`flex-1 truncate ${visible ? 'text-slate-200' : 'text-slate-500'}`}>{name}</span>
         {error && (
           <span title={`Last sync failed: ${error}`} className="text-amber-400">
@@ -275,9 +281,33 @@ const COLLAPSED_KEY = 'sidebar.collapsed'
  * Narrow window: always the rail; expanding it slides the full sidebar over the
  * calendar until something is picked, Escape or a click outside.
  */
-/** "Teamwork · Ann (you)" → "Ann". */
+/** "Ann · Caller (you)" (or an older "Teamwork · Ann (you)") → "Ann". */
 function teamworkPerson(calendarName: string): string {
-  return calendarName.replace(/^Teamwork · /, '').replace(/ \(you\)$/, '')
+  return calendarName
+    .replace(/^Teamwork · /, '')
+    .replace(/ \(you\)$/, '')
+    .replace(/ · (Owner|Caller|Bidder|Member)$/, '')
+}
+
+/** Team calendar id → its member's picture, refreshed whenever Teamwork changes. */
+function useTeamworkAvatars(): Record<string, string> {
+  const [avatars, setAvatars] = useState<Record<string, string>>({})
+  useEffect(() => {
+    let alive = true
+    const load = (): void => {
+      window.api.caller
+        .avatars()
+        .then((a) => alive && setAvatars(a))
+        .catch(() => undefined)
+    }
+    load()
+    const off = window.api.caller.onChanged(load)
+    return () => {
+      alive = false
+      off()
+    }
+  }, [])
+  return avatars
 }
 
 /**
@@ -321,8 +351,9 @@ function teamworkRank(c: { name: string; sourceUrl: string }): number {
 }
 
 /**
- * The Teamwork calendars' Sync button (owners and the admin): reloads the
- * interviews from Teamwork into this app now. Nobody's calendars are synced.
+ * The Teamwork calendars' Sync button (owners and the admin): every connected
+ * app sends Teamwork what it lacks, from the copy that app has (nobody's
+ * calendars are downloaded again), and the interviews reload here.
  */
 function TeamworkReload() {
   const notify = useAppStore((s) => s.notify)
@@ -339,8 +370,8 @@ function TeamworkReload() {
       type="button"
       onClick={reload}
       disabled={busy}
-      title="Reload the interviews from Teamwork now (only this app; nobody's calendars are synced)"
-      aria-label="Reload the interviews from Teamwork"
+      title="Every connected app sends its current calendars to Teamwork (nobody's calendars are downloaded again), then the team's interviews reload here"
+      aria-label="Sync the team's calendars from their apps"
       className="flex shrink-0 items-center gap-1 rounded px-1 text-[10px] text-slate-400 hover:bg-slate-800 hover:text-slate-200 disabled:opacity-60"
     >
       <RefreshIcon size={10} className={busy ? 'animate-spin' : ''} />
@@ -547,18 +578,33 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
   }, [periodStats, enabled, hidden, showLocal])
 
   // Group calendars under their Proton account (5+ accounts get crowded otherwise).
+  const teamworkAvatars = useTeamworkAvatars()
+  // A Proton account's only calendar ("My calendar") goes by the account's name.
+  const rowName = (c: { accountId: string | null; id: string }): string | null => {
+    if (!c.accountId) return null
+    const account = accounts.find((a) => a.id === c.accountId)
+    if (!account) return null
+    return enabled.filter((x) => x.accountId === account.id).length === 1 ? account.label : null
+  }
   const groups = useMemo(() => {
     const result: { key: string; title: string | null; alert?: string; account?: ProtonAccount; items: typeof enabled }[] = []
+    // A Proton account with a single calendar is listed as that calendar (named after the account),
+    // like any other calendar, instead of a heading over one row.
+    const singles: typeof enabled = []
     for (const a of accounts) {
       const items = enabled.filter((c) => c.accountId === a.id)
       const alert = a.status === 'login-required' ? 'Login needed' : a.status === 'error' ? 'Sync failed' : undefined
-      if (items.length || alert) result.push({ key: a.id, title: a.label, alert, account: a, items })
+      if (items.length === 1 && !alert) singles.push(items[0]!)
+      else if (items.length || alert) result.push({ key: a.id, title: a.label, alert, account: a, items })
     }
     // Teamwork: one calendar per caller, the member's own first and Unassigned last.
     const teamwork = enabled
       .filter((c) => isTeamworkSource(c.sourceUrl))
       .sort((a, b) => teamworkRank(a) - teamworkRank(b) || a.name.localeCompare(b.name))
-    const other = enabled.filter((c) => !isTeamworkSource(c.sourceUrl) && (!c.accountId || !accounts.some((a) => a.id === c.accountId)))
+    const other = [
+      ...singles,
+      ...enabled.filter((c) => !isTeamworkSource(c.sourceUrl) && (!c.accountId || !accounts.some((a) => a.id === c.accountId)))
+    ].sort((a, b) => (rowName(a) ?? a.name).localeCompare(rowName(b) ?? b.name))
     if (other.length) result.push({ key: 'other', title: result.length || teamwork.length ? 'Other calendars' : null, items: other })
     // An overview account's calendars are its groups (labels, never the workspaces' names).
     if (teamwork.length) {
@@ -704,7 +750,8 @@ function SidebarContent({ focusSearch, toggleTitle, onToggle }: { focusSearch: b
               {group.items.map((c) => (
                 <CalendarRow
                   key={c.id}
-                  name={c.name}
+                  name={rowName(c) ?? c.name}
+                  avatar={group.key === 'teamwork' ? teamworkAvatars[c.id] : undefined}
                   color={c.color}
                   visible={!hidden.includes(c.id)}
                   error={c.lastSyncError}

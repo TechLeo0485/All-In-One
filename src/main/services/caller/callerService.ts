@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { app, BrowserWindow, dialog, net, Notification, powerMonitor, safeStorage, shell } from 'electron'
 import { IPC } from '@shared/ipcChannels'
@@ -200,6 +200,8 @@ const LIVE_PAST_DAYS = 7
 const LIVE_FUTURE_DAYS = 60
 /** Messages arriving close together are fetched once. */
 const LIVE_DEBOUNCE_MS = 500
+/** After the team Sync: how long every app waits for the others to send before reloading the interviews. */
+const APPS_SYNC_RELOAD_MS = 10_000
 const LIVE_RETRY_MIN_MS = 2_000
 const LIVE_RETRY_MAX_MS = 60_000
 /** While waiting to reconnect: how often the operating system is asked whether the network is back. */
@@ -403,7 +405,7 @@ class CallerService {
       this.request<{ membership: { permissions: string[]; roles?: string[]; isAdmin?: boolean } }>(`/workspaces/${slug}`),
       this.request<{ unassigned: string }>(`/workspaces/${slug}/calendar/colors`).catch(() => null),
       // The Team view's columns: every caller, with level and color (members who may list members).
-      this.request<Array<{ userId: string; name: string; roles: string[]; callerLevel: number | null; status: string; color: string }>>(
+      this.request<Array<{ userId: string; name: string; roles: string[]; callerLevel: number | null; status: string; color: string; avatar?: string | null }>>(
         `/workspaces/${slug}/members`
       ).catch(() => null)
     ])
@@ -413,7 +415,7 @@ class CallerService {
         .map((m) => ({ userId: m.userId, name: m.name, level: m.callerLevel ?? null, color: m.color }))
       this.members = members
         .filter((m) => m.status === 'active')
-        .map((m) => ({ userId: m.userId, name: m.name, color: m.color, role: roleLabel(m.roles) }))
+        .map((m) => ({ userId: m.userId, name: m.name, color: m.color, role: roleLabel(m.roles), avatar: m.avatar ?? null }))
     }
     if (colors?.unassigned && /^#[0-9a-f]{6}$/i.test(colors.unassigned)) this.unassignedColor = colors.unassigned
     const can = canSetColors(ctx.membership.permissions)
@@ -663,9 +665,20 @@ class CallerService {
       else if (line.startsWith('event:')) event = line.slice(6).trim()
       else if (line.startsWith('data:')) data += line.slice(5).trim()
     }
-    if (event === 'resync' || event === 'apps.sync') {
-      // Teamwork restarted, this app missed more than it keeps, or the admin asked every app to
-      // sync now: check everything against Teamwork (as on every reconnect).
+    if (event === 'apps.sync') {
+      // The admin asked every app for its current state: what Teamwork lacks is sent from the copy
+      // this app has, without downloading anyone's calendars again.
+      // Then, once every app has had time to send, the interviews Teamwork made of it all are
+      // loaded again, so every app shows the same.
+      void this.reconcile(slug, { fromCopies: true }).finally(() => {
+        setTimeout(() => {
+          if (this.connection().workspaceSlug === slug) void this.refreshInterviews(slug).catch(() => undefined)
+        }, APPS_SYNC_RELOAD_MS)
+      })
+      return
+    }
+    if (event === 'resync') {
+      // Teamwork restarted, or this app missed more than it keeps: check everything (as on every reconnect).
       void this.reconcile(slug)
       return
     }
@@ -758,11 +771,14 @@ class CallerService {
    * Teamwork doesn't hold in its latest copy is sent again. One at a time;
    * asked again meanwhile, it runs once more after.
    */
-  private async reconcile(slug: string): Promise<void> {
+  private async reconcile(slug: string, opts: { fromCopies?: boolean } = {}): Promise<void> {
     if (this.reconciling) {
       this.reconcileAgain = true
+      // A full check asked meanwhile wins over a copies-only one.
+      if (!opts.fromCopies) this.reconcileFull = true
       return
     }
+    this.reconcileFull = !opts.fromCopies
     this.reconciling = true
     try {
       do {
@@ -776,7 +792,9 @@ class CallerService {
         await this.notifyMissed(slug).catch(step('missed notifications not read'))
         if (!(await this.flushQueue(slug))) ok = false
         await this.ensureShares(slug).catch(step('sharing calendars failed'))
-        await this.reconcileUploads(slug).catch(step('check of shared calendars failed'))
+        const fromCopies = !this.reconcileFull
+        this.reconcileFull = false
+        await this.reconcileUploads(slug, fromCopies).catch(step('check of shared calendars failed'))
         await this.reconcileBusy(slug).catch(step('check of busy time failed'))
         this.lastCheckedAt = new Date().toISOString()
         if (ok) this.markOnline(slug)
@@ -791,7 +809,24 @@ class CallerService {
   }
 
   /** Shared calendars and picks Teamwork doesn't hold in the copy last sent: sent again. */
-  private async reconcileUploads(slug: string): Promise<void> {
+  /** Set when a full check (one that may download calendars) is due. */
+  private reconcileFull = false
+
+  /** Where the last file sent of each calendar is kept, to send again without downloading it. */
+  private copyFile(calendarId: string): string {
+    return join(app.getPath('userData'), 'teamwork-sent', `${calendarId.replace(/[^A-Za-z0-9_-]/g, '_')}.ics`)
+  }
+
+  private async readCopy(calendarId: string): Promise<string | null> {
+    return readFile(this.copyFile(calendarId), 'utf8').catch(() => null)
+  }
+
+  /**
+   * Shared calendars and picks Teamwork doesn't hold in the copy last sent:
+   * sent again, from the copy this app kept; without one, the calendar syncs
+   * first (unless `fromCopies`: then it waits for its own next sync).
+   */
+  private async reconcileUploads(slug: string, fromCopies = false): Promise<void> {
     const shares = this.allShares()[slug] ?? {}
     const picks = this.allPicks()[slug] ?? {}
     if (Object.keys(shares).length === 0 && Object.keys(picks).length === 0) return
@@ -808,9 +843,11 @@ class CallerService {
       if (teamworkHasLatest(held, share)) continue
       const calendar = calendarRepository.get(localId)
       if (!calendar) continue
-      // Teamwork's copy differs: whatever was recorded as sent, sync and send it.
+      // Teamwork's copy differs: whatever was recorded as sent, send it again.
       this.saveShare(slug, localId, { ...share, lastHash: null })
-      resync.push(calendar)
+      const copy = await this.readCopy(localId)
+      if (copy) await this.uploadShared(calendar, copy)
+      else if (!fromCopies) resync.push(calendar)
     }
     if (resync.length) await this.syncLocal(resync).catch((err) => console.warn('[teamwork] resync failed:', errorText(err)))
     for (const [profileId, pick] of Object.entries(picks)) {
@@ -1289,6 +1326,7 @@ class CallerService {
       await this.request(`/workspaces/${slug}/events/${encodeURIComponent(interviewId)}/interview`, {
         method: 'PUT',
         // From a job link: Teamwork also shares its page (e.g. Jobright's), if no link is shared yet.
+        // Both empty: company and role are taken off.
         body: { company: company.trim(), role: role.trim(), ...(jobLinkId ? { jobLinkId } : {}) }
       })
     } catch (err) {
@@ -1301,7 +1339,9 @@ class CallerService {
   /** Every caller of the workspace (from the members list), for the Team view's columns. */
   private callers: Array<{ userId: string; name: string; level: number | null; color: string }> = []
   /** Every active member of the workspace with the one role shown: each has a Teamwork calendar. */
-  private members: Array<{ userId: string; name: string; color: string; role: string }> = []
+  private members: Array<{ userId: string; name: string; color: string; role: string; avatar: string | null }> = []
+  /** Team calendar id → its member's picture (data URL), for the sidebar. */
+  private avatarsByCalendar: Record<string, string> = {}
   /** Interview id → the event in this app that shows it. */
   private eventIdByInterview: Record<string, string> = {}
 
@@ -1575,10 +1615,9 @@ class CallerService {
       if (i.event.status === 'cancelled') continue
       const own = this.ownEventOf(i, ownCalendars, ownPicks)
       const label = this.detailsOf(i)
-      // From one of the member's own calendars (or a picked event): its own event carries the
-      // details, and stays the one reminders and notifications open. It's on the Teamwork
-      // calendar too, so the Team side (and the caller's count) shows every interview; Mine and
-      // Team never show at once, so it never appears twice.
+      // From one of the member's own calendars (or a local event): its own event carries the
+      // details, and stays the one reminders and notifications open. It isn't repeated on the
+      // member's Teamwork calendar (the Team board still shows it).
       if (own) {
         annotations[own] = { label, url: this.urlOf(slug, i.event.id), interviewId: i.event.id }
         tags[own] = this.tagOf(i)
@@ -1592,6 +1631,8 @@ class CallerService {
         group = bidder ? memberGroup(bidder.userId, bidder) : { name: 'Someone else', color: this.unassignedColor, mine: false, rows: [] }
         groups.set(key, group)
       }
+      // The member's own event already shows it (with the Teamwork details): not twice.
+      if (own) continue
       const meeting = i.event.meetingUrl ?? ''
       group.rows.push({
         key: i.event.id,
@@ -1616,6 +1657,12 @@ class CallerService {
       if (!groups.has(key)) groups.set(key, memberGroup(m.userId, m))
     }
     const calendarIds = this.teamworkCalendars(slug, groups)
+    const avatars: Record<string, string> = {}
+    for (const m of this.members) {
+      const id = calendarIds.get(`${BIDDER_PREFIX}${m.userId}`)
+      if (id && m.avatar) avatars[id] = m.avatar
+    }
+    this.avatarsByCalendar = avatars
     for (const [key, group] of groups) {
       const calendarId = calendarIds.get(key)!
       for (const r of group.rows) {
@@ -1685,7 +1732,8 @@ class CallerService {
     const previous = stored?.slug === slug ? stored.byCaller : {}
     if (stored && stored.slug !== slug) for (const id of Object.values(stored.byCaller)) this.removeCalendar(id)
     for (const [key, group] of groups) {
-      const name = `Teamwork · ${group.name}`.slice(0, 80)
+      // Members' calendars sit under the sidebar's Teamwork heading: just "Ann · Caller".
+      const name = (key.startsWith(BIDDER_PREFIX) ? group.name : `Teamwork · ${group.name}`).slice(0, 80)
       const existing = previous[key] ? calendarRepository.get(previous[key]) : null
       if (existing) {
         // Colors are set on Teamwork (or from here, which saves there): the calendar follows.
@@ -2207,6 +2255,7 @@ Click to open it.`
       if (calendar && !off.has(localId) && !this.blockedReason(calendar)) continue
       await this.deleteConnection(slug, share.connectionId)
       this.saveShare(slug, localId, null)
+      this.dropCopy(localId)
     }
     const added: CalendarSource[] = []
     for (const calendar of calendars) {
@@ -2239,6 +2288,11 @@ Click to open it.`
     }
     // Their uploads follow the sync (see the constructor).
     if (added.length) await this.syncLocal(added)
+  }
+
+  /** Forgets the copy kept of a calendar that is no longer sent. */
+  private dropCopy(calendarId: string): void {
+    void rm(this.copyFile(calendarId), { force: true }).catch(() => undefined)
   }
 
   /** Removes a calendar from Teamwork: its upcoming interviews nobody worked on go, the others stay. */
@@ -2305,15 +2359,30 @@ Click to open it.`
   }
 
   /**
-   * The Teamwork calendars' Sync button: reloads the interviews from Teamwork
-   * now and redraws them. Only this app: no calendar is synced or sent, here
-   * or on anyone else's computer.
+   * The Teamwork calendars' Sync button: Teamwork asks every connected app to
+   * send what it lacks of that app's calendars (from the copy each app has;
+   * nothing is downloaded), updates the interviews, and every app reloads them.
    */
   async reloadInterviews(): Promise<void> {
     const slug = this.requireWorkspace()
+    // Every connected app (this one too) sends what Teamwork lacks of its calendars, from the copy
+    // it has: no calendar is downloaded. Members without the right to ask: just the reload.
+    // Each app, this one too, reloads the interviews once they all had time to send (see 'apps.sync').
+    await this.request<{ sent: number }>(`/workspaces/${slug}/desktop-apps/sync`, { method: 'POST' }).catch(() => null)
     await this.refreshInterviews(slug)
     this.lastCheckedAt = new Date().toISOString()
     this.notifyChanged()
+  }
+
+  /** Team calendar id → its member's picture, for the sidebar. */
+  avatars(): Record<string, string> {
+    return this.avatarsByCalendar
+  }
+
+  /** "None of these": Teamwork stops suggesting job links for this interview. */
+  async dismissSuggestions(interviewId: string): Promise<void> {
+    const slug = this.requireWorkspace()
+    await this.request(`/workspaces/${slug}/events/${encodeURIComponent(interviewId)}/job-link-suggestions/dismiss`, { method: 'POST' })
   }
 
   /** Syncs every calendar shared in any workspace; their uploads follow. */
@@ -2569,6 +2638,10 @@ Click to open it.`
   private uploadShared(calendar: CalendarSource, ics: string): Promise<void> {
     const targets = Object.keys(this.allShares()).filter((slug) => this.allShares()[slug]?.[calendar.id])
     if (targets.length === 0 || !this.token()) return Promise.resolve()
+    // Kept, so "Sync" can send the current state again without downloading the calendar.
+    void mkdir(join(app.getPath('userData'), 'teamwork-sent'), { recursive: true })
+      .then(() => writeFile(this.copyFile(calendar.id), ics, 'utf8'))
+      .catch((err) => console.warn('[teamwork] copy not kept:', errorText(err)))
     const previous = this.uploads.get(calendar.id) ?? Promise.resolve()
     const run = previous.then(async () => {
       for (const slug of targets) {

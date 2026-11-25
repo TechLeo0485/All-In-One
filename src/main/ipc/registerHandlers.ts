@@ -245,6 +245,10 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
   handle(IPC.callerUnshare, (_e, localCalendarId) => callerService.unshare(v.id(localCalendarId)))
   handle(IPC.callerSyncShared, () => callerService.syncShared())
   handle(IPC.callerRefreshInterviews, () => callerService.reloadInterviews())
+  handle(IPC.callerAvatars, () => callerService.avatars())
+  handle(IPC.callerDismissSuggestions, (_e, interviewId) =>
+    callerService.dismissSuggestions(v.str(interviewId, 'Interview', { required: true, max: 64 }))
+  )
   handle(IPC.callerEventShare, (_e, eventId) => callerService.eventShare(v.id(eventId)))
   handle(IPC.callerTags, () => callerService.tags())
   handle(IPC.callerDownloadResume, (_e, interviewId) =>
@@ -282,8 +286,9 @@ export function registerIpcHandlers(hooks: HandlerHooks): void {
   handle(IPC.callerSetInterviewDetails, (_e, interviewId, company, role, jobLinkId) =>
     callerService.setInterviewDetails(
       v.str(interviewId, 'Interview', { required: true, max: 64 }),
-      v.str(company, 'Company', { required: true, max: 160 }),
-      v.str(role, 'Role', { required: true, max: 160 }),
+      // Both empty: company and role are taken off.
+      v.str(company, 'Company', { max: 160 }),
+      v.str(role, 'Role', { max: 160 }),
       jobLinkId === undefined || jobLinkId === null ? undefined : v.str(jobLinkId, 'Job link', { required: true, max: 64 })
     )
   )

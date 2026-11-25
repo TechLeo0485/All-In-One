@@ -629,8 +629,9 @@ function useHourHeight(saved: number, calendarRef: RefObject<FullCalendar | null
     if (!wrapper) return
     const onWheel = (e: WheelEvent): void => {
       if (!e.ctrlKey || e.deltaY === 0) return
+      // The time grid, or the Team view's Day board, which follows the same hour height.
       const body = (e.target as Element).closest('.fc-timegrid-body')
-      const scroller = body?.closest<HTMLElement>('.fc-scroller')
+      const scroller = body?.closest<HTMLElement>('.fc-scroller') ?? (e.target as Element).closest<HTMLElement>('[data-hour-zoom]')
       if (!scroller) return
       e.preventDefault() // no page zoom
       const prev = current.current

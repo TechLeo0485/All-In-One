@@ -432,8 +432,15 @@ export interface CalendarApi {
     unshare(localCalendarId: string): Promise<CallerShares>
     /** Syncs every shared calendar now (Proton accounts are exported first); each upload follows. */
     syncShared(): Promise<CallerSyncResult[]>
-    /** Reloads the interviews from Teamwork now (nobody's calendars are synced or sent). */
+    /**
+     * The team Sync: every connected app sends what Teamwork lacks from the copy it has (nobody's
+     * calendars are downloaded), and the interviews are reloaded here.
+     */
     refreshInterviews(): Promise<void>
+    /** Team calendar id → its member's picture (data URL). */
+    avatars(): Promise<Record<string, string>>
+    /** "None of these": no more job link suggestions for this interview. */
+    dismissSuggestions(interviewId: string): Promise<void>
     /** Whether one event is shared on its own, and the profiles it can be shared with. */
     eventShare(eventId: string): Promise<CallerEventShare>
     /** Caller tags of the events that are Teamwork interviews. */

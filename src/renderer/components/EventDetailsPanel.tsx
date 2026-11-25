@@ -374,15 +374,14 @@ function linkHost(url: string): string {
  * from its email domain); Use fills in that company and role. Or type them in.
  * Nothing is filled in by itself.
  */
-function DetailsStep({ interviewId, hasProfile }: { interviewId: string; hasProfile: boolean }) {
-  const [list, setList] = useState<JobLinkSuggestion[] | null>(hasProfile ? null : [])
+function DetailsStep({ interviewId }: { interviewId: string }) {
+  const [list, setList] = useState<JobLinkSuggestion[] | null>(null)
   const [typing, setTyping] = useState(false)
   const [company, setCompany] = useState('')
   const [role, setRole] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
-    if (!hasProfile) return
     let alive = true
     window.api.caller
       .jobLinkSuggestions(interviewId)
@@ -391,7 +390,7 @@ function DetailsStep({ interviewId, hasProfile }: { interviewId: string; hasProf
     return () => {
       alive = false
     }
-  }, [interviewId, hasProfile])
+  }, [interviewId])
 
   async function save(key: string, c: string, r: string, jobLinkId?: string) {
     setBusy(key)
@@ -468,13 +467,48 @@ function DetailsStep({ interviewId, hasProfile }: { interviewId: string; hasProf
         </form>
       ) : (
         list !== null && (
-          <button type="button" className={`mt-1 ${linkClass}`} onClick={() => setTyping(true)}>
+          <button
+            type="button"
+            className={`mt-1 ${linkClass}`}
+            onClick={() => {
+              setTyping(true)
+              // Remembered on Teamwork: these suggestions aren't offered again for this interview.
+              void window.api.caller.dismissSuggestions(interviewId).catch(() => undefined)
+            }}
+          >
             None of these: type them in
           </button>
         )
       )}
       {error && <p className="mt-1 text-xs text-red-300">{error}</p>}
     </div>
+  )
+}
+
+/** Takes the company and role off an interview (to fill them in again). */
+function RemoveDetails({ interviewId }: { interviewId: string }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  return (
+    <>
+      <button
+        type="button"
+        disabled={busy}
+        className={`ml-2 ${linkClass}`}
+        title="Take the company and role off, to fill them in again"
+        onClick={() => {
+          setBusy(true)
+          setError(null)
+          window.api.caller
+            .setInterviewDetails(interviewId, '', '')
+            .catch((err) => setError(errorMessage(err)))
+            .finally(() => setBusy(false))
+        }}
+      >
+        {busy ? <Spinner className="text-slate-400" /> : 'Remove'}
+      </button>
+      {error && <span className="block text-xs text-red-300">{error}</span>}
+    </>
   )
 }
 
@@ -767,7 +801,7 @@ function WhoJoins({ interview, offlineSince }: { interview: TeamworkInterview; o
         </dd>
         {!interview.company && interview.canEditDetails && (
           <dd className="col-span-2">
-            <DetailsStep interviewId={interview.id} hasProfile={Boolean(interview.profile)} />
+            <DetailsStep interviewId={interview.id} />
             {!caller && interview.canAssign && (
               <p className="mt-1 text-[0.7rem] text-slate-500">Then the caller: Teamwork suggests one once the company and role are in.</p>
             )}
@@ -785,6 +819,7 @@ function WhoJoins({ interview, offlineSince }: { interview: TeamworkInterview; o
                   <LockIcon size={11} /> same caller
                 </span>
               )}
+              {interview.company && interview.canEditDetails && <RemoveDetails interviewId={interview.id} />}
             </dd>
           </>
         )}
