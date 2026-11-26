@@ -9,6 +9,10 @@ How to use this file:
 - Write for users: what they can now do, or what works better. Not file names or code.
 -->
 
+## 1.2.11
+- **Team** shows all of your interviews again on your team calendar (1.2.10 left out the ones from your own calendars). **Mine** shows your own calendars and **Teamwork · Assigned to me** (only interviews from other members' calendars).
+- Turning a calendar (or Local events) off on the Teamwork page deletes its upcoming interviews from Teamwork, as deleting an event does. Interviews left behind by calendars turned off earlier are removed too, so nothing shows twice.
+
 ## 1.2.10
 - The **Sync** button next to the Teamwork calendars now asks every connected app to send Teamwork its current calendars (from the copy it has, nothing is downloaded again); Teamwork updates the interviews and every connected app reloads them, so all show the same.
 - Your own events no longer show twice: an interview made from one of your events (local events too) shows only as that event, with its Teamwork details, not again on your team calendar.

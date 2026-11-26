@@ -428,7 +428,7 @@ export interface CalendarApi {
     listShares(): Promise<CallerShares>
     /** Sends the calendar's events to Teamwork ('local': the local events). */
     share(localCalendarId: string): Promise<CallerShares>
-    /** Stops sharing (upcoming interviews nobody worked on are removed in the workspace). */
+    /** Stops sharing (its upcoming interviews are deleted in the workspace). */
     unshare(localCalendarId: string): Promise<CallerShares>
     /** Syncs every shared calendar now (Proton accounts are exported first); each upload follows. */
     syncShared(): Promise<CallerSyncResult[]>

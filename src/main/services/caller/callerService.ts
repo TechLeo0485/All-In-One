@@ -1616,8 +1616,9 @@ class CallerService {
       const own = this.ownEventOf(i, ownCalendars, ownPicks)
       const label = this.detailsOf(i)
       // From one of the member's own calendars (or a local event): its own event carries the
-      // details, and stays the one reminders and notifications open. It isn't repeated on the
-      // member's Teamwork calendar (the Team board still shows it).
+      // details, and stays the one reminders and notifications open. Mine shows that event (not
+      // "Assigned to me"); Team shows the member's Teamwork calendar with every interview of theirs.
+      // Mine and Team never show at once, so it never appears twice.
       if (own) {
         annotations[own] = { label, url: this.urlOf(slug, i.event.id), interviewId: i.event.id }
         tags[own] = this.tagOf(i)
@@ -1631,8 +1632,6 @@ class CallerService {
         group = bidder ? memberGroup(bidder.userId, bidder) : { name: 'Someone else', color: this.unassignedColor, mine: false, rows: [] }
         groups.set(key, group)
       }
-      // The member's own event already shows it (with the Teamwork details): not twice.
-      if (own) continue
       const meeting = i.event.meetingUrl ?? ''
       group.rows.push({
         key: i.event.id,
@@ -2295,7 +2294,7 @@ Click to open it.`
     void rm(this.copyFile(calendarId), { force: true }).catch(() => undefined)
   }
 
-  /** Removes a calendar from Teamwork: its upcoming interviews nobody worked on go, the others stay. */
+  /** Removes a calendar from Teamwork: its upcoming interviews go with it (past ones stay). */
   private async deleteConnection(slug: string, connectionId: string): Promise<void> {
     await this.request(`/workspaces/${slug}/calendar/connections/${connectionId}`, { method: 'DELETE' }).catch((err) => {
       // Already removed on the website: nothing left to stop.
@@ -2338,7 +2337,7 @@ Click to open it.`
     return this.setSent(localCalendarId, true)
   }
 
-  /** Stops sending it: Teamwork removes its upcoming interviews nobody worked on. */
+  /** Stops sending it: Teamwork deletes its upcoming interviews. */
   async unshare(localCalendarId: string): Promise<CallerShares> {
     return this.setSent(localCalendarId, false)
   }
